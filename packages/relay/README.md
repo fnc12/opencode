@@ -16,9 +16,8 @@ The OpenCode server is usually behind NAT, so the relay cannot dial *in*. Instea
 WebSocket. The relay multiplexes every iOS request — including long-lived SSE event streams —
 over that one socket.
 
-This package contains the **relay** (`cmd/relay`). The connector (`cmd/connector`) is tracked in
-[#2](https://github.com/fnc12/opencode/issues/2); APNs push in
-[#3](https://github.com/fnc12/opencode/issues/3).
+This package contains the **relay** (`cmd/relay`) and the **connector** (`cmd/connector`).
+Provider-agnostic push (APNs + FCM) is tracked in [#3](https://github.com/fnc12/opencode/issues/3).
 
 ## Protocol
 
@@ -52,6 +51,30 @@ go run ./cmd/relay
 |------------------------|---------|---------------------------------------------------------------------|
 | `RELAY_ADDR`           | `:8080` | Listen address                                                      |
 | `RELAY_SHARED_SECRET`  | —       | If set, connector tokens must equal it. Empty = any non-empty token (dev only). Per-tunnel tokens land with #3. |
+
+### Connector
+
+Runs next to the OpenCode server and dials out to the relay:
+
+```sh
+RELAY_URL=ws://relay.example.com/connector \
+TUNNEL_ID=my-machine \
+TUNNEL_TOKEN=$RELAY_SHARED_SECRET \
+go run ./cmd/connector
+```
+
+| Env                 | Default                  | Meaning                                                         |
+|---------------------|--------------------------|----------------------------------------------------------------|
+| `RELAY_URL`         | — (required)             | `ws(s)://` URL of the relay's `/connector` endpoint            |
+| `TUNNEL_ID`         | — (required)             | Tunnel id this connector serves; clients reach it at `/t/{id}` |
+| `TUNNEL_TOKEN`      | — (required)             | Auth token presented to the relay                              |
+| `OPENCODE_URL`      | `http://127.0.0.1:4096`  | Local OpenCode server base URL                                 |
+| `OPENCODE_PASSWORD` | —                        | Injected as Basic `admin:<pw>` when the client sent no `Authorization` |
+
+The connector auto-reconnects with backoff, and cancels the upstream request
+(e.g. an SSE `/event` stream) when the client disconnects.
+
+> Never commit secrets: keep `TUNNEL_TOKEN` / `OPENCODE_PASSWORD` in the environment, not in the repo.
 
 ## Test
 

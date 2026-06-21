@@ -30,11 +30,11 @@ func TestRequestEncodeDecode(t *testing.T) {
 		Header: map[string][]string{"Authorization": {"Basic zzz"}},
 	}
 	body := []byte(`{"text":"hi"}`)
-	payload, err := encodeRequest(head, body)
+	payload, err := EncodeRequest(head, body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotHead, gotBody, err := decodeRequest(payload)
+	gotHead, gotBody, err := DecodeRequest(payload)
 	if err != nil {
 		t.Fatal(err)
 	}

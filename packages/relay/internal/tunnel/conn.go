@@ -170,7 +170,7 @@ var ErrClosed = errors.New("tunnel: connection closed")
 // response from.
 func (c *Conn) openRequest(head RequestHead, body []byte) (uint64, *stream, error) {
 	id, s := c.newStream()
-	payload, err := encodeRequest(head, body)
+	payload, err := EncodeRequest(head, body)
 	if err != nil {
 		c.removeStream(id)
 		return 0, nil, err
@@ -182,7 +182,8 @@ func (c *Conn) openRequest(head RequestHead, body []byte) (uint64, *stream, erro
 	return id, s, nil
 }
 
-func encodeRequest(head RequestHead, body []byte) ([]byte, error) {
+// EncodeRequest packs a request head and body into a TypeRequest payload.
+func EncodeRequest(head RequestHead, body []byte) ([]byte, error) {
 	hb, err := json.Marshal(head)
 	if err != nil {
 		return nil, err
@@ -194,8 +195,8 @@ func encodeRequest(head RequestHead, body []byte) ([]byte, error) {
 	return buf, nil
 }
 
-// decodeRequest splits a TypeRequest payload into its head and body.
-func decodeRequest(payload []byte) (RequestHead, []byte, error) {
+// DecodeRequest splits a TypeRequest payload into its head and body.
+func DecodeRequest(payload []byte) (RequestHead, []byte, error) {
 	i := bytes.IndexByte(payload, '\n')
 	if i < 0 {
 		return RequestHead{}, nil, errors.New("tunnel: malformed request frame")
