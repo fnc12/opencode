@@ -1,0 +1,33 @@
+name: OpenCode
+options:
+  bundleIdPrefix: studio.eugenezakharov
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+settings:
+  SWIFT_VERSION: "6.0"
+targets:
+  OpenCode:
+    type: application
+    platform: iOS
+    sources:
+      - OpenCode
+    info:
+      path: OpenCode/Info.plist
+      properties:
+        CFBundleDisplayName: OpenCode
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: "OpenCode needs local network access to discover servers"
+        NSCameraUsageDescription: "OpenCode uses the camera to scan a pairing QR code"
+        NSBonjourServices:
+          - _opencode._tcp
+        CFBundleURLTypes:
+          - CFBundleURLName: studio.eugenezakharov.OpenCode
+            CFBundleURLSchemes:
+              - opencode
+    settings:
+      DEVELOPMENT_TEAM: QDTPG5DB79
+      CODE_SIGN_STYLE: Automatic
