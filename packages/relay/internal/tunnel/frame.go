@@ -38,6 +38,10 @@ const (
 	// TypePing / TypePong implement an application-level heartbeat. StreamID 0.
 	TypePing
 	TypePong
+	// TypeCancel (relay -> connector) aborts an in-flight stream because the iOS
+	// client disconnected. The connector cancels the upstream request so it does
+	// not keep streaming (notably an SSE /event stream) into the void.
+	TypeCancel
 )
 
 // maxPayload caps a single frame's payload to guard against malformed input.

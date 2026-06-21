@@ -30,7 +30,7 @@ func (c *Conn) Proxy(w http.ResponseWriter, r *http.Request, path string) {
 	}
 
 	head := RequestHead{Method: r.Method, Path: path, Header: filterHeader(r.Header)}
-	_, s, err := c.openRequest(head, body)
+	id, s, err := c.openRequest(head, body)
 	if err != nil {
 		http.Error(w, "tunnel unavailable: "+err.Error(), http.StatusBadGateway)
 		return
@@ -43,7 +43,11 @@ func (c *Conn) Proxy(w http.ResponseWriter, r *http.Request, path string) {
 	for {
 		select {
 		case <-ctx.Done():
-			return // client went away; read loop will GC the stream on End
+			// Client went away; tell the connector to stop the upstream request
+			// (otherwise an SSE stream would run forever) and drop the stream.
+			_ = c.write(Frame{Type: TypeCancel, StreamID: id})
+			c.removeStream(id)
+			return
 		case <-c.closed:
 			if !wroteHead {
 				http.Error(w, "tunnel closed", http.StatusBadGateway)

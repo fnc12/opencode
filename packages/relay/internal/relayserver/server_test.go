@@ -1,4 +1,4 @@
-package main
+package relayserver
 
 import (
 	"bufio"
@@ -15,16 +15,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func newTestServer(t *testing.T) (*httptest.Server, *server) {
+func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := &server{
-		reg:    tunnel.NewRegistry(),
-		secret: "secret",
-		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}
-	ts := httptest.NewServer(srv.handler())
+	srv := New(Config{Secret: "secret", Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return ts, srv
+	return ts
 }
 
 func dialConnector(t *testing.T, ts *httptest.Server, tunnelID, token string) *websocket.Conn {
@@ -64,10 +60,11 @@ func serveOnce(t *testing.T, ws *websocket.Conn, reply func(head tunnel.RequestH
 		t.Errorf("expected request frame, got %d", f.Type)
 		return
 	}
-	i := strings.IndexByte(string(f.Payload), '\n')
-	var head tunnel.RequestHead
-	_ = json.Unmarshal(f.Payload[:i], &head)
-	body := f.Payload[i+1:]
+	head, body, err := tunnel.DecodeRequest(f.Payload)
+	if err != nil {
+		t.Errorf("decode request: %v", err)
+		return
+	}
 	write := func(fr tunnel.Frame) {
 		fr.StreamID = f.StreamID
 		_ = ws.WriteMessage(websocket.BinaryMessage, tunnel.Encode(fr))
@@ -76,7 +73,7 @@ func serveOnce(t *testing.T, ws *websocket.Conn, reply func(head tunnel.RequestH
 }
 
 func TestProxyRoundTrip(t *testing.T) {
-	ts, _ := newTestServer(t)
+	ts := newTestServer(t)
 	ws := dialConnector(t, ts, "tun1", "secret")
 	defer ws.Close()
 
@@ -90,7 +87,6 @@ func TestProxyRoundTrip(t *testing.T) {
 		w(tunnel.Frame{Type: tunnel.TypeEnd})
 	})
 
-	// Give the registry a moment to record the tunnel.
 	waitTunnel(t, ts)
 	resp, err := http.Get(ts.URL + "/t/tun1/global/health")
 	if err != nil {
@@ -110,7 +106,7 @@ func TestProxyRoundTrip(t *testing.T) {
 }
 
 func TestProxySSEStreaming(t *testing.T) {
-	ts, _ := newTestServer(t)
+	ts := newTestServer(t)
 	ws := dialConnector(t, ts, "tun2", "secret")
 	defer ws.Close()
 
@@ -146,7 +142,7 @@ func TestProxySSEStreaming(t *testing.T) {
 }
 
 func TestProxyOfflineTunnel(t *testing.T) {
-	ts, _ := newTestServer(t)
+	ts := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/t/nope/global/health")
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +154,7 @@ func TestProxyOfflineTunnel(t *testing.T) {
 }
 
 func TestRegisterRejectsBadToken(t *testing.T) {
-	ts, _ := newTestServer(t)
+	ts := newTestServer(t)
 	url := "ws" + strings.TrimPrefix(ts.URL, "http") + "/connector"
 	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
