@@ -4,12 +4,14 @@
 package relayserver
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/tunnel"
 	"github.com/gorilla/websocket"
 )
@@ -17,17 +19,24 @@ import (
 // Config configures a Server.
 type Config struct {
 	// Secret, if non-empty, is the shared secret every connector token must
-	// match. Empty accepts any non-empty token (dev only). Per-tunnel tokens
-	// land with the device/token store in issue #3.
+	// match. Empty accepts any non-empty token (dev only).
 	Secret string
 	Log    *slog.Logger
+
+	// Store and Dispatcher enable push. When both are set, the relay watches
+	// each tunnel's OpenCode event stream and pushes on session idle, and the
+	// /api/devices endpoints accept registrations. When nil, push is disabled.
+	Store      push.Store
+	Dispatcher *push.Dispatcher
 }
 
 // Server is the relay. The zero value is not usable; call New.
 type Server struct {
-	reg    *tunnel.Registry
-	secret string
-	log    *slog.Logger
+	reg        *tunnel.Registry
+	secret     string
+	log        *slog.Logger
+	store      push.Store
+	dispatcher *push.Dispatcher
 }
 
 // New constructs a Server.
@@ -36,7 +45,13 @@ func New(cfg Config) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{reg: tunnel.NewRegistry(), secret: cfg.Secret, log: log}
+	return &Server{
+		reg:        tunnel.NewRegistry(),
+		secret:     cfg.Secret,
+		log:        log,
+		store:      cfg.Store,
+		dispatcher: cfg.Dispatcher,
+	}
 }
 
 // Handler returns the HTTP handler exposing all relay routes.
@@ -44,6 +59,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
 	mux.HandleFunc("GET /connector", s.connector)
+	mux.HandleFunc("POST /api/devices", s.registerDevice)
+	mux.HandleFunc("DELETE /api/devices", s.unregisterDevice)
 	mux.HandleFunc("/t/{id}/", s.proxy)
 	return mux
 }
@@ -109,6 +126,12 @@ func (s *Server) connector(w http.ResponseWriter, r *http.Request) {
 	s.reg.Add(conn)
 	s.log.Info("connector registered", "tunnel", reg.TunnelID, "tunnels", s.reg.Count())
 
+	if s.dispatcher != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() { <-conn.Done(); cancel() }()
+		go s.watchEvents(ctx, conn)
+	}
+
 	<-conn.Done()
 	s.reg.Remove(conn)
 	s.log.Info("connector gone", "tunnel", reg.TunnelID, "tunnels", s.reg.Count())
@@ -138,6 +161,96 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		path += "?" + r.URL.RawQuery
 	}
 	conn.Proxy(w, r, path)
+}
+
+// watchEvents subscribes to the tunnel's OpenCode event stream and pushes a
+// notification whenever a session goes idle. It resubscribes if the stream
+// drops, until the connection closes.
+func (s *Server) watchEvents(ctx context.Context, conn *tunnel.Conn) {
+	for ctx.Err() == nil {
+		ch, err := conn.Subscribe(ctx, "/global/event")
+		if err != nil {
+			if !sleepCtx(ctx, 2*time.Second) {
+				return
+			}
+			continue
+		}
+		scanner := &push.IdleScanner{}
+		for chunk := range ch {
+			for _, sid := range scanner.Feed(chunk) {
+				s.dispatcher.Notify(ctx, push.Notification{
+					TunnelID:  conn.TunnelID,
+					SessionID: sid,
+					Title:     "Session finished",
+					Body:      "Your OpenCode agent finished the task.",
+					DeepLink:  "opencode://session/" + sid,
+				})
+			}
+		}
+		// Stream ended; pause briefly before resubscribing.
+		if !sleepCtx(ctx, 2*time.Second) {
+			return
+		}
+	}
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
+}
+
+type deviceRequest struct {
+	TunnelID string `json:"tunnelId"`
+	Provider string `json:"provider"`
+	Token    string `json:"token"`
+}
+
+func (s *Server) parseDevice(w http.ResponseWriter, r *http.Request) (string, push.Device, bool) {
+	if s.store == nil {
+		http.Error(w, "push not enabled", http.StatusServiceUnavailable)
+		return "", push.Device{}, false
+	}
+	var body deviceRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return "", push.Device{}, false
+	}
+	prov := push.Provider(body.Provider)
+	if body.TunnelID == "" || body.Token == "" || (prov != push.APNs && prov != push.FCM) {
+		http.Error(w, "tunnelId, token and provider(apns|fcm) required", http.StatusBadRequest)
+		return "", push.Device{}, false
+	}
+	// NOTE: registration is currently unauthenticated; proper per-device
+	// pairing auth arrives with #4.
+	return body.TunnelID, push.Device{Provider: prov, Token: body.Token}, true
+}
+
+func (s *Server) registerDevice(w http.ResponseWriter, r *http.Request) {
+	tunnelID, dev, ok := s.parseDevice(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.Add(tunnelID, dev); err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) unregisterDevice(w http.ResponseWriter, r *http.Request) {
+	tunnelID, dev, ok := s.parseDevice(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.Remove(tunnelID, dev); err != nil {
+		http.Error(w, "store error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeAck(ws *websocket.Conn, ack tunnel.RegisterAck) error {
