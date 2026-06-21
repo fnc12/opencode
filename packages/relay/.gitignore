@@ -1,0 +1,9 @@
+# Runtime device registry (created by the relay)
+devices.json
+devices.json.tmp
+
+# Never commit push credentials (public repo)
+*.p8
+*.p12
+service-account*.json
+*-service-account.json

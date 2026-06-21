@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/relayserver"
 )
 
@@ -26,10 +27,21 @@ func main() {
 	addr := envOr("RELAY_ADDR", ":8080")
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	srv := relayserver.New(relayserver.Config{
+	cfg := relayserver.Config{
 		Secret: os.Getenv("RELAY_SHARED_SECRET"),
 		Log:    logger,
-	})
+	}
+	if store, disp, err := buildPush(logger); err != nil {
+		logger.Error("push config", "err", err)
+		os.Exit(1)
+	} else if disp != nil {
+		cfg.Store, cfg.Dispatcher = store, disp
+		logger.Info("push enabled")
+	} else {
+		logger.Warn("push disabled (no APNs/FCM configured)")
+	}
+
+	srv := relayserver.New(cfg)
 
 	httpSrv := &http.Server{
 		Addr:              addr,
@@ -52,6 +64,44 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
+}
+
+// buildPush assembles the device store and dispatcher from env. It returns a
+// nil dispatcher (push disabled) when neither APNs nor FCM is configured.
+func buildPush(logger *slog.Logger) (push.Store, *push.Dispatcher, error) {
+	var pushers []push.Pusher
+
+	if path := os.Getenv("APNS_KEY_PATH"); path != "" {
+		p, err := push.NewAPNsPusher(push.APNsConfig{
+			KeyPath:  path,
+			KeyID:    os.Getenv("APNS_KEY_ID"),
+			TeamID:   os.Getenv("APNS_TEAM_ID"),
+			Topic:    os.Getenv("APNS_TOPIC"),
+			Endpoint: os.Getenv("APNS_ENDPOINT"),
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		pushers = append(pushers, p)
+	}
+
+	if path := os.Getenv("FCM_SERVICE_ACCOUNT"); path != "" {
+		p, err := push.NewFCMPusher(push.FCMConfig{ServiceAccountPath: path})
+		if err != nil {
+			return nil, nil, err
+		}
+		pushers = append(pushers, p)
+	}
+
+	if len(pushers) == 0 {
+		return nil, nil, nil
+	}
+
+	store, err := push.NewFileStore(envOr("RELAY_STORE_PATH", "devices.json"))
+	if err != nil {
+		return nil, nil, err
+	}
+	return store, push.NewDispatcher(store, logger, pushers...), nil
 }
 
 func envOr(key, def string) string {

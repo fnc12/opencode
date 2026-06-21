@@ -35,11 +35,35 @@ zero or more `TypeData` chunks (flushed immediately, so SSE passes through unbuf
 
 ## Endpoints
 
-| Method | Path          | Purpose                                            |
-|--------|---------------|----------------------------------------------------|
-| GET    | `/healthz`    | Liveness; reports live tunnel count                |
-| GET    | `/connector`  | WebSocket; a connector registers a tunnel          |
-| *      | `/t/{id}/...` | Proxied to the connector for tunnel `{id}`         |
+| Method | Path           | Purpose                                            |
+|--------|----------------|----------------------------------------------------|
+| GET    | `/healthz`     | Liveness; reports live tunnel count                |
+| GET    | `/connector`   | WebSocket; a connector registers a tunnel          |
+| POST   | `/api/devices` | Register a device for push `{tunnelId, provider, token}` (`provider` ∈ `apns`/`fcm`) |
+| DELETE | `/api/devices` | Unregister a device (same body)                    |
+| *      | `/t/{id}/...`  | Proxied to the connector for tunnel `{id}`         |
+
+## Push (session-finished notifications)
+
+When APNs and/or FCM are configured, the relay subscribes to each tunnel's OpenCode
+event stream (`/global/event`) and, on a `session.idle` / `session.status:idle` event, pushes a
+notification to every device registered for that tunnel. Pushes are deduplicated per session.
+
+Both senders are stdlib-only (no SDKs): APNs uses token-based `.p8` auth (ES256 JWT over HTTP/2);
+FCM uses a service-account JSON (RS256 JWT → OAuth2 → FCM v1). Device registrations persist to a
+JSON file (`RELAY_STORE_PATH`); swap `push.Store` for sqlite/postgres later behind the same interface.
+
+| Env                    | Meaning                                                        |
+|------------------------|----------------------------------------------------------------|
+| `APNS_KEY_PATH`        | Path to the `.p8` auth key (enables APNs)                       |
+| `APNS_KEY_ID`          | 10-char key id                                                 |
+| `APNS_TEAM_ID`         | 10-char team id                                                |
+| `APNS_TOPIC`           | App bundle id (`apns-topic`)                                    |
+| `APNS_ENDPOINT`        | Override host (use the APNs sandbox host for dev builds)        |
+| `FCM_SERVICE_ACCOUNT`  | Path to the Google service-account JSON (enables FCM)           |
+| `RELAY_STORE_PATH`     | Device registry file (default `devices.json`)                  |
+
+> Never commit `.p8` keys or service-account JSON (public repo). Mount them as files and point the env at them.
 
 ## Run
 
