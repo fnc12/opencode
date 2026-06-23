@@ -19,4 +19,20 @@ struct MessagePart: Decodable, Identifiable {
         type = try container.decode(String.self, forKey: .type)
         content = try? PartContent(from: decoder, type: type)
     }
+
+    init(id: String, sessionID: String, messageID: String, type: String, content: PartContent?) {
+        self.id = id
+        self.sessionID = sessionID
+        self.messageID = messageID
+        self.type = type
+        self.content = content
+    }
+
+    /// Returns a copy with `delta` appended to a streaming text part. Non-text
+    /// parts are returned unchanged (their snapshots arrive via `partUpdated`).
+    func appendingText(_ delta: String) -> MessagePart {
+        guard case .text(let existing)? = content else { return self }
+        return MessagePart(id: id, sessionID: sessionID, messageID: messageID,
+                           type: type, content: .text(existing + delta))
+    }
 }

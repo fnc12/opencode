@@ -66,6 +66,25 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/message", query: ["directory": directory])
     }
 
+    /// Builds an SSE reader for the global event stream (`GET /global/event`).
+    /// The instance stream (`/event`) only emits `server.connected`; all live
+    /// session activity (message + part events) is published on the global bus,
+    /// which is also what the relay's push subscriber listens to. In relay mode
+    /// this resolves to `/t/{tunnelID}/global/event`. Events arrive for every
+    /// session; callers filter by `sessionID`.
+    func eventStream(directory: String) -> EventStream? {
+        guard let url = URL(string: config.baseURL + "/global/event") else {
+            return nil
+        }
+
+        var authHeader: String?
+        if let password = config.password, !password.isEmpty {
+            let cred = Data("admin:\(password)".utf8).base64EncodedString()
+            authHeader = "Basic \(cred)"
+        }
+        return EventStream(url: url, authHeader: authHeader)
+    }
+
     func get<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
         guard var components = URLComponents(string: config.baseURL + path) else {
             throw ClientError.invalidURL

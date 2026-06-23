@@ -27,12 +27,6 @@ struct ProjectListView: View {
             }
             .navigationTitle("Projects")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text(server.version)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Disconnect", systemImage: "xmark.circle") {
                         server.disconnect()
