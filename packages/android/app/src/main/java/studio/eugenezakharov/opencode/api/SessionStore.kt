@@ -1,0 +1,120 @@
+package studio.eugenezakharov.opencode.api
+
+import studio.eugenezakharov.opencode.api.models.MessagePart
+import studio.eugenezakharov.opencode.api.models.MessageWithParts
+import studio.eugenezakharov.opencode.api.models.PartContent
+
+/**
+ * Holds the live state of one session's conversation and folds SSE events into
+ * it. Seeded with the REST snapshot via [setInitial], then [apply] upserts /
+ * removes messages and parts and appends streaming text deltas — mirroring how
+ * the web client and iOS app consume the event stream.
+ *
+ * Hermetic and side-effect free (no Android dependencies) so it can be unit
+ * tested directly. The owning ViewModel observes [messages]/[revision]/[status]
+ * and republishes them as Compose state. Mirrors iOS `SessionStore`.
+ */
+class SessionStore {
+    enum class StreamStatus { IDLE, CONNECTING, LIVE, RECONNECTING }
+
+    private val _messages = mutableListOf<MessageWithParts>()
+    /** A defensive copy of the current ordered message list. */
+    val messages: List<MessageWithParts> get() = _messages.map { it.copy(parts = it.parts.toMutableList()) }
+
+    var status: StreamStatus = StreamStatus.IDLE
+        private set
+
+    /** Bumped on every applied change so observers can react (e.g. auto-scroll). */
+    var revision: Int = 0
+        private set
+
+    /** Listener invoked after any state change (messages/status/revision). */
+    var onChange: (() -> Unit)? = null
+
+    fun setInitial(initial: List<MessageWithParts>) {
+        _messages.clear()
+        _messages.addAll(initial.sortedBy { it.info.created })
+        revision += 1
+        onChange?.invoke()
+    }
+
+    fun setStatus(newStatus: StreamStatus) {
+        status = newStatus
+        onChange?.invoke()
+    }
+
+    /** Folds one event into the conversation if it targets [sessionID]. */
+    fun apply(event: ServerEvent, sessionID: String) {
+        val changed = when (event) {
+            is ServerEvent.MessageUpdated -> if (event.sessionID == sessionID) {
+                upsertMessage(event.info); true
+            } else false
+
+            is ServerEvent.PartUpdated -> if (event.sessionID == sessionID) {
+                upsertPart(event.part); true
+            } else false
+
+            is ServerEvent.PartDelta -> if (event.sessionID == sessionID) {
+                appendDelta(event); true
+            } else false
+
+            is ServerEvent.PartRemoved -> if (event.sessionID == sessionID) {
+                _messages.firstOrNull { it.id == event.messageID }
+                    ?.parts?.removeAll { it.id == event.partID }
+                true
+            } else false
+
+            is ServerEvent.MessageRemoved -> if (event.sessionID == sessionID) {
+                _messages.removeAll { it.id == event.messageID }; true
+            } else false
+
+            else -> false // SessionUpdated / Other: no message-list change
+        }
+        if (changed) {
+            revision += 1
+            onChange?.invoke()
+        }
+    }
+
+    private fun upsertMessage(info: studio.eugenezakharov.opencode.api.models.MessageInfo) {
+        val i = _messages.indexOfFirst { it.id == info.id }
+        if (i >= 0) {
+            // Metadata only; created time (and thus order) is stable.
+            _messages[i] = _messages[i].copy(info = info)
+        } else {
+            _messages.add(MessageWithParts(info, mutableListOf()))
+            // Order can only change when a message is added — sort here, not per delta.
+            _messages.sortBy { it.info.created }
+        }
+    }
+
+    private fun upsertPart(part: MessagePart) {
+        val i = _messages.indexOfFirst { it.id == part.messageID }
+        if (i < 0) return
+        val parts = _messages[i].parts
+        val j = parts.indexOfFirst { it.id == part.id }
+        if (j >= 0) parts[j] = part else parts.add(part)
+    }
+
+    private fun appendDelta(delta: ServerEvent.PartDelta) {
+        if (delta.field != "text") return // only text streams visibly for now
+        val i = _messages.indexOfFirst { it.id == delta.messageID }
+        if (i < 0) return
+        val parts = _messages[i].parts
+        val j = parts.indexOfFirst { it.id == delta.partID }
+        if (j >= 0) {
+            parts[j] = parts[j].appendingText(delta.delta)
+        } else {
+            // Delta arrived before the first snapshot: synthesize a text part.
+            parts.add(
+                MessagePart(
+                    id = delta.partID,
+                    sessionID = delta.sessionID,
+                    messageID = delta.messageID,
+                    type = "text",
+                    content = PartContent.Text(delta.delta),
+                ),
+            )
+        }
+    }
+}

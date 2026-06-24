@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Direct mode targets a LAN / dev OpenCode server, which is typically plain HTTP
+  (e.g. http://10.0.2.2:4096 from the emulator, or a LAN IP). Android blocks
+  cleartext by default (API 28+), so we permit it here. This is the Android
+  analog of the iOS app's ATS local-networking exception: Direct mode is an
+  explicitly trusted-network / dev feature. Relay mode connects over HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
