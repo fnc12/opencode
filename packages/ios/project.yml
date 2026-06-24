@@ -31,3 +31,30 @@ targets:
     settings:
       DEVELOPMENT_TEAM: QDTPG5DB79
       CODE_SIGN_STYLE: Automatic
+  OpenCodeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - OpenCodeTests
+    dependencies:
+      - target: OpenCode
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+  OpenCodeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - OpenCodeUITests
+    dependencies:
+      - target: OpenCode
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+schemes:
+  OpenCode:
+    build:
+      targets:
+        OpenCode: all
+    test:
+      targets:
+        - OpenCodeTests
+        - OpenCodeUITests

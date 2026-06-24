@@ -10,3 +10,4 @@ xcuserdata/
 *.dSYM.zip
 *.dSYM
 Pods/
+build-sim/
