@@ -66,6 +66,50 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/message", query: ["directory": directory])
     }
 
+    /// Available providers and their models (for the composer's model picker).
+    func providers() async throws -> [ProviderInfo] {
+        let response: ProvidersResponse = try await get("/config/providers")
+        return response.providers
+    }
+
+    /// Sends a text prompt to a session. The assistant's reply streams back over
+    /// the event stream, so the caller doesn't need the response body. A model is
+    /// required — the server has no default.
+    func sendPrompt(directory: String, sessionID: String, text: String,
+                    providerID: String, modelID: String) async throws {
+        try await post("/session/\(sessionID)/message", query: ["directory": directory], body: [
+            "parts": [["type": "text", "text": text]],
+            "model": ["providerID": providerID, "modelID": modelID],
+        ])
+    }
+
+    func post(_ path: String, query: [String: String] = [:], body: [String: Any]) async throws {
+        guard var components = URLComponents(string: config.baseURL + path) else {
+            throw ClientError.invalidURL
+        }
+        if !query.isEmpty {
+            components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        guard let url = components.url else { throw ClientError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let password = config.password, !password.isEmpty {
+            let cred = Data("admin:\(password)".utf8).base64EncodedString()
+            request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let text = String(data: data, encoding: .utf8) ?? "(non-utf8)"
+            print("❌ POST \(code): \(url.absoluteString)\n\(text.prefix(500))")
+            throw ClientError.http(code)
+        }
+    }
+
     /// Builds an SSE reader for the global event stream (`GET /global/event`).
     /// The instance stream (`/event`) only emits `server.connected`; all live
     /// session activity (message + part events) is published on the global bus,

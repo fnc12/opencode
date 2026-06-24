@@ -14,6 +14,10 @@ struct OpenCodeApp: App {
                 }
             }
             .task {
+                // UI tests start from a clean slate so the connect flow is deterministic.
+                if ProcessInfo.processInfo.arguments.contains("UITEST_RESET") {
+                    server.forget()
+                }
                 // Auto-connect if a complete config was restored from the Keychain.
                 if !server.connected && server.config.isComplete {
                     await server.connect()

@@ -9,23 +9,30 @@ struct SessionView: View {
     @State private var error: String?
 
     var body: some View {
-        Group {
-            if loading {
-                ProgressView("Loading messages...")
-            } else if let error {
-                ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
-            } else if store.messages.isEmpty {
-                ContentUnavailableView("No Messages", systemImage: "bubble.left", description: Text("This session has no messages yet"))
-            } else {
-                thread
+        content
+            .safeAreaInset(edge: .bottom) {
+                if !loading && error == nil {
+                    ComposerView(server: server, session: session)
+                }
             }
+            .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { StreamStatusBadge(status: store.status) }
+            }
+            .task { await run() }
+    }
+
+    @ViewBuilder private var content: some View {
+        if loading {
+            ProgressView("Loading messages...")
+        } else if let error {
+            ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
+        } else if store.messages.isEmpty {
+            ContentUnavailableView("Start the conversation", systemImage: "bubble.left", description: Text("Send a message to begin"))
+        } else {
+            thread
         }
-        .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { StreamStatusBadge(status: store.status) }
-        }
-        .task { await run() }
     }
 
     private var thread: some View {

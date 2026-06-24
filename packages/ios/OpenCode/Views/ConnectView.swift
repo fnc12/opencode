@@ -86,6 +86,7 @@ struct ConnectView: View {
     @ViewBuilder private var directFields: some View {
         VStack(spacing: 16) {
             field("Server URL", text: $server.config.directURL, keyboard: .URL)
+                .accessibilityIdentifier("connect.serverURL")
             SecureField("Password (optional)", text: Binding(
                 get: { server.config.password ?? "" },
                 set: { server.config.password = $0.isEmpty ? nil : $0 }
@@ -128,6 +129,7 @@ struct ConnectView: View {
         .tint(.blue)
         .padding(.horizontal, 32)
         .disabled(server.loading || !server.config.isComplete)
+        .accessibilityIdentifier("connect.button")
     }
 
     private func field(_ title: String, text: Binding<String>, keyboard: UIKeyboardType = .default) -> some View {
