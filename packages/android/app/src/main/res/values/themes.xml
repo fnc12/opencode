@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. The actual UI is themed in Compose (Theme.kt);
+         this XML theme only governs the splash/window before Compose draws. -->
+    <style name="Theme.OpenCodeRemote" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">?android:attr/colorBackground</item>
+    </style>
+</resources>
