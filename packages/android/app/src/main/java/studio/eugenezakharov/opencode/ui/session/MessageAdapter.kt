@@ -107,7 +107,9 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
         val body = TextView(context).apply {
             textSize = 15f
-            setTextColor(0xFFE6E6E6.toInt())
+            // Dark-on-light to match the Compose surface (the host activity uses a
+            // light Material3 theme regardless of the framework XML theme).
+            setTextColor(if (isNightMode(context)) 0xFFE6E6E6.toInt() else 0xFF1C1C1E.toInt())
             setPadding(0, dp(6), 0, 0)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -143,6 +145,11 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
     }
 
     companion object {
+        private fun isNightMode(context: android.content.Context): Boolean =
+            (context.resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+
         private fun roundedBackground(radius: Int): android.graphics.drawable.GradientDrawable =
             android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = radius.toFloat()
@@ -201,10 +208,11 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                     RenderedMessage(
                         id = message.id,
                         roleText = info.agent.ifEmpty { "assistant" },
-                        roleColor = 0xFF4CD964.toInt(),
+                        roleColor = 0xFF1F9550.toInt(),
                         metaText = tokenSummary(info),
                         body = body,
-                        bubbleColor = 0x14FFFFFF,
+                        // Subtle neutral tint that reads on both light and dark backgrounds.
+                        bubbleColor = 0x14808080,
                         signature = signature(message),
                     )
                 }
