@@ -68,7 +68,10 @@ private fun SessionDestination(
     session: Session,
     onBack: () -> Unit,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current.applicationContext
     // A fresh SessionViewModel per session id, keyed so switching sessions resets it.
-    val vm = remember(session.id) { SessionViewModel(server, session) }
+    val vm = remember(session.id) {
+        SessionViewModel(server, session, studio.eugenezakharov.opencode.api.ComposerPrefs(context))
+    }
     SessionScreen(viewModel = vm, session = session, onBack = onBack)
 }

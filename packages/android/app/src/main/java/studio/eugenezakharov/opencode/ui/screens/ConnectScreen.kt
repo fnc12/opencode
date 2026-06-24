@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -60,6 +61,7 @@ fun ConnectScreen(
                 selected = state.config.mode == ConnectionMode.DIRECT,
                 onClick = { viewModel.setMode(ConnectionMode.DIRECT) },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                modifier = Modifier.testTag("connect.direct"),
             ) { Text("Direct") }
         }
 
@@ -76,7 +78,7 @@ fun ConnectScreen(
                 MonoField("Token", state.config.token, viewModel::setToken, password = true)
             }
             ConnectionMode.DIRECT -> {
-                MonoField("Server URL", state.config.directURL, viewModel::setDirectURL, KeyboardType.Uri)
+                MonoField("Server URL", state.config.directURL, viewModel::setDirectURL, KeyboardType.Uri, tag = "connect.serverURL")
                 Spacer(Modifier.height(12.dp))
                 MonoField("Password (optional)", state.config.password ?: "", viewModel::setPassword, password = true)
             }
@@ -87,7 +89,7 @@ fun ConnectScreen(
         Button(
             onClick = viewModel::connect,
             enabled = !state.loading && state.config.isComplete,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("connect.button"),
         ) {
             if (state.loading) {
                 CircularProgressIndicator(
@@ -118,13 +120,14 @@ private fun MonoField(
     onChange: (String) -> Unit,
     keyboardType: KeyboardType = KeyboardType.Text,
     password: Boolean = false,
+    tag: String? = null,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().let { if (tag != null) it.testTag(tag) else it },
         keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType),
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
         textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),

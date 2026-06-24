@@ -3,13 +3,22 @@ package studio.eugenezakharov.opencode.api
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import studio.eugenezakharov.opencode.api.models.HealthResponse
 import studio.eugenezakharov.opencode.api.models.MessageParsing
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.Project
+import studio.eugenezakharov.opencode.api.models.ProviderInfo
+import studio.eugenezakharov.opencode.api.models.ProvidersParsing
 import studio.eugenezakharov.opencode.api.models.Session
 import java.util.Base64
 import java.util.concurrent.TimeUnit
@@ -67,6 +76,38 @@ class ServerConnection(
             MessageParsing.parseMessageList(json, body)
         }
 
+    /** Lists providers and their models for the model picker (`GET /config/providers`). */
+    suspend fun providers(): List<ProviderInfo> = withContext(Dispatchers.IO) {
+        ProvidersParsing.parse(json, getRaw("/config/providers", emptyMap()))
+    }
+
+    /**
+     * Sends a text prompt to a session. The assistant's reply streams back over
+     * the event stream, so the caller doesn't need the response body. A model is
+     * required — the server has no default.
+     */
+    suspend fun sendPrompt(
+        directory: String,
+        sessionID: String,
+        text: String,
+        providerID: String,
+        modelID: String,
+    ) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            putJsonArray("parts") {
+                addJsonObject {
+                    put("type", "text")
+                    put("text", text)
+                }
+            }
+            putJsonObject("model") {
+                put("providerID", providerID)
+                put("modelID", modelID)
+            }
+        }
+        postRaw("/session/$sessionID/message", mapOf("directory" to directory), body.toString())
+    }
+
     /**
      * Builds an SSE reader for the global event stream (`GET /global/event`).
      * The instance stream (`/event`) only emits `server.connected`; all live
@@ -102,6 +143,25 @@ class ServerConnection(
                 throw ClientError.Http(response.code)
             }
             return body
+        }
+    }
+
+    private fun postRaw(path: String, query: Map<String, String>, jsonBody: String) {
+        val httpUrl = (config.baseURL + path).toHttpUrlOrNull() ?: throw ClientError.InvalidURL
+        val urlBuilder = httpUrl.newBuilder()
+        query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+
+        val requestBuilder = Request.Builder()
+            .url(urlBuilder.build())
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+        basicAuthHeader()?.let { requestBuilder.header("Authorization", it) }
+
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                val body = response.body?.string() ?: ""
+                System.err.println("HTTP ${response.code}: ${urlBuilder.build()}\n$body")
+                throw ClientError.Http(response.code)
+            }
         }
     }
 }

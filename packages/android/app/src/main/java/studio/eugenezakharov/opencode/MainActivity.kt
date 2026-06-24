@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import studio.eugenezakharov.opencode.api.ConnectionStore
 import studio.eugenezakharov.opencode.ui.AppNav
 import studio.eugenezakharov.opencode.ui.AppViewModel
 import studio.eugenezakharov.opencode.ui.theme.OpenCodeTheme
@@ -18,6 +19,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Instrumented tests pass UITEST_RESET to start from a clean (disconnected)
+        // state. Must run before AppViewModel is first accessed (it loads the
+        // saved config on construction).
+        if (intent?.getBooleanExtra("UITEST_RESET", false) == true) {
+            ConnectionStore(applicationContext).clear()
+        }
         enableEdgeToEdge()
         handlePairingIntent(intent)
         setContent {
