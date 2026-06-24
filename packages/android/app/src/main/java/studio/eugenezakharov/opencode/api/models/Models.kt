@@ -24,3 +24,37 @@ data class ProjectTime(
     val updated: Double,
     val initialized: Double? = null,
 )
+
+@Serializable
+data class Session(
+    val id: String,
+    val slug: String? = null,
+    val projectID: String,
+    val directory: String,
+    val parentID: String? = null,
+    val title: String = "",
+    val version: String = "",
+    val time: SessionTime,
+    val summary: SessionSummary? = null,
+    val share: SessionShare? = null,
+)
+
+@Serializable
+data class SessionTime(
+    val created: Double,
+    val updated: Double,
+    val compacting: Double? = null,
+    val archived: Double? = null,
+)
+
+@Serializable
+data class SessionSummary(
+    val additions: Int = 0,
+    val deletions: Int = 0,
+    val files: Int = 0,
+)
+
+@Serializable
+data class SessionShare(
+    val url: String,
+)

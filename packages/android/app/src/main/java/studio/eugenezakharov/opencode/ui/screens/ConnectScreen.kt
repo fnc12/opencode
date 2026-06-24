@@ -5,8 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -17,26 +17,23 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import studio.eugenezakharov.opencode.api.ConnectionMode
-import studio.eugenezakharov.opencode.ui.ConnectUiState
-import studio.eugenezakharov.opencode.ui.ConnectViewModel
+import studio.eugenezakharov.opencode.ui.AppUiState
+import studio.eugenezakharov.opencode.ui.AppViewModel
 
 @Composable
 fun ConnectScreen(
-    viewModel: ConnectViewModel = viewModel(),
+    state: AppUiState,
+    viewModel: AppViewModel,
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -44,25 +41,45 @@ fun ConnectScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        Text("opencode", style = MaterialTheme.typography.headlineLarge)
         Text(
-            text = "opencode",
-            style = MaterialTheme.typography.headlineLarge,
-        )
-        Text(
-            text = "Remote",
+            "Remote",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Spacer(Modifier.height(28.dp))
 
-        ModePicker(mode = state.config.mode, onSelect = viewModel::setMode)
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = state.config.mode == ConnectionMode.RELAY,
+                onClick = { viewModel.setMode(ConnectionMode.RELAY) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            ) { Text("Relay") }
+            SegmentedButton(
+                selected = state.config.mode == ConnectionMode.DIRECT,
+                onClick = { viewModel.setMode(ConnectionMode.DIRECT) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            ) { Text("Direct") }
+        }
 
         Spacer(Modifier.height(20.dp))
 
         when (state.config.mode) {
-            ConnectionMode.RELAY -> RelayFields(state, viewModel)
-            ConnectionMode.DIRECT -> DirectFields(state, viewModel)
+            ConnectionMode.RELAY -> {
+                // QR scanner pairing is deferred — paste/deep-link covers it for now.
+                // TODO(#14): add a CameraX QR scanner ("Scan pairing QR") here.
+                MonoField("Relay URL", state.config.relayURL, viewModel::setRelayURL, KeyboardType.Uri)
+                Spacer(Modifier.height(12.dp))
+                MonoField("Tunnel ID", state.config.tunnelID, viewModel::setTunnelID)
+                Spacer(Modifier.height(12.dp))
+                MonoField("Token", state.config.token, viewModel::setToken, password = true)
+            }
+            ConnectionMode.DIRECT -> {
+                MonoField("Server URL", state.config.directURL, viewModel::setDirectURL, KeyboardType.Uri)
+                Spacer(Modifier.height(12.dp))
+                MonoField("Password (optional)", state.config.password ?: "", viewModel::setPassword, password = true)
+            }
         }
 
         Spacer(Modifier.height(24.dp))
@@ -91,48 +108,7 @@ fun ConnectScreen(
                 textAlign = TextAlign.Center,
             )
         }
-
-        if (state.connected) {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Connected — v${state.version}",
-                color = MaterialTheme.colorScheme.primary,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
     }
-}
-
-@Composable
-private fun ModePicker(mode: ConnectionMode, onSelect: (ConnectionMode) -> Unit) {
-    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-        SegmentedButton(
-            selected = mode == ConnectionMode.RELAY,
-            onClick = { onSelect(ConnectionMode.RELAY) },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-        ) { Text("Relay") }
-        SegmentedButton(
-            selected = mode == ConnectionMode.DIRECT,
-            onClick = { onSelect(ConnectionMode.DIRECT) },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-        ) { Text("Direct") }
-    }
-}
-
-@Composable
-private fun RelayFields(state: ConnectUiState, vm: ConnectViewModel) {
-    MonoField("Relay URL", state.config.relayURL, vm::setRelayURL, KeyboardType.Uri)
-    Spacer(Modifier.height(12.dp))
-    MonoField("Tunnel ID", state.config.tunnelID, vm::setTunnelID)
-    Spacer(Modifier.height(12.dp))
-    MonoField("Token", state.config.token, vm::setToken, password = true)
-}
-
-@Composable
-private fun DirectFields(state: ConnectUiState, vm: ConnectViewModel) {
-    MonoField("Server URL", state.config.directURL, vm::setDirectURL, KeyboardType.Uri)
-    Spacer(Modifier.height(12.dp))
-    MonoField("Password (optional)", state.config.password ?: "", vm::setPassword, password = true)
 }
 
 @Composable
@@ -150,7 +126,7 @@ private fun MonoField(
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else keyboardType),
-        visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
         textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace),
     )
 }

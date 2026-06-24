@@ -1,7 +1,5 @@
 package studio.eugenezakharov.opencode.api
 
-import android.util.Base64
-import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -9,14 +7,21 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import studio.eugenezakharov.opencode.api.models.HealthResponse
+import studio.eugenezakharov.opencode.api.models.MessageParsing
+import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.Project
+import studio.eugenezakharov.opencode.api.models.Session
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 /**
- * HTTP client for the OpenCode server. Mirrors the iOS `ServerConnection`.
+ * HTTP + SSE client for the OpenCode server. Mirrors the iOS `ServerConnection`.
  *
- * Endpoints used: `/global/health`, `/project`. Live events (#15) will use
- * `GET /global/event` (SSE), parsed manually off the streaming response body.
+ * Endpoints: `/global/health`, `/project`, `/session?directory=…`,
+ * `/session/{id}/message?directory=…`, and the live `GET /global/event` stream.
+ *
+ * Uses `java.util.Base64` (not `android.util.Base64`) so it stays usable from
+ * plain JVM unit tests — the live e2e drives this exact class.
  */
 class ServerConnection(
     var config: ConnectionConfig = ConnectionConfig(),
@@ -38,36 +43,65 @@ class ServerConnection(
         return true
     }
 
+    private fun basicAuthHeader(): String? =
+        config.password?.takeIf { it.isNotEmpty() }?.let { pwd ->
+            "Basic " + Base64.getEncoder().encodeToString("admin:$pwd".toByteArray())
+        }
+
     suspend fun health(): HealthResponse = get("/global/health", HealthResponse.serializer())
 
     suspend fun projects(): List<Project> =
         get("/project", kotlinx.serialization.builtins.ListSerializer(Project.serializer()))
+
+    suspend fun sessions(directory: String): List<Session> =
+        get(
+            "/session",
+            kotlinx.serialization.builtins.ListSerializer(Session.serializer()),
+            mapOf("directory" to directory),
+        )
+
+    /** Loads a session's message history (the seed for [SessionStore]). */
+    suspend fun messages(directory: String, sessionID: String): List<MessageWithParts> =
+        withContext(Dispatchers.IO) {
+            val body = getRaw("/session/$sessionID/message", mapOf("directory" to directory))
+            MessageParsing.parseMessageList(json, body)
+        }
+
+    /**
+     * Builds an SSE reader for the global event stream (`GET /global/event`).
+     * The instance stream (`/event`) only emits `server.connected`; all live
+     * session activity is on the global bus. In relay mode this resolves to
+     * `/t/{tunnelID}/global/event`. Events arrive for every session; callers
+     * filter by `sessionID`. Returns null if the base URL is invalid.
+     */
+    fun eventStream(): EventStream? {
+        val url = (config.baseURL + "/global/event").toHttpUrlOrNull()?.toString() ?: return null
+        return EventStream(url, basicAuthHeader())
+    }
 
     private suspend fun <T> get(
         path: String,
         serializer: kotlinx.serialization.DeserializationStrategy<T>,
         query: Map<String, String> = emptyMap(),
     ): T = withContext(Dispatchers.IO) {
-        val httpUrl = (config.baseURL + path).toHttpUrlOrNull()
-            ?: throw ClientError.InvalidURL
+        json.decodeFromString(serializer, getRaw(path, query))
+    }
+
+    private fun getRaw(path: String, query: Map<String, String>): String {
+        val httpUrl = (config.baseURL + path).toHttpUrlOrNull() ?: throw ClientError.InvalidURL
         val urlBuilder = httpUrl.newBuilder()
         query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
 
         val requestBuilder = Request.Builder().url(urlBuilder.build())
-        // The server's password (OPENCODE_SERVER_PASSWORD) is forwarded as Basic
-        // auth; in relay mode the connector passes the header through.
-        config.password?.takeIf { it.isNotEmpty() }?.let { pwd ->
-            val cred = Base64.encodeToString("admin:$pwd".toByteArray(), Base64.NO_WRAP)
-            requestBuilder.header("Authorization", "Basic $cred")
-        }
+        basicAuthHeader()?.let { requestBuilder.header("Authorization", it) }
 
         client.newCall(requestBuilder.build()).execute().use { response ->
             val body = response.body?.string() ?: ""
             if (!response.isSuccessful) {
-                Log.e("ServerConnection", "HTTP ${response.code}: ${urlBuilder.build()}\n$body")
+                System.err.println("HTTP ${response.code}: ${urlBuilder.build()}\n$body")
                 throw ClientError.Http(response.code)
             }
-            json.decodeFromString(serializer, body)
+            return body
         }
     }
 }

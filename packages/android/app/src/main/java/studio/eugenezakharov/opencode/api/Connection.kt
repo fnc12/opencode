@@ -1,6 +1,9 @@
 package studio.eugenezakharov.opencode.api
 
-import android.net.Uri
+import kotlinx.serialization.Serializable
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 /** How the app reaches the OpenCode server. */
 enum class ConnectionMode {
@@ -12,11 +15,14 @@ enum class ConnectionMode {
 }
 
 /**
- * Everything needed to connect. Mirrors the iOS `ConnectionConfig`.
+ * Everything needed to connect. Mirrors the iOS `ConnectionConfig`. Persisted
+ * (it holds a pairing token) via EncryptedSharedPreferences, so it is
+ * `@Serializable`.
  *
  * For relay mode the base URL is the per-tunnel proxy path on the relay
  * (`relayURL/t/{tunnelID}`); for direct mode it is the server URL.
  */
+@Serializable
 data class ConnectionConfig(
     val mode: ConnectionMode = ConnectionMode.RELAY,
     // relay mode
@@ -52,18 +58,25 @@ data class ConnectionConfig(
             if (trimmed.isEmpty()) return null
 
             var query = trimmed
-            val uri = runCatching { Uri.parse(trimmed) }.getOrNull()
+            // If it parses as a URI with a scheme (opencode://pair?…), it must be
+            // a pair link; otherwise treat the whole string as a bare query.
+            val uri = runCatching { URI(trimmed) }.getOrNull()
             if (uri != null && uri.scheme != null) {
-                val isPair = uri.host == "pair" || (uri.path?.contains("pair") == true)
+                val isPair = uri.host == "pair" || (uri.path?.contains("pair") == true) ||
+                    (uri.schemeSpecificPart?.contains("pair") == true)
                 if (!isPair) return null
-                query = uri.encodedQuery ?: ""
+                // URI.rawQuery is null for opaque URIs like opencode://pair?… on
+                // some inputs; fall back to splitting on the first '?'.
+                query = uri.rawQuery ?: trimmed.substringAfter('?', "")
             }
 
             val items = mutableMapOf<String, String>()
             for (pair in query.split("&")) {
                 val kv = pair.split("=", limit = 2)
                 if (kv.size != 2) continue
-                val value = Uri.decode(kv[1])
+                val value = runCatching {
+                    URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name())
+                }.getOrDefault(kv[1])
                 items[kv[0]] = value
             }
 
