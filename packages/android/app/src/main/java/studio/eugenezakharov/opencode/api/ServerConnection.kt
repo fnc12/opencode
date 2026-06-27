@@ -73,6 +73,21 @@ class ServerConnection(
             mapOf("directory" to directory),
         )
 
+    /**
+     * Creates a new session in a directory and returns it (`POST /session?directory=…`).
+     * Works for any folder the server can see — including on a fresh server with no
+     * projects yet — which is how you start work on a fresh server. An optional title
+     * is sent as `{"title":…}`; otherwise the body is `{}`. Mirrors iOS `createSession`.
+     */
+    suspend fun createSession(directory: String, title: String? = null): Session =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                if (!title.isNullOrEmpty()) put("title", title)
+            }
+            val response = postRawForResult("/session", mapOf("directory" to directory), body.toString())
+            json.decodeFromString(Session.serializer(), response)
+        }
+
     /** Loads a session's message history (the seed for [SessionStore]). */
     suspend fun messages(directory: String, sessionID: String): List<MessageWithParts> =
         withContext(Dispatchers.IO) {
@@ -182,6 +197,27 @@ class ServerConnection(
         query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
 
         val requestBuilder = Request.Builder().url(urlBuilder.build())
+        basicAuthHeader()?.let { requestBuilder.header("Authorization", it) }
+
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            val body = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                System.err.println("HTTP ${response.code}: ${urlBuilder.build()}\n$body")
+                throw ClientError.Http(response.code)
+            }
+            return body
+        }
+    }
+
+    /** Like [postRaw] but returns the response body — used by endpoints that reply with JSON. */
+    private fun postRawForResult(path: String, query: Map<String, String>, jsonBody: String): String {
+        val httpUrl = (config.baseURL + path).toHttpUrlOrNull() ?: throw ClientError.InvalidURL
+        val urlBuilder = httpUrl.newBuilder()
+        query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+
+        val requestBuilder = Request.Builder()
+            .url(urlBuilder.build())
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
         basicAuthHeader()?.let { requestBuilder.header("Authorization", it) }
 
         client.newCall(requestBuilder.build()).execute().use { response ->
