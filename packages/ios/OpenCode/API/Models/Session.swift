@@ -32,3 +32,8 @@ struct SessionSummary: Decodable {
 struct SessionShare: Decodable {
     let url: String
 }
+
+extension Session: Hashable {
+    static func == (lhs: Session, rhs: Session) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}

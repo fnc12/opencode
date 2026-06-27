@@ -66,6 +66,36 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/message", query: ["directory": directory])
     }
 
+    /// Creates a new session in a directory and returns it. Works for any folder
+    /// the server can see — including on a fresh server with no projects yet.
+    func createSession(directory: String, title: String? = nil) async throws -> Session {
+        guard var components = URLComponents(string: config.baseURL + "/session") else {
+            throw ClientError.invalidURL
+        }
+        components.queryItems = [URLQueryItem(name: "directory", value: directory)]
+        guard let url = components.url else { throw ClientError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let password = config.password, !password.isEmpty {
+            let cred = Data("admin:\(password)".utf8).base64EncodedString()
+            request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
+        }
+        var body: [String: Any] = [:]
+        if let title, !title.isEmpty { body["title"] = title }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let text = String(data: data, encoding: .utf8) ?? "(non-utf8)"
+            print("❌ createSession \(code): \(text.prefix(400))")
+            throw ClientError.http(code)
+        }
+        return try JSONDecoder().decode(Session.self, from: data)
+    }
+
     /// Available providers and their models (for the composer's model picker).
     func providers() async throws -> [ProviderInfo] {
         let response: ProvidersResponse = try await get("/config/providers")
