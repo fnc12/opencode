@@ -37,10 +37,12 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
             selectedSession = null
             ConnectScreen(state = state, viewModel = appViewModel)
         }
-        selectedSession != null && selectedProject != null -> {
+        selectedSession != null -> {
             SessionDestination(
                 server = appViewModel.server,
                 session = selectedSession!!,
+                // Back returns to the session list if we came through a project,
+                // otherwise straight to the projects screen (open-folder flow).
                 onBack = { selectedSession = null },
             )
         }
@@ -56,6 +58,7 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
             ProjectListScreen(
                 server = appViewModel.server,
                 onProjectClick = { selectedProject = it },
+                onSessionCreated = { selectedSession = it },
                 onDisconnect = { appViewModel.disconnect() },
             )
         }

@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -26,11 +29,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import studio.eugenezakharov.opencode.api.ServerConnection
 import studio.eugenezakharov.opencode.api.models.Project
 import studio.eugenezakharov.opencode.api.models.Session
@@ -46,6 +52,8 @@ fun SessionListScreen(
     var sessions by remember { mutableStateOf<List<Session>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(project.id) {
         loading = true
@@ -54,6 +62,16 @@ fun SessionListScreen(
             .onSuccess { sessions = it.sortedByDescending { s -> s.time.updated } }
             .onFailure { error = it.message ?: "Failed to load sessions" }
         loading = false
+    }
+
+    fun newSession() {
+        if (creating) return
+        creating = true
+        scope.launch {
+            runCatching { server.createSession(project.worktree) }
+                .onSuccess { creating = false; onSessionClick(it) }
+                .onFailure { creating = false; error = it.message ?: "Failed to create session" }
+        }
     }
 
     val title = project.name ?: project.worktree.substringAfterLast('/').ifEmpty { "Sessions" }
@@ -67,6 +85,18 @@ fun SessionListScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
+                actions = {
+                    if (creating) {
+                        CircularProgressIndicator(Modifier.padding(end = 16.dp))
+                    } else {
+                        IconButton(
+                            onClick = { newSession() },
+                            modifier = Modifier.testTag("sessions.new"),
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = "New session")
+                        }
+                    }
+                },
             )
         },
     ) { padding ->
@@ -74,7 +104,7 @@ fun SessionListScreen(
             when {
                 loading -> CircularProgressIndicator()
                 error != null -> CenteredMessage("Error", error!!)
-                sessions.isEmpty() -> CenteredMessage("No Sessions", "No sessions in this project")
+                sessions.isEmpty() -> EmptySessions(creating = creating, onNewSession = { newSession() })
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(sessions, key = { it.id }) { session ->
                         SessionRow(session, Modifier.clickable { onSessionClick(session) })
@@ -82,6 +112,25 @@ fun SessionListScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptySessions(creating: Boolean, onNewSession: () -> Unit) {
+    Column(
+        modifier = Modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        CenteredMessage("No sessions yet", "Start a new session in this project.")
+        Spacer(Modifier.padding(top = 8.dp))
+        Button(
+            onClick = onNewSession,
+            enabled = !creating,
+            modifier = Modifier.testTag("sessions.new.empty"),
+        ) {
+            Text("New session")
         }
     }
 }
