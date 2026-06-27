@@ -3,6 +3,8 @@ package studio.eugenezakharov.opencode.api
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonArray
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -18,6 +20,7 @@ import studio.eugenezakharov.opencode.api.models.MessageParsing
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PermissionRequest
 import studio.eugenezakharov.opencode.api.models.Project
+import studio.eugenezakharov.opencode.api.models.QuestionRequest
 import studio.eugenezakharov.opencode.api.models.ProviderInfo
 import studio.eugenezakharov.opencode.api.models.ProvidersParsing
 import studio.eugenezakharov.opencode.api.models.Session
@@ -92,6 +95,30 @@ class ServerConnection(
         withContext(Dispatchers.IO) {
             val body = buildJsonObject { put("reply", reply) }
             postRaw("/permission/$requestID/reply", mapOf("directory" to directory), body.toString())
+        }
+
+    /** Lists pending questions (`GET /question?directory=…`). */
+    suspend fun questions(directory: String): List<QuestionRequest> = withContext(Dispatchers.IO) {
+        QuestionRequest.parseList(json, getRaw("/question", mapOf("directory" to directory)))
+    }
+
+    /** Answers a question — one array of selected labels per question (`{"answers": [[…], …]}`). */
+    suspend fun replyQuestion(directory: String, requestID: String, answers: List<List<String>>) =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                putJsonArray("answers") {
+                    answers.forEach { perQuestion ->
+                        addJsonArray { perQuestion.forEach { add(it) } }
+                    }
+                }
+            }
+            postRaw("/question/$requestID/reply", mapOf("directory" to directory), body.toString())
+        }
+
+    /** Rejects a question (dismiss without answering). */
+    suspend fun rejectQuestion(directory: String, requestID: String) =
+        withContext(Dispatchers.IO) {
+            postRaw("/question/$requestID/reject", mapOf("directory" to directory), "{}")
         }
 
     /**
