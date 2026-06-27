@@ -18,6 +18,12 @@ struct SessionView: View {
                                 Task { await handleReply(request, reply) }
                             }
                         }
+                        ForEach(store.pendingQuestions) { request in
+                            QuestionDock(
+                                request: request,
+                                onReply: { answers in Task { await handleQuestionReply(request, answers) } },
+                                onReject: { Task { await handleQuestionReject(request) } })
+                        }
                         ComposerView(server: server, session: session)
                     }
                 }
@@ -60,15 +66,25 @@ struct SessionView: View {
         }
         loading = false
 
-        // Seed any permission requests that were already pending for this session.
+        // Seed permission + question requests already pending for this session.
         if let pending = try? await server.permissions(directory: session.directory) {
             store.setInitialPermissions(pending.filter { $0.sessionID == session.id })
         }
-        // UI tests inject a synthetic request so the permission dock can be driven
-        // deterministically (the server must be configured to "ask" to produce a real one).
+        if let pendingQuestions = try? await server.questions(directory: session.directory) {
+            store.setInitialQuestions(pendingQuestions.filter { $0.sessionID == session.id })
+        }
+        // UI tests inject synthetic requests (after the seeds, so they win) so the
+        // docks can be driven deterministically without configuring the server to "ask".
         if ProcessInfo.processInfo.arguments.contains("UITEST_PERMISSION") {
             store.setInitialPermissions([PermissionRequest(
                 id: "uitest-perm", sessionID: session.id, action: "bash", resources: ["echo hello"])])
+        }
+        if ProcessInfo.processInfo.arguments.contains("UITEST_QUESTION") {
+            store.setInitialQuestions([QuestionRequest(id: "uitest-q", sessionID: session.id, questions: [
+                QuestionItem(question: "Which database?", header: "Pick one",
+                             options: [QuestionOption(label: "Option A", description: "the first"),
+                                       QuestionOption(label: "Option B", description: "the second")],
+                             multiple: false, custom: false)])])
         }
 
         let decoder = JSONDecoder()
@@ -98,6 +114,16 @@ struct SessionView: View {
     private func handleReply(_ request: PermissionRequest, _ reply: String) async {
         store.dismissPermission(id: request.id)
         try? await server.replyPermission(directory: session.directory, requestID: request.id, reply: reply)
+    }
+
+    private func handleQuestionReply(_ request: QuestionRequest, _ answers: [[String]]) async {
+        store.dismissQuestion(id: request.id)
+        try? await server.replyQuestion(directory: session.directory, requestID: request.id, answers: answers)
+    }
+
+    private func handleQuestionReject(_ request: QuestionRequest) async {
+        store.dismissQuestion(id: request.id)
+        try? await server.rejectQuestion(directory: session.directory, requestID: request.id)
     }
 }
 

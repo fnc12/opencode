@@ -82,6 +82,21 @@ final class ServerConnection {
         try await post("/permission/\(requestID)/reply", query: ["directory": directory], body: ["reply": reply])
     }
 
+    /// Pending questions across all sessions (seed on session open).
+    func questions(directory: String) async throws -> [QuestionRequest] {
+        try await get("/question", query: ["directory": directory])
+    }
+
+    /// Answer a question — one array of selected labels per question.
+    func replyQuestion(directory: String, requestID: String, answers: [[String]]) async throws {
+        try await post("/question/\(requestID)/reply", query: ["directory": directory], body: ["answers": answers])
+    }
+
+    /// Reject a question (dismiss without answering).
+    func rejectQuestion(directory: String, requestID: String) async throws {
+        try await post("/question/\(requestID)/reject", query: ["directory": directory], body: [:])
+    }
+
     /// Sends a text prompt to a session. The assistant's reply streams back over
     /// the event stream, so the caller doesn't need the response body. A model is
     /// required — the server has no default.
