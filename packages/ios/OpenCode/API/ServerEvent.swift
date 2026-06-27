@@ -18,6 +18,10 @@ enum ServerEvent {
     case messageRemoved(sessionID: String, messageID: String)
     /// Session metadata changed (`session.updated`); we only need the id for now.
     case sessionUpdated(sessionID: String)
+    /// The agent is asking permission to act (`permission.v2.asked`).
+    case permissionAsked(PermissionRequest)
+    /// A permission request was answered/cleared (`permission.v2.replied`).
+    case permissionReplied(sessionID: String, requestID: String)
     /// Any event type we don't model.
     case other(type: String)
 }
@@ -35,7 +39,7 @@ struct PartDelta {
 extension ServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey { case type, properties, payload }
     private enum Prop: String, CodingKey {
-        case sessionID, info, part, messageID, partID, field, delta
+        case sessionID, info, part, messageID, partID, field, delta, requestID
     }
 
     init(from decoder: Decoder) throws {
@@ -86,6 +90,14 @@ extension ServerEvent: Decodable {
         case "session.updated":
             let p = try c.nestedContainer(keyedBy: Prop.self, forKey: .properties)
             self = .sessionUpdated(sessionID: try p.decode(String.self, forKey: .sessionID))
+        case "permission.v2.asked":
+            // The event properties ARE the permission request (id, sessionID, action, resources…).
+            self = .permissionAsked(try c.decode(PermissionRequest.self, forKey: .properties))
+        case "permission.v2.replied":
+            let p = try c.nestedContainer(keyedBy: Prop.self, forKey: .properties)
+            self = .permissionReplied(
+                sessionID: try p.decode(String.self, forKey: .sessionID),
+                requestID: try p.decode(String.self, forKey: .requestID))
         default:
             self = .other(type: type)
         }
