@@ -97,6 +97,11 @@ final class ServerConnection {
         try await post("/question/\(requestID)/reject", query: ["directory": directory], body: [:])
     }
 
+    /// Abort a session — stop any ongoing AI processing / command execution.
+    func abort(directory: String, sessionID: String) async throws {
+        try await post("/session/\(sessionID)/abort", query: ["directory": directory], body: [:])
+    }
+
     /// Sends a text prompt to a session. The assistant's reply streams back over
     /// the event stream, so the caller doesn't need the response body. A model is
     /// required — the server has no default.

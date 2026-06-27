@@ -31,7 +31,20 @@ struct SessionView: View {
             .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { StreamStatusBadge(status: store.status) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 10) {
+                        if store.isBusy {
+                            Button(role: .destructive) {
+                                Task { try? await server.abort(directory: session.directory, sessionID: session.id) }
+                            } label: {
+                                Label("Stop", systemImage: "stop.circle.fill")
+                            }
+                            .tint(.red)
+                            .accessibilityIdentifier("session.stop")
+                        }
+                        StreamStatusBadge(status: store.status)
+                    }
+                }
             }
             .task { await run() }
     }

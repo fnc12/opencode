@@ -128,6 +128,15 @@ final class SessionStore {
         }
     }
 
+    /// True while an assistant message is still generating (no completion time) —
+    /// i.e. the agent is working and can be aborted.
+    var isBusy: Bool {
+        messages.contains { message in
+            if case .assistant(let info) = message.info { return info.time.completed == nil }
+            return false
+        }
+    }
+
     private static func createdAt(_ message: MessageWithParts) -> Double {
         switch message.info {
         case .user(let m): m.time.created
