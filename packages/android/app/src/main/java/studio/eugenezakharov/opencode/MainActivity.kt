@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import studio.eugenezakharov.opencode.api.ConnectionStore
 import studio.eugenezakharov.opencode.ui.AppNav
 import studio.eugenezakharov.opencode.ui.AppViewModel
+import studio.eugenezakharov.opencode.ui.UiTestFlags
 import studio.eugenezakharov.opencode.ui.theme.OpenCodeTheme
 
 class MainActivity : ComponentActivity() {
@@ -25,6 +26,8 @@ class MainActivity : ComponentActivity() {
         if (intent?.getBooleanExtra("UITEST_RESET", false) == true) {
             ConnectionStore(applicationContext).clear()
         }
+        // UI tests inject a synthetic permission so the dock can be driven.
+        UiTestFlags.injectPermission = intent?.getBooleanExtra("UITEST_PERMISSION", false) == true
         enableEdgeToEdge()
         handlePairingIntent(intent)
         setContent {

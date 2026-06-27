@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessagePart
+import studio.eugenezakharov.opencode.api.models.PermissionRequest
 
 /**
  * A decoded record from the OpenCode server SSE stream (`GET /global/event`).
@@ -41,6 +42,12 @@ sealed interface ServerEvent {
 
     /** Session metadata changed (`session.updated`). */
     data class SessionUpdated(val sessionID: String) : ServerEvent
+
+    /** The agent is asking permission to act (`permission.v2.asked`). */
+    data class PermissionAsked(val request: PermissionRequest) : ServerEvent
+
+    /** A permission request was answered/cleared (`permission.v2.replied`). */
+    data class PermissionReplied(val sessionID: String, val requestID: String) : ServerEvent
 
     /** Any event type we don't model (including `sync`). */
     data class Other(val type: String) : ServerEvent
@@ -90,6 +97,15 @@ sealed interface ServerEvent {
                     messageID = str("messageID") ?: return Other(type),
                 )
                 "session.updated" -> SessionUpdated(str("sessionID") ?: return Other(type))
+                "permission.v2.asked" -> {
+                    // The event properties ARE the permission request (id, sessionID, action, resources…).
+                    val request = PermissionRequest.from(props) ?: return Other(type)
+                    PermissionAsked(request)
+                }
+                "permission.v2.replied" -> PermissionReplied(
+                    sessionID = str("sessionID") ?: return Other(type),
+                    requestID = str("requestID") ?: return Other(type),
+                )
                 else -> Other(type)
             }
         }

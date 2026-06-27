@@ -1,5 +1,7 @@
 package studio.eugenezakharov.opencode.ui.session
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,9 +20,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,7 +78,17 @@ fun SessionScreen(
             // The composer is visible even on an empty session, so a conversation
             // can be started. Hidden only while history is still loading or failed.
             if (!state.loading && state.error == null) {
-                Composer(state = state, viewModel = viewModel)
+                Column {
+                    // Permission docks sit above the composer; the agent is blocked
+                    // until each is answered (#27).
+                    state.pendingPermissions.forEach { request ->
+                        PermissionDock(
+                            request = request,
+                            onReply = { reply -> viewModel.replyPermission(request, reply) },
+                        )
+                    }
+                    Composer(state = state, viewModel = viewModel)
+                }
             }
         },
     ) { padding ->
@@ -85,6 +99,65 @@ fun SessionScreen(
                 state.messages.isEmpty() -> CenteredMessage("No Messages", "This session has no messages yet")
                 else -> MessageList(state)
             }
+        }
+    }
+}
+
+/**
+ * A pending permission request shown above the composer (#27). The agent is
+ * blocked until the user answers — Allow (once), Always, or Reject — which is
+ * the core reason to control a session from the phone. Mirrors iOS
+ * `PermissionDock`.
+ */
+@Composable
+private fun PermissionDock(
+    request: studio.eugenezakharov.opencode.api.models.PermissionRequest,
+    onReply: (String) -> Unit,
+) {
+    val warning = androidx.compose.ui.graphics.Color(0xFFE8951F)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .border(
+                width = 1.dp,
+                color = warning.copy(alpha = 0.35f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            )
+            .background(
+                color = warning.copy(alpha = 0.12f),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            )
+            .padding(12.dp),
+    ) {
+        Text(
+            "⚠ Permission needed",
+            color = warning,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.size(6.dp))
+        Text(
+            request.summary,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.testTag("permission.summary"),
+        )
+        Spacer(Modifier.size(10.dp))
+        Row {
+            OutlinedButton(
+                onClick = { onReply("reject") },
+                modifier = Modifier.weight(1f).testTag("permission.reject"),
+            ) { Text("Reject") }
+            Spacer(Modifier.width(10.dp))
+            OutlinedButton(
+                onClick = { onReply("always") },
+                modifier = Modifier.weight(1f).testTag("permission.always"),
+            ) { Text("Always") }
+            Spacer(Modifier.width(10.dp))
+            Button(
+                onClick = { onReply("once") },
+                modifier = Modifier.weight(1f).testTag("permission.allow"),
+            ) { Text("Allow") }
         }
     }
 }

@@ -3,6 +3,7 @@ package studio.eugenezakharov.opencode.api
 import studio.eugenezakharov.opencode.api.models.MessagePart
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
+import studio.eugenezakharov.opencode.api.models.PermissionRequest
 
 /**
  * Holds the live state of one session's conversation and folds SSE events into
@@ -28,7 +29,11 @@ class SessionStore {
     var revision: Int = 0
         private set
 
-    /** Listener invoked after any state change (messages/status/revision). */
+    private val _pendingPermissions = mutableListOf<PermissionRequest>()
+    /** Pending permission requests for this session (the agent is blocked on them). */
+    val pendingPermissions: List<PermissionRequest> get() = _pendingPermissions.toList()
+
+    /** Listener invoked after any state change (messages/permissions/status/revision). */
     var onChange: (() -> Unit)? = null
 
     fun setInitial(initial: List<MessageWithParts>) {
@@ -36,6 +41,22 @@ class SessionStore {
         _messages.addAll(initial.sortedBy { it.info.created })
         revision += 1
         onChange?.invoke()
+    }
+
+    /** Seeds the pending permissions (from `GET /permission`, filtered to this session). */
+    fun setInitialPermissions(permissions: List<PermissionRequest>) {
+        _pendingPermissions.clear()
+        _pendingPermissions.addAll(permissions)
+        revision += 1
+        onChange?.invoke()
+    }
+
+    /** Drops a permission locally (optimistically, after the user answers it). */
+    fun dismissPermission(id: String) {
+        if (_pendingPermissions.removeAll { it.id == id }) {
+            revision += 1
+            onChange?.invoke()
+        }
     }
 
     fun setStatus(newStatus: StreamStatus) {
@@ -68,7 +89,18 @@ class SessionStore {
                 _messages.removeAll { it.id == event.messageID }; true
             } else false
 
-            else -> false // SessionUpdated / Other: no message-list change
+            is ServerEvent.PermissionAsked -> if (event.request.sessionID == sessionID) {
+                if (_pendingPermissions.none { it.id == event.request.id }) {
+                    _pendingPermissions.add(event.request)
+                }
+                true
+            } else false
+
+            is ServerEvent.PermissionReplied -> if (event.sessionID == sessionID) {
+                _pendingPermissions.removeAll { it.id == event.requestID }; true
+            } else false
+
+            else -> false // SessionUpdated / Other: no state change
         }
         if (changed) {
             revision += 1
