@@ -37,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -85,6 +86,15 @@ fun SessionScreen(
                         PermissionDock(
                             request = request,
                             onReply = { reply -> viewModel.replyPermission(request, reply) },
+                        )
+                    }
+                    // Question docks also sit above the composer; the agent is blocked
+                    // until each is answered or skipped (#28).
+                    state.pendingQuestions.forEach { request ->
+                        QuestionDock(
+                            request = request,
+                            onReply = { answers -> viewModel.replyQuestion(request, answers) },
+                            onReject = { viewModel.rejectQuestion(request) },
                         )
                     }
                     Composer(state = state, viewModel = viewModel)
@@ -158,6 +168,106 @@ private fun PermissionDock(
                 onClick = { onReply("once") },
                 modifier = Modifier.weight(1f).testTag("permission.allow"),
             ) { Text("Allow") }
+        }
+    }
+}
+
+/**
+ * A pending agent question shown above the composer (#28). Each question is
+ * single-select (radio) or multi-select (toggle when `multiple==true`); the
+ * reply is one array of selected labels per question. The agent is blocked until
+ * the user submits answers or skips. Blue/info styling distinguishes it from the
+ * orange permission dock. Mirrors iOS `QuestionDock`.
+ */
+@Composable
+private fun QuestionDock(
+    request: studio.eugenezakharov.opencode.api.models.QuestionRequest,
+    onReply: (List<List<String>>) -> Unit,
+    onReject: () -> Unit,
+) {
+    val info = androidx.compose.ui.graphics.Color(0xFF2D7FF9)
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    // Selected labels per question, keyed by the question's stable key.
+    val selections = remember(request.id) { mutableStateMapOf<String, Set<String>>() }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .border(width = 1.dp, color = info.copy(alpha = 0.35f), shape = shape)
+            .background(color = info.copy(alpha = 0.10f), shape = shape)
+            .padding(12.dp),
+    ) {
+        Text(
+            "? Question",
+            color = info,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.size(8.dp))
+
+        request.questions.forEach { question ->
+            if (question.header.isNotEmpty()) {
+                Text(
+                    question.header,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.size(2.dp))
+            }
+            Text(question.question, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.size(6.dp))
+
+            question.options.forEach { option ->
+                val selected = selections[question.key]?.contains(option.label) == true
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            val current = selections[question.key] ?: emptySet()
+                            selections[question.key] = if (question.allowsMultiple) {
+                                if (option.label in current) current - option.label else current + option.label
+                            } else {
+                                setOf(option.label) // radio
+                            }
+                        }
+                        .padding(vertical = 6.dp)
+                        .testTag(option.label),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        if (selected) "●" else "○",
+                        color = if (selected) info else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                        if (option.description.isNotEmpty()) {
+                            Text(
+                                option.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = onReject,
+                modifier = Modifier.testTag("question.reject"),
+            ) { Text("Skip") }
+            Spacer(Modifier.weight(1f))
+            val canSubmit = request.questions.all { !(selections[it.key].isNullOrEmpty()) }
+            Button(
+                onClick = { onReply(request.questions.map { (selections[it.key] ?: emptySet()).toList() }) },
+                enabled = canSubmit,
+                modifier = Modifier.testTag("question.submit"),
+            ) { Text("Submit") }
         }
     }
 }

@@ -4,6 +4,7 @@ import studio.eugenezakharov.opencode.api.models.MessagePart
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
 import studio.eugenezakharov.opencode.api.models.PermissionRequest
+import studio.eugenezakharov.opencode.api.models.QuestionRequest
 
 /**
  * Holds the live state of one session's conversation and folds SSE events into
@@ -33,7 +34,11 @@ class SessionStore {
     /** Pending permission requests for this session (the agent is blocked on them). */
     val pendingPermissions: List<PermissionRequest> get() = _pendingPermissions.toList()
 
-    /** Listener invoked after any state change (messages/permissions/status/revision). */
+    private val _pendingQuestions = mutableListOf<QuestionRequest>()
+    /** Pending questions the agent is asking for this session (it is blocked on them). */
+    val pendingQuestions: List<QuestionRequest> get() = _pendingQuestions.toList()
+
+    /** Listener invoked after any state change (messages/permissions/questions/status/revision). */
     var onChange: (() -> Unit)? = null
 
     fun setInitial(initial: List<MessageWithParts>) {
@@ -54,6 +59,22 @@ class SessionStore {
     /** Drops a permission locally (optimistically, after the user answers it). */
     fun dismissPermission(id: String) {
         if (_pendingPermissions.removeAll { it.id == id }) {
+            revision += 1
+            onChange?.invoke()
+        }
+    }
+
+    /** Seeds the pending questions (from `GET /question`, filtered to this session). */
+    fun setInitialQuestions(questions: List<QuestionRequest>) {
+        _pendingQuestions.clear()
+        _pendingQuestions.addAll(questions)
+        revision += 1
+        onChange?.invoke()
+    }
+
+    /** Drops a question locally (optimistically, after the user answers/rejects it). */
+    fun dismissQuestion(id: String) {
+        if (_pendingQuestions.removeAll { it.id == id }) {
             revision += 1
             onChange?.invoke()
         }
@@ -98,6 +119,17 @@ class SessionStore {
 
             is ServerEvent.PermissionReplied -> if (event.sessionID == sessionID) {
                 _pendingPermissions.removeAll { it.id == event.requestID }; true
+            } else false
+
+            is ServerEvent.QuestionAsked -> if (event.request.sessionID == sessionID) {
+                if (_pendingQuestions.none { it.id == event.request.id }) {
+                    _pendingQuestions.add(event.request)
+                }
+                true
+            } else false
+
+            is ServerEvent.QuestionResolved -> if (event.sessionID == sessionID) {
+                _pendingQuestions.removeAll { it.id == event.requestID }; true
             } else false
 
             else -> false // SessionUpdated / Other: no state change

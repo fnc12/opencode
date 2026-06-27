@@ -8,6 +8,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessagePart
 import studio.eugenezakharov.opencode.api.models.PermissionRequest
+import studio.eugenezakharov.opencode.api.models.QuestionRequest
 
 /**
  * A decoded record from the OpenCode server SSE stream (`GET /global/event`).
@@ -48,6 +49,12 @@ sealed interface ServerEvent {
 
     /** A permission request was answered/cleared (`permission.v2.replied`). */
     data class PermissionReplied(val sessionID: String, val requestID: String) : ServerEvent
+
+    /** The agent is asking the user a question (`question.v2.asked`). */
+    data class QuestionAsked(val request: QuestionRequest) : ServerEvent
+
+    /** A question was answered or rejected (`question.v2.replied` / `.rejected`). */
+    data class QuestionResolved(val sessionID: String, val requestID: String) : ServerEvent
 
     /** Any event type we don't model (including `sync`). */
     data class Other(val type: String) : ServerEvent
@@ -103,6 +110,15 @@ sealed interface ServerEvent {
                     PermissionAsked(request)
                 }
                 "permission.v2.replied" -> PermissionReplied(
+                    sessionID = str("sessionID") ?: return Other(type),
+                    requestID = str("requestID") ?: return Other(type),
+                )
+                "question.v2.asked" -> {
+                    // The event properties ARE the question request (id, sessionID, questions…).
+                    val request = QuestionRequest.from(props) ?: return Other(type)
+                    QuestionAsked(request)
+                }
+                "question.v2.replied", "question.v2.rejected" -> QuestionResolved(
                     sessionID = str("sessionID") ?: return Other(type),
                     requestID = str("requestID") ?: return Other(type),
                 )

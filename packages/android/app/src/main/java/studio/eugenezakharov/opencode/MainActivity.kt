@@ -26,8 +26,9 @@ class MainActivity : ComponentActivity() {
         if (intent?.getBooleanExtra("UITEST_RESET", false) == true) {
             ConnectionStore(applicationContext).clear()
         }
-        // UI tests inject a synthetic permission so the dock can be driven.
+        // UI tests inject a synthetic permission / question so the docks can be driven.
         UiTestFlags.injectPermission = intent?.getBooleanExtra("UITEST_PERMISSION", false) == true
+        UiTestFlags.injectQuestion = intent?.getBooleanExtra("UITEST_QUESTION", false) == true
         enableEdgeToEdge()
         handlePairingIntent(intent)
         setContent {

@@ -17,6 +17,9 @@ import studio.eugenezakharov.opencode.api.SessionStore
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PermissionRequest
 import studio.eugenezakharov.opencode.api.models.ProviderInfo
+import studio.eugenezakharov.opencode.api.models.QuestionItem
+import studio.eugenezakharov.opencode.api.models.QuestionOption
+import studio.eugenezakharov.opencode.api.models.QuestionRequest
 import studio.eugenezakharov.opencode.api.models.Session
 
 data class SessionUiState(
@@ -33,6 +36,8 @@ data class SessionUiState(
     val sendError: String? = null,
     // Permission requests (#27): the agent is blocked until these are answered.
     val pendingPermissions: List<PermissionRequest> = emptyList(),
+    // Agent questions (#28): the agent is blocked until these are answered/skipped.
+    val pendingQuestions: List<QuestionRequest> = emptyList(),
 )
 
 /**
@@ -48,6 +53,8 @@ class SessionViewModel(
     private val prefs: ComposerPrefs,
     /** UI tests inject a synthetic permission so the dock can be driven (mirrors iOS UITEST_PERMISSION). */
     private val injectTestPermission: Boolean = false,
+    /** UI tests inject a synthetic question so the dock can be driven (mirrors iOS UITEST_QUESTION). */
+    private val injectTestQuestion: Boolean = false,
 ) : ViewModel() {
 
     private val store = SessionStore()
@@ -66,6 +73,7 @@ class SessionViewModel(
                     revision = store.revision,
                     status = store.status,
                     pendingPermissions = store.pendingPermissions,
+                    pendingQuestions = store.pendingQuestions,
                 )
             }
         }
@@ -84,10 +92,16 @@ class SessionViewModel(
             store.setInitial(seeded.getOrThrow())
             _state.update { it.copy(loading = false, error = null) }
 
-            // 1b) Seed any permission requests already pending for this session.
+            // 1b) Seed any permission requests / questions already pending for this session.
+            runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
+                store.setInitialPermissions(pending.filter { it.sessionID == session.id })
+            }
+            runCatching { server.questions(session.directory) }.getOrNull()?.let { pending ->
+                store.setInitialQuestions(pending.filter { it.sessionID == session.id })
+            }
+            // UI tests inject synthetic requests (after the seeds, so they win) so the
+            // docks can be driven without the server being configured to "ask".
             if (injectTestPermission) {
-                // UI tests inject a synthetic request so the dock can be driven
-                // without the server being configured to "ask".
                 store.setInitialPermissions(
                     listOf(
                         PermissionRequest(
@@ -98,10 +112,28 @@ class SessionViewModel(
                         ),
                     ),
                 )
-            } else {
-                runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
-                    store.setInitialPermissions(pending.filter { it.sessionID == session.id })
-                }
+            }
+            if (injectTestQuestion) {
+                store.setInitialQuestions(
+                    listOf(
+                        QuestionRequest(
+                            id = "uitest-q",
+                            sessionID = session.id,
+                            questions = listOf(
+                                QuestionItem(
+                                    question = "Which database?",
+                                    header = "Pick one",
+                                    options = listOf(
+                                        QuestionOption("Option A", "the first"),
+                                        QuestionOption("Option B", "the second"),
+                                    ),
+                                    multiple = false,
+                                    custom = false,
+                                ),
+                            ),
+                        ),
+                    ),
+                )
             }
 
             // 2) Stream live with reconnect/backoff.
@@ -188,6 +220,25 @@ class SessionViewModel(
         store.dismissPermission(request.id) // optimistic
         viewModelScope.launch {
             runCatching { server.replyPermission(session.directory, request.id, reply) }
+        }
+    }
+
+    /**
+     * Answers a question with one array of selected labels per question and
+     * clears it locally right away. Mirrors iOS `handleQuestionReply`.
+     */
+    fun replyQuestion(request: QuestionRequest, answers: List<List<String>>) {
+        store.dismissQuestion(request.id) // optimistic
+        viewModelScope.launch {
+            runCatching { server.replyQuestion(session.directory, request.id, answers) }
+        }
+    }
+
+    /** Rejects (skips) a question and clears it locally. Mirrors iOS `handleQuestionReject`. */
+    fun rejectQuestion(request: QuestionRequest) {
+        store.dismissQuestion(request.id) // optimistic
+        viewModelScope.launch {
+            runCatching { server.rejectQuestion(session.directory, request.id) }
         }
     }
 }
