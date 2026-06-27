@@ -72,6 +72,16 @@ final class ServerConnection {
         return response.providers
     }
 
+    /// Pending permission requests across all sessions (seed on session open).
+    func permissions(directory: String) async throws -> [PermissionRequest] {
+        try await get("/permission", query: ["directory": directory])
+    }
+
+    /// Answer a permission request: `once`, `always`, or `reject`.
+    func replyPermission(directory: String, requestID: String, reply: String) async throws {
+        try await post("/permission/\(requestID)/reply", query: ["directory": directory], body: ["reply": reply])
+    }
+
     /// Sends a text prompt to a session. The assistant's reply streams back over
     /// the event stream, so the caller doesn't need the response body. A model is
     /// required — the server has no default.

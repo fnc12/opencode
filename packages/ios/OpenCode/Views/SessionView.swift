@@ -12,7 +12,14 @@ struct SessionView: View {
         content
             .safeAreaInset(edge: .bottom) {
                 if !loading && error == nil {
-                    ComposerView(server: server, session: session)
+                    VStack(spacing: 0) {
+                        ForEach(store.pendingPermissions) { request in
+                            PermissionDock(request: request) { reply in
+                                Task { await handleReply(request, reply) }
+                            }
+                        }
+                        ComposerView(server: server, session: session)
+                    }
                 }
             }
             .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
@@ -53,6 +60,17 @@ struct SessionView: View {
         }
         loading = false
 
+        // Seed any permission requests that were already pending for this session.
+        if let pending = try? await server.permissions(directory: session.directory) {
+            store.setInitialPermissions(pending.filter { $0.sessionID == session.id })
+        }
+        // UI tests inject a synthetic request so the permission dock can be driven
+        // deterministically (the server must be configured to "ask" to produce a real one).
+        if ProcessInfo.processInfo.arguments.contains("UITEST_PERMISSION") {
+            store.setInitialPermissions([PermissionRequest(
+                id: "uitest-perm", sessionID: session.id, action: "bash", resources: ["echo hello"])])
+        }
+
         let decoder = JSONDecoder()
         var backoff: UInt64 = 500_000_000 // 0.5s
         while !Task.isCancelled {
@@ -74,6 +92,12 @@ struct SessionView: View {
             try? await Task.sleep(nanoseconds: backoff)
             backoff = min(backoff * 2, 10_000_000_000) // cap at 10s
         }
+    }
+
+    /// Answers a permission request and clears it locally right away.
+    private func handleReply(_ request: PermissionRequest, _ reply: String) async {
+        store.dismissPermission(id: request.id)
+        try? await server.replyPermission(directory: session.directory, requestID: request.id, reply: reply)
     }
 }
 
