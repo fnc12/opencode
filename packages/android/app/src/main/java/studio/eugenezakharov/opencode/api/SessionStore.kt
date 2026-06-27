@@ -1,5 +1,6 @@
 package studio.eugenezakharov.opencode.api
 
+import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessagePart
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
@@ -22,6 +23,14 @@ class SessionStore {
     private val _messages = mutableListOf<MessageWithParts>()
     /** A defensive copy of the current ordered message list. */
     val messages: List<MessageWithParts> get() = _messages.map { it.copy(parts = it.parts.toMutableList()) }
+
+    /**
+     * True while an assistant message is still generating — i.e. there is an
+     * assistant message whose `time.completed` is null. Drives the Stop button
+     * in the session top bar (#29). Mirrors iOS `SessionStore.isBusy`.
+     */
+    val isBusy: Boolean
+        get() = _messages.any { it.info is MessageInfo.Assistant && (it.info as MessageInfo.Assistant).completed == null }
 
     var status: StreamStatus = StreamStatus.IDLE
         private set

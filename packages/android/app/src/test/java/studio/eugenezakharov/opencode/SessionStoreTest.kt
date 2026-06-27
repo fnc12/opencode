@@ -2,6 +2,7 @@ package studio.eugenezakharov.opencode
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import studio.eugenezakharov.opencode.api.ServerEvent
@@ -27,6 +28,13 @@ class SessionStoreTest {
     private fun assistantUpdated(id: String, created: Double) = event(
         """{"type":"message.updated","properties":{"sessionID":"ses_1","info":{
         "id":"$id","sessionID":"ses_1","role":"assistant","time":{"created":$created},
+        "modelID":"m","providerID":"p","agent":"build","cost":0,
+        "tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}}}""",
+    )
+
+    private fun assistantCompleted(id: String, created: Double, completed: Double) = event(
+        """{"type":"message.updated","properties":{"sessionID":"ses_1","info":{
+        "id":"$id","sessionID":"ses_1","role":"assistant","time":{"created":$created,"completed":$completed},
         "modelID":"m","providerID":"p","agent":"build","cost":0,
         "tokens":{"input":1,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}}}}""",
     )
@@ -85,6 +93,21 @@ class SessionStoreTest {
         store.setInitial(emptyList())
         store.apply(assistantUpdated("msg_a", 1.0), "DIFFERENT")
         assertTrue(store.messages.isEmpty())
+    }
+
+    @Test
+    fun isBusyTracksAssistantCompletion() {
+        val store = SessionStore()
+        store.setInitial(emptyList())
+        assertFalse(store.isBusy) // no messages
+
+        // Assistant message still generating (no time.completed) → busy.
+        store.apply(assistantUpdated("msg_a", 1.0), sessionID)
+        assertTrue(store.isBusy)
+
+        // Same message id with time.completed set → no longer busy.
+        store.apply(assistantCompleted("msg_a", 1.0, 2.0), sessionID)
+        assertFalse(store.isBusy)
     }
 
     @Test

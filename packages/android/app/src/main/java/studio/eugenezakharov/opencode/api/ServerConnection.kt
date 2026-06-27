@@ -122,6 +122,14 @@ class ServerConnection(
         }
 
     /**
+     * Aborts the in-flight generation for a session
+     * (`POST /session/{id}/abort?directory=…`, no body). Mirrors iOS `abort`.
+     */
+    suspend fun abort(directory: String, sessionID: String) = withContext(Dispatchers.IO) {
+        postRaw("/session/$sessionID/abort", mapOf("directory" to directory), "{}")
+    }
+
+    /**
      * Sends a text prompt to a session. The assistant's reply streams back over
      * the event stream, so the caller doesn't need the response body. A model is
      * required — the server has no default.
