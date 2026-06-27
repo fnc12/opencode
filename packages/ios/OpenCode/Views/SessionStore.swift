@@ -19,6 +19,8 @@ final class SessionStore {
     private(set) var status: StreamStatus = .idle
     /// Pending permission requests for this session (the agent is blocked on them).
     private(set) var pendingPermissions: [PermissionRequest] = []
+    /// Pending questions the agent is asking for this session.
+    private(set) var pendingQuestions: [QuestionRequest] = []
     /// Bumped on every applied change so the view can react (e.g. auto-scroll)
     /// even when text grows inside an existing message.
     private(set) var revision = 0
@@ -35,6 +37,15 @@ final class SessionStore {
     /// Drop a permission locally (optimistically, after the user answers it).
     func dismissPermission(id: String) {
         pendingPermissions = pendingPermissions.filter { $0.id != id }
+    }
+
+    func setInitialQuestions(_ questions: [QuestionRequest]) {
+        pendingQuestions = questions
+    }
+
+    /// Drop a question locally (optimistically, after the user answers/rejects it).
+    func dismissQuestion(id: String) {
+        pendingQuestions = pendingQuestions.filter { $0.id != id }
     }
 
     func setStatus(_ status: StreamStatus) {
@@ -63,6 +74,12 @@ final class SessionStore {
             }
         case .permissionReplied(let sid, let requestID) where sid == sessionID:
             dismissPermission(id: requestID)
+        case .questionAsked(let request) where request.sessionID == sessionID:
+            if !pendingQuestions.contains(where: { $0.id == request.id }) {
+                pendingQuestions = pendingQuestions + [request]
+            }
+        case .questionResolved(let sid, let requestID) where sid == sessionID:
+            dismissQuestion(id: requestID)
         default:
             return // not ours / unmodeled: no revision bump
         }

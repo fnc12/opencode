@@ -22,6 +22,10 @@ enum ServerEvent {
     case permissionAsked(PermissionRequest)
     /// A permission request was answered/cleared (`permission.v2.replied`).
     case permissionReplied(sessionID: String, requestID: String)
+    /// The agent is asking the user a question (`question.v2.asked`).
+    case questionAsked(QuestionRequest)
+    /// A question was answered or rejected (`question.v2.replied` / `.rejected`).
+    case questionResolved(sessionID: String, requestID: String)
     /// Any event type we don't model.
     case other(type: String)
 }
@@ -96,6 +100,13 @@ extension ServerEvent: Decodable {
         case "permission.v2.replied":
             let p = try c.nestedContainer(keyedBy: Prop.self, forKey: .properties)
             self = .permissionReplied(
+                sessionID: try p.decode(String.self, forKey: .sessionID),
+                requestID: try p.decode(String.self, forKey: .requestID))
+        case "question.v2.asked":
+            self = .questionAsked(try c.decode(QuestionRequest.self, forKey: .properties))
+        case "question.v2.replied", "question.v2.rejected":
+            let p = try c.nestedContainer(keyedBy: Prop.self, forKey: .properties)
+            self = .questionResolved(
                 sessionID: try p.decode(String.self, forKey: .sessionID),
                 requestID: try p.decode(String.self, forKey: .requestID))
         default:
