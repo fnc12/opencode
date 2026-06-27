@@ -26,6 +26,8 @@ data class SessionUiState(
     val messages: List<MessageWithParts> = emptyList(),
     val revision: Int = 0,
     val status: SessionStore.StreamStatus = SessionStore.StreamStatus.IDLE,
+    // True while an assistant reply is still generating; gates the Stop button (#29).
+    val isBusy: Boolean = false,
     val loading: Boolean = true,
     val error: String? = null,
     // Composer state (#16)
@@ -72,6 +74,7 @@ class SessionViewModel(
                     messages = store.messages,
                     revision = store.revision,
                     status = store.status,
+                    isBusy = store.isBusy,
                     pendingPermissions = store.pendingPermissions,
                     pendingQuestions = store.pendingQuestions,
                 )
@@ -209,6 +212,17 @@ class SessionViewModel(
                 restore(prompt)
                 _state.update { it.copy(sending = false, sendError = e.message ?: "Send failed") }
             }
+        }
+    }
+
+    /**
+     * Aborts the running generation for this session (#29). Best-effort: the
+     * stream reflects the stop, so there's no optimistic local state to clear.
+     * Mirrors iOS `SessionView`'s Stop button.
+     */
+    fun abort() {
+        viewModelScope.launch {
+            runCatching { server.abort(session.directory, session.id) }
         }
     }
 

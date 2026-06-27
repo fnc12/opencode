@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -72,7 +73,25 @@ fun SessionScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                actions = { StreamStatusBadge(state.status) },
+                actions = {
+                    // Stop button (#29): only while a reply is generating. Mirrors iOS.
+                    if (state.isBusy) {
+                        TextButton(
+                            onClick = { viewModel.abort() },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                            modifier = Modifier.testTag("session.stop"),
+                        ) {
+                            // A filled square glyph stands in for a "stop" icon
+                            // (material-icons-core has no Stop symbol).
+                            Text("■", style = MaterialTheme.typography.labelMedium)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Stop")
+                        }
+                    }
+                    StreamStatusBadge(state.status)
+                },
             )
         },
         bottomBar = {
