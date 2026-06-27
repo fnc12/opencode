@@ -3,9 +3,12 @@ import SwiftUI
 struct SessionListView: View {
     var server: ServerConnection
     let project: Project
+    @Binding var path: [AppRoute]
+
     @State private var sessions: [Session] = []
     @State private var loading = true
     @State private var error: String?
+    @State private var creating = false
 
     var body: some View {
         Group {
@@ -14,10 +17,18 @@ struct SessionListView: View {
             } else if let error {
                 ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
             } else if sessions.isEmpty {
-                ContentUnavailableView("No Sessions", systemImage: "bubble.left.and.bubble.right", description: Text("No sessions in this project"))
+                ContentUnavailableView {
+                    Label("No sessions yet", systemImage: "bubble.left.and.bubble.right")
+                } description: {
+                    Text("Start a new session in this project.")
+                } actions: {
+                    Button("New session") { Task { await newSession() } }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("sessions.new.empty")
+                }
             } else {
                 List(sessions) { session in
-                    NavigationLink(destination: SessionView(session: session, server: server)) {
+                    NavigationLink(value: AppRoute.session(session)) {
                         SessionRow(session: session)
                     }
                 }
@@ -26,7 +37,29 @@ struct SessionListView: View {
             }
         }
         .navigationTitle(project.name ?? project.worktree.components(separatedBy: "/").last ?? "Sessions")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if creating {
+                    ProgressView()
+                } else {
+                    Button("New session", systemImage: "square.and.pencil") { Task { await newSession() } }
+                        .accessibilityIdentifier("sessions.new")
+                }
+            }
+        }
         .task { await load() }
+    }
+
+    private func newSession() async {
+        creating = true
+        do {
+            let session = try await server.createSession(directory: project.worktree)
+            creating = false
+            path.append(.session(session))
+        } catch {
+            creating = false
+            self.error = error.localizedDescription
+        }
     }
 
     private func load() async {
