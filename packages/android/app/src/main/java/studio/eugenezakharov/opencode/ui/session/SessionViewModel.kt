@@ -15,6 +15,7 @@ import studio.eugenezakharov.opencode.api.ServerConnection
 import studio.eugenezakharov.opencode.api.ServerEvent
 import studio.eugenezakharov.opencode.api.SessionStore
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
+import studio.eugenezakharov.opencode.api.models.PermissionRequest
 import studio.eugenezakharov.opencode.api.models.ProviderInfo
 import studio.eugenezakharov.opencode.api.models.Session
 
@@ -30,6 +31,8 @@ data class SessionUiState(
     val modelID: String = "",
     val sending: Boolean = false,
     val sendError: String? = null,
+    // Permission requests (#27): the agent is blocked until these are answered.
+    val pendingPermissions: List<PermissionRequest> = emptyList(),
 )
 
 /**
@@ -43,6 +46,8 @@ class SessionViewModel(
     private val server: ServerConnection,
     private val session: Session,
     private val prefs: ComposerPrefs,
+    /** UI tests inject a synthetic permission so the dock can be driven (mirrors iOS UITEST_PERMISSION). */
+    private val injectTestPermission: Boolean = false,
 ) : ViewModel() {
 
     private val store = SessionStore()
@@ -60,6 +65,7 @@ class SessionViewModel(
                     messages = store.messages,
                     revision = store.revision,
                     status = store.status,
+                    pendingPermissions = store.pendingPermissions,
                 )
             }
         }
@@ -77,6 +83,26 @@ class SessionViewModel(
             }
             store.setInitial(seeded.getOrThrow())
             _state.update { it.copy(loading = false, error = null) }
+
+            // 1b) Seed any permission requests already pending for this session.
+            if (injectTestPermission) {
+                // UI tests inject a synthetic request so the dock can be driven
+                // without the server being configured to "ask".
+                store.setInitialPermissions(
+                    listOf(
+                        PermissionRequest(
+                            id = "uitest-perm",
+                            sessionID = session.id,
+                            action = "bash",
+                            resources = listOf("echo hello"),
+                        ),
+                    ),
+                )
+            } else {
+                runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
+                    store.setInitialPermissions(pending.filter { it.sessionID == session.id })
+                }
+            }
 
             // 2) Stream live with reconnect/backoff.
             var backoffMs = 500L
@@ -151,6 +177,17 @@ class SessionViewModel(
                 restore(prompt)
                 _state.update { it.copy(sending = false, sendError = e.message ?: "Send failed") }
             }
+        }
+    }
+
+    /**
+     * Answers a permission request and clears it locally right away. [reply] is
+     * `"once"`, `"always"`, or `"reject"`. Mirrors iOS `handleReply`.
+     */
+    fun replyPermission(request: PermissionRequest, reply: String) {
+        store.dismissPermission(request.id) // optimistic
+        viewModelScope.launch {
+            runCatching { server.replyPermission(session.directory, request.id, reply) }
         }
     }
 }

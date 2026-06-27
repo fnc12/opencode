@@ -16,6 +16,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import studio.eugenezakharov.opencode.api.models.HealthResponse
 import studio.eugenezakharov.opencode.api.models.MessageParsing
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
+import studio.eugenezakharov.opencode.api.models.PermissionRequest
 import studio.eugenezakharov.opencode.api.models.Project
 import studio.eugenezakharov.opencode.api.models.ProviderInfo
 import studio.eugenezakharov.opencode.api.models.ProvidersParsing
@@ -80,6 +81,18 @@ class ServerConnection(
     suspend fun providers(): List<ProviderInfo> = withContext(Dispatchers.IO) {
         ProvidersParsing.parse(json, getRaw("/config/providers", emptyMap()))
     }
+
+    /** Lists pending permission requests (`GET /permission?directory=…`). */
+    suspend fun permissions(directory: String): List<PermissionRequest> = withContext(Dispatchers.IO) {
+        PermissionRequest.parseList(json, getRaw("/permission", mapOf("directory" to directory)))
+    }
+
+    /** Answers a permission request: `once`, `always`, or `reject`. */
+    suspend fun replyPermission(directory: String, requestID: String, reply: String) =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject { put("reply", reply) }
+            postRaw("/permission/$requestID/reply", mapOf("directory" to directory), body.toString())
+        }
 
     /**
      * Sends a text prompt to a session. The assistant's reply streams back over
