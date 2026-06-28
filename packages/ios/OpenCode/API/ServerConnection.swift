@@ -66,6 +66,12 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/message", query: ["directory": directory])
     }
 
+    /// Lists the entries (folders + files) of a directory on the server, for the
+    /// folder browser. Works for any path the server can read.
+    func listDirectory(path: String) async throws -> [FileEntry] {
+        try await get("/file", query: ["directory": path, "path": "."])
+    }
+
     /// Creates a new session in a directory and returns it. Works for any folder
     /// the server can see — including on a fresh server with no projects yet.
     func createSession(directory: String, title: String? = nil) async throws -> Session {

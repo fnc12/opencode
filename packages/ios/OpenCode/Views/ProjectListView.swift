@@ -8,7 +8,7 @@ struct ProjectListView: View {
 
     @State private var path: [AppRoute] = []
     @State private var showOpenFolder = false
-    @State private var folderPath = ""
+    @AppStorage("openFolder.lastPath") private var folderPath = "/"
     @State private var creating = false
     @State private var createError: String?
 
@@ -59,7 +59,7 @@ struct ProjectListView: View {
                 }
             }
             .sheet(isPresented: $showOpenFolder) {
-                OpenFolderSheet(path: $folderPath, creating: creating, error: createError) {
+                OpenFolderSheet(server: server, path: $folderPath, creating: creating, error: createError) {
                     Task { await openFolder() }
                 }
             }
@@ -76,7 +76,6 @@ struct ProjectListView: View {
             let session = try await server.createSession(directory: directory)
             creating = false
             showOpenFolder = false
-            folderPath = ""
             path.append(.session(session))
         } catch {
             creating = false
