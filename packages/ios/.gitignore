@@ -11,3 +11,6 @@ xcuserdata/
 *.dSYM
 Pods/
 build-sim/
+build-dev/
+build-shubat/
+build-sim/
