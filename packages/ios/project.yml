@@ -16,12 +16,12 @@ targets:
     info:
       path: OpenCode/Info.plist
       properties:
-        CFBundleDisplayName: OpenCode
+        CFBundleDisplayName: Shubat
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: "OpenCode needs local network access to discover servers"
-        NSCameraUsageDescription: "OpenCode uses the camera to scan a pairing QR code"
+        NSLocalNetworkUsageDescription: "Shubat needs local network access to discover servers"
+        NSCameraUsageDescription: "Shubat uses the camera to scan a pairing QR code"
         NSBonjourServices:
           - _opencode._tcp
         CFBundleURLTypes:
@@ -31,6 +31,7 @@ targets:
     settings:
       DEVELOPMENT_TEAM: QDTPG5DB79
       CODE_SIGN_STYLE: Automatic
+      PRODUCT_BUNDLE_IDENTIFIER: studio.eugenezakharov.shubat
   OpenCodeTests:
     type: bundle.unit-test
     platform: iOS

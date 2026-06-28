@@ -11,9 +11,9 @@ struct ConnectView: View {
                 Spacer()
 
                 VStack(spacing: 12) {
-                    Text("opencode")
+                    Text("shubat")
                         .font(.system(size: 36, weight: .bold, design: .monospaced))
-                    Text("Remote")
+                    Text("for OpenCode")
                         .font(.system(size: 18, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
