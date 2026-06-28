@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>OpenCode</string>
+	<string>Shubat</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -36,9 +36,9 @@
 		<string>_opencode._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>OpenCode uses the camera to scan a pairing QR code</string>
+	<string>Shubat uses the camera to scan a pairing QR code</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>OpenCode needs local network access to discover servers</string>
+	<string>Shubat needs local network access to discover servers</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>
