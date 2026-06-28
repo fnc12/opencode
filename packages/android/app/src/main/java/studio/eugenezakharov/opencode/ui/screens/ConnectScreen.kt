@@ -42,9 +42,9 @@ fun ConnectScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("opencode", style = MaterialTheme.typography.headlineLarge)
+        Text("shubat", style = MaterialTheme.typography.headlineLarge)
         Text(
-            "Remote",
+            "for OpenCode",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
