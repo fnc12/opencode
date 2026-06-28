@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import studio.eugenezakharov.opencode.api.models.FileEntry
 import studio.eugenezakharov.opencode.api.models.HealthResponse
 import studio.eugenezakharov.opencode.api.models.MessageParsing
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
@@ -65,6 +66,18 @@ class ServerConnection(
 
     suspend fun projects(): List<Project> =
         get("/project", kotlinx.serialization.builtins.ListSerializer(Project.serializer()))
+
+    /**
+     * Lists the contents of a directory on the server (`GET /file?directory=…&path=.`).
+     * Works for any path the server can read — powers the folder browser. Mirrors
+     * iOS `listDirectory`.
+     */
+    suspend fun listDirectory(path: String): List<FileEntry> =
+        get(
+            "/file",
+            kotlinx.serialization.builtins.ListSerializer(FileEntry.serializer()),
+            mapOf("directory" to path, "path" to "."),
+        )
 
     suspend fun sessions(directory: String): List<Session> =
         get(

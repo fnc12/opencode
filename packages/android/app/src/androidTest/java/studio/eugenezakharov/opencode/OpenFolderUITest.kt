@@ -8,6 +8,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -61,16 +62,22 @@ class OpenFolderUITest {
             composeRule.onNodeWithTag("connect.serverURL").performTextInput(appBase)
             composeRule.onNodeWithTag("connect.button").performClick()
 
-            // Projects screen: wait for the Open-folder action, then open the dialog.
+            // Projects screen: wait for the Open-folder action, then open the browser.
             composeRule.waitUntil(timeoutMillis = 20_000) {
                 composeRule.onAllNodes(hasTestTag("projects.openFolder")).fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithTag("projects.openFolder").performClick()
 
-            // Enter the server-absolute path and create the session.
+            // The folder browser lists the root's subfolders (the server has /mnt).
             composeRule.waitUntil(timeoutMillis = 10_000) {
                 composeRule.onAllNodes(hasTestTag("openFolder.path")).fetchSemanticsNodes().isNotEmpty()
             }
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                composeRule.onAllNodes(hasTestTag("dir.mnt")).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Clear the current path, type the server-absolute target, and open it.
+            composeRule.onNodeWithTag("openFolder.path").performTextClearance()
             composeRule.onNodeWithTag("openFolder.path").performTextInput(dir)
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 runCatching { composeRule.onNodeWithTag("openFolder.create").assertIsEnabled(); true }
