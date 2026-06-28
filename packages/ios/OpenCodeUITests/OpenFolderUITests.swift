@@ -29,9 +29,17 @@ final class OpenFolderUITests: XCTestCase {
         XCTAssertTrue(openFolder.waitForExistence(timeout: 15), "Projects screen / open-folder button missing")
         openFolder.tap()
 
+        // The folder browser lists the root's subfolders.
+        XCTAssertTrue(app.buttons["dir.mnt"].waitForExistence(timeout: 10), "folder browser didn't list root")
+
+        // Type the target path (clearing the current "/" first) and open it.
         let pathField = app.textFields["openFolder.path"]
         XCTAssertTrue(pathField.waitForExistence(timeout: 5), "open-folder sheet missing")
-        pathField.tap(); pathField.typeText(dir)
+        pathField.tap()
+        if let current = pathField.value as? String {
+            pathField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+        }
+        pathField.typeText(dir)
         app.buttons["openFolder.create"].tap()
 
         // We should land in a freshly-created session (the composer is present).
