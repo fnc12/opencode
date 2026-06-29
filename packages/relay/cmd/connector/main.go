@@ -6,10 +6,14 @@
 // Config (env):
 //
 //	RELAY_URL         ws(s):// URL of the relay's /connector endpoint (required)
-//	TUNNEL_ID         tunnel id this connector serves (required)
-//	TUNNEL_TOKEN      auth token presented to the relay (required)
+//	TUNNEL_ID         tunnel id this connector serves (optional; generated+persisted)
+//	TUNNEL_TOKEN      auth token presented to the relay (optional; generated+persisted)
 //	OPENCODE_URL      local OpenCode server base URL (default http://127.0.0.1:4096)
-//	OPENCODE_PASSWORD optional; injected as Basic admin:<pw> when the client sent no Authorization
+//	OPENCODE_PASSWORD optional; injected as Basic opencode:<pw> when the client sent no Authorization
+//
+// On first run with no TUNNEL_ID/TUNNEL_TOKEN the connector generates a random
+// identity, persists it (~/.config/shubat/connector.json), and prints a
+// pairing deep link the mobile app scans/pastes to connect.
 package main
 
 import (
@@ -39,17 +43,21 @@ type config struct {
 }
 
 func loadConfig() (config, error) {
-	c := config{
-		relayURL: os.Getenv("RELAY_URL"),
-		tunnelID: os.Getenv("TUNNEL_ID"),
-		token:    os.Getenv("TUNNEL_TOKEN"),
+	relayURL := os.Getenv("RELAY_URL")
+	if relayURL == "" {
+		return config{}, errors.New("RELAY_URL is required")
+	}
+	id, err := loadOrCreateIdentity(os.Getenv("TUNNEL_ID"), os.Getenv("TUNNEL_TOKEN"))
+	if err != nil {
+		return config{}, err
+	}
+	return config{
+		relayURL: relayURL,
+		tunnelID: id.TunnelID,
+		token:    id.Token,
 		localURL: envOr("OPENCODE_URL", "http://127.0.0.1:4096"),
 		password: os.Getenv("OPENCODE_PASSWORD"),
-	}
-	if c.relayURL == "" || c.tunnelID == "" || c.token == "" {
-		return c, errors.New("RELAY_URL, TUNNEL_ID and TUNNEL_TOKEN are required")
-	}
-	return c, nil
+	}, nil
 }
 
 func main() {
@@ -59,6 +67,8 @@ func main() {
 		log.Error("config", "err", err)
 		os.Exit(1)
 	}
+
+	printPairing(cfg)
 
 	ctx, stop := signalContext()
 	defer stop()
@@ -202,7 +212,7 @@ func (c *connector) handleRequest(ctx context.Context, f tunnel.Frame) {
 	}
 	// Inject local auth only if the client didn't supply any.
 	if c.cfg.password != "" && req.Header.Get("Authorization") == "" {
-		req.SetBasicAuth("admin", c.cfg.password)
+		req.SetBasicAuth("opencode", c.cfg.password)
 	}
 
 	resp, err := c.client.Do(req)

@@ -37,6 +37,9 @@ func (s *stream) close() { s.once.Do(func() { close(s.frames) }) }
 // per-stream channel that the corresponding HTTP handler is waiting on.
 type Conn struct {
 	TunnelID string
+	// Token is the per-tunnel secret; mobile requests to /t/{id} must present it
+	// (X-Tunnel-Token) so the tunnel id alone isn't enough to reach the server.
+	Token string
 
 	ws       *websocket.Conn
 	writeMu  sync.Mutex // serializes all writes to the socket
@@ -55,9 +58,10 @@ const (
 )
 
 // NewConn wraps an established WebSocket connection and starts its read loop.
-func NewConn(tunnelID string, ws *websocket.Conn) *Conn {
+func NewConn(tunnelID, token string, ws *websocket.Conn) *Conn {
 	c := &Conn{
 		TunnelID: tunnelID,
+		Token:    token,
 		ws:       ws,
 		streams:  make(map[uint64]*stream),
 		closed:   make(chan struct{}),
