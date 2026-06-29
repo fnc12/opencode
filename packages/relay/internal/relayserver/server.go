@@ -122,7 +122,7 @@ func (s *Server) connector(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn := tunnel.NewConn(reg.TunnelID, ws)
+	conn := tunnel.NewConn(reg.TunnelID, reg.Token, ws)
 	s.reg.Add(conn)
 	s.log.Info("connector registered", "tunnel", reg.TunnelID, "tunnels", s.reg.Count())
 
@@ -150,6 +150,12 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	conn := s.reg.Get(id)
 	if conn == nil {
 		http.Error(w, "tunnel offline", http.StatusBadGateway)
+		return
+	}
+	// Per-tunnel auth: knowing the tunnel id isn't enough — the caller must
+	// present the tunnel token (handed out via the pairing payload).
+	if conn.Token != "" && r.Header.Get("X-Tunnel-Token") != conn.Token {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	// Reconstruct the path relative to the OpenCode server root.

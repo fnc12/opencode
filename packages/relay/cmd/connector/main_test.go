@@ -67,7 +67,9 @@ func TestConnectorProxiesGET(t *testing.T) {
 	})
 	relayURL := fullStack(t, mux)
 
-	resp, err := http.Get(relayURL + "/t/tunZ/global/health")
+	greq, _ := http.NewRequest(http.MethodGet, relayURL+"/t/tunZ/global/health", nil)
+	greq.Header.Set("X-Tunnel-Token", "secret")
+	resp, err := http.DefaultClient.Do(greq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +91,10 @@ func TestConnectorForwardsBody(t *testing.T) {
 	})
 	relayURL := fullStack(t, mux)
 
-	resp, err := http.Post(relayURL+"/t/tunZ/echo", "text/plain", strings.NewReader("hello"))
+	preq, _ := http.NewRequest(http.MethodPost, relayURL+"/t/tunZ/echo", strings.NewReader("hello"))
+	preq.Header.Set("Content-Type", "text/plain")
+	preq.Header.Set("X-Tunnel-Token", "secret")
+	resp, err := http.DefaultClient.Do(preq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +132,7 @@ func TestConnectorSSEAndCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, relayURL+"/t/tunZ/event", nil)
+	req.Header.Set("X-Tunnel-Token", "secret")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

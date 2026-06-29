@@ -72,6 +72,37 @@ func serveOnce(t *testing.T, ws *websocket.Conn, reply func(head tunnel.RequestH
 	reply(head, body, write)
 }
 
+func getTunnel(url, token string) (*http.Response, error) {
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("X-Tunnel-Token", token)
+	return http.DefaultClient.Do(req)
+}
+
+func TestProxyRejectsWrongToken(t *testing.T) {
+	ts := newTestServer(t)
+	ws := dialConnector(t, ts, "tunA", "secret")
+	defer ws.Close()
+	waitTunnel(t, ts)
+
+	resp, err := http.Get(ts.URL + "/t/tunA/global/health") // no token
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no token: expected 401, got %d", resp.StatusCode)
+	}
+
+	resp2, err := getTunnel(ts.URL+"/t/tunA/global/health", "nope") // wrong token
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token: expected 401, got %d", resp2.StatusCode)
+	}
+}
+
 func TestProxyRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
 	ws := dialConnector(t, ts, "tun1", "secret")
@@ -88,7 +119,7 @@ func TestProxyRoundTrip(t *testing.T) {
 	})
 
 	waitTunnel(t, ts)
-	resp, err := http.Get(ts.URL + "/t/tun1/global/health")
+	resp, err := getTunnel(ts.URL+"/t/tun1/global/health", "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +152,7 @@ func TestProxySSEStreaming(t *testing.T) {
 	})
 
 	waitTunnel(t, ts)
-	resp, err := http.Get(ts.URL + "/t/tun2/event")
+	resp, err := getTunnel(ts.URL+"/t/tun2/event", "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
