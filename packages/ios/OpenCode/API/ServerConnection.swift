@@ -85,7 +85,7 @@ final class ServerConnection {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let password = config.password, !password.isEmpty {
-            let cred = Data("admin:\(password)".utf8).base64EncodedString()
+            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
             request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
         }
         var body: [String: Any] = [:]
@@ -162,7 +162,7 @@ final class ServerConnection {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let password = config.password, !password.isEmpty {
-            let cred = Data("admin:\(password)".utf8).base64EncodedString()
+            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
             request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -189,7 +189,7 @@ final class ServerConnection {
 
         var authHeader: String?
         if let password = config.password, !password.isEmpty {
-            let cred = Data("admin:\(password)".utf8).base64EncodedString()
+            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
             authHeader = "Basic \(cred)"
         }
         return EventStream(url: url, authHeader: authHeader)
@@ -209,7 +209,7 @@ final class ServerConnection {
         // The OpenCode server's password (OPENCODE_SERVER_PASSWORD) is forwarded
         // as Basic auth; in relay mode the connector passes the header through.
         if let password = config.password, !password.isEmpty {
-            let cred = Data("admin:\(password)".utf8).base64EncodedString()
+            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
             request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
         }
         let (data, response) = try await URLSession.shared.data(for: request)

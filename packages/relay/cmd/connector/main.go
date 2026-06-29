@@ -9,7 +9,7 @@
 //	TUNNEL_ID         tunnel id this connector serves (required)
 //	TUNNEL_TOKEN      auth token presented to the relay (required)
 //	OPENCODE_URL      local OpenCode server base URL (default http://127.0.0.1:4096)
-//	OPENCODE_PASSWORD optional; injected as Basic admin:<pw> when the client sent no Authorization
+//	OPENCODE_PASSWORD optional; injected as Basic opencode:<pw> when the client sent no Authorization
 package main
 
 import (
@@ -202,7 +202,7 @@ func (c *connector) handleRequest(ctx context.Context, f tunnel.Frame) {
 	}
 	// Inject local auth only if the client didn't supply any.
 	if c.cfg.password != "" && req.Header.Get("Authorization") == "" {
-		req.SetBasicAuth("admin", c.cfg.password)
+		req.SetBasicAuth("opencode", c.cfg.password)
 	}
 
 	resp, err := c.client.Do(req)
