@@ -121,6 +121,10 @@ struct MessageListView: UIViewRepresentable {
                     spacer(); body.append(MarkdownRenderer.attributed(text, font: bodyFont, color: .label))
                 case .tool(let tool):
                     spacer(); body.append(toolLine(tool))
+                case .patch(let patch):
+                    spacer(); body.append(patchLine(patch))
+                case .file(let file):
+                    spacer(); body.append(fileChip(file))
                 case .stepStart(let step):
                     if let title = step.title {
                         spacer()
@@ -153,23 +157,53 @@ struct MessageListView: UIViewRepresentable {
             let mark: String
             let color: UIColor
             switch tool.state.status {
-            case "completed": mark = "✓ "; color = .systemGreen
-            case "running": mark = "… "; color = .systemBlue
-            case "error": mark = "✕ "; color = .systemRed
-            case "pending": mark = "◷ "; color = .systemOrange
-            default: mark = "▸ "; color = .secondaryLabel
+            case "completed": mark = "✓"; color = .systemGreen
+            case "running": mark = "…"; color = .systemBlue
+            case "error": mark = "✕"; color = .systemRed
+            case "pending": mark = "◷"; color = .systemOrange
+            default: mark = "▸"; color = .secondaryLabel
             }
+
+            let (label, detail) = ToolDisplay.describe(tool)
             let line = NSMutableAttributedString(
-                string: mark + (tool.state.title ?? tool.tool),
-                attributes: [.font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 1, weight: .medium),
+                string: "\(mark) \(label)",
+                attributes: [.font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 1, weight: .semibold),
                              .foregroundColor: color])
-            if let output = tool.state.output, !output.isEmpty {
-                let snippet = output.count > 400 ? String(output.prefix(400)) + "…" : output
-                line.append(NSAttributedString(string: "\n" + snippet, attributes: [
-                    .font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 2, weight: .regular),
+            if let detail, !detail.isEmpty {
+                line.append(NSAttributedString(string: "  \(detail)", attributes: [
+                    .font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 1, weight: .regular),
                     .foregroundColor: UIColor.secondaryLabel]))
             }
+            // Never dump tool output inline — for `read` it's a whole file, for
+            // `bash` a full build log. The web client keeps tool rows to one
+            // line; full output belongs on a future tap-through detail screen.
+            // Only an error is worth surfacing here.
+            if tool.state.status == "error", let err = (tool.state.error ?? tool.state.output), !err.isEmpty {
+                let snippet = err.count > 200 ? String(err.prefix(200)) + "…" : err
+                line.append(NSAttributedString(string: "\n\(snippet)", attributes: [
+                    .font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 2, weight: .regular),
+                    .foregroundColor: UIColor.systemRed]))
+            }
             return line
+        }
+
+        /// A `patch` part: "⌥ Patch  N files" (the committed change snapshot).
+        private static func patchLine(_ patch: PatchContent) -> NSAttributedString {
+            let line = NSMutableAttributedString(
+                string: "⌥ Patch",
+                attributes: [.font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 1, weight: .semibold),
+                             .foregroundColor: UIColor.systemPurple])
+            line.append(NSAttributedString(string: "  \(PatchDisplay.summary(patch))", attributes: [
+                .font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 1, weight: .regular),
+                .foregroundColor: UIColor.secondaryLabel]))
+            return line
+        }
+
+        /// A `file` part: a compact context chip "📎 filename:line".
+        private static func fileChip(_ file: FileRefContent) -> NSAttributedString {
+            NSAttributedString(string: "📎 \(FileRefDisplay.chip(file))", attributes: [
+                .font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 1, weight: .regular),
+                .foregroundColor: UIColor.systemTeal])
         }
 
         private static func tokenSummary(_ info: AssistantMessage) -> String {
@@ -186,7 +220,9 @@ struct MessageListView: UIViewRepresentable {
                 hasher.combine(part.id)
                 switch part.content {
                 case .text(let text): hasher.combine(text.count)
-                case .tool(let tool): hasher.combine(tool.state.status); hasher.combine(tool.state.output?.count ?? 0)
+                case .tool(let tool): hasher.combine(tool.state.status); hasher.combine(tool.state.title); hasher.combine(tool.tool)
+                case .patch(let patch): hasher.combine(patch.files.count); hasher.combine(patch.hash)
+                case .file(let file): hasher.combine(file.filename); hasher.combine(file.url)
                 case .stepStart(let step): hasher.combine(step.title)
                 case .stepFinish, nil: break
                 }

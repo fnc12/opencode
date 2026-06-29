@@ -117,6 +117,10 @@ struct ConnectView: View {
 
     private var connectButton: some View {
         Button {
+            // Dismiss the keyboard: once the spinner shows there's nothing left
+            // to type, and the fields shouldn't sit behind the keyboard.
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             Task { await server.connect() }
         } label: {
             if server.loading {

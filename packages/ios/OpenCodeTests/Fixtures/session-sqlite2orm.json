@@ -1,0 +1,449 @@
+[
+ {
+  "info": {
+   "id": "msg_e03570d8d001pWNz1UQgLxr1wn",
+   "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+   "role": "assistant",
+   "time": {
+    "created": 1778172497293,
+    "completed": 1778172505149
+   },
+   "modelID": "glm-5v-turbo",
+   "providerID": "zai",
+   "mode": "build",
+   "agent": "build",
+   "cost": 0.01284568,
+   "tokens": {
+    "total": 10568,
+    "input": 10453,
+    "output": 18,
+    "reasoning": 55,
+    "cache": {
+     "read": 42,
+     "write": 0
+    }
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_e03572c1f001kniJ3nz1pok4wS",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e03570d8d001pWNz1UQgLxr1wn",
+    "type": "tool",
+    "callID": "call_5641fbde9a2c4ff7b451b3c5",
+    "tool": "read",
+    "state": {
+     "status": "completed",
+     "title": "",
+     "input": {
+      "filePath": "sqlite2orm"
+     },
+     "metadata": {},
+     "time": {
+      "start": 1778172505120,
+      "end": 1778172505122
+     }
+    }
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_e035af698001gNaSOtC2KCKaIl",
+   "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+   "role": "assistant",
+   "time": {
+    "created": 1778172753560,
+    "completed": 1778172762293
+   },
+   "modelID": "glm-5v-turbo",
+   "providerID": "zai",
+   "mode": "build",
+   "agent": "build",
+   "cost": 0.03715328,
+   "tokens": {
+    "total": 29996,
+    "input": 29526,
+    "output": 405,
+    "reasoning": 23,
+    "cache": {
+     "read": 42,
+     "write": 0
+    }
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_e035b183a015WoAZL7U5EtDoFd",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e035af698001gNaSOtC2KCKaIl",
+    "type": "tool",
+    "callID": "call_bb56f599c98b4c7baf2207e2",
+    "tool": "edit",
+    "state": {
+     "status": "completed",
+     "title": "include/sqlite2orm/ast_query.h",
+     "input": {
+      "filePath": "include/sqlite2orm/ast_query.h"
+     },
+     "metadata": {
+      "filediff": {
+       "additions": 5,
+       "deletions": 4
+      }
+     },
+     "time": {
+      "start": 1778172762174,
+      "end": 1778172762175
+     }
+    }
+   },
+   {
+    "id": "prt_e035b18b2001h8TFROtYaDs3fw",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e035af698001gNaSOtC2KCKaIl",
+    "type": "patch",
+    "hash": "7271dbc0825a7de222d9a0cfcf0ccbca09084d6e",
+    "files": [
+     "ast_query.h"
+    ]
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_e03581f43001zbjScSRiX448H4",
+   "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+   "role": "assistant",
+   "time": {
+    "created": 1778172567363,
+    "completed": 1778172626176
+   },
+   "modelID": "glm-5v-turbo",
+   "providerID": "zai",
+   "mode": "build",
+   "agent": "build",
+   "cost": 0.01777648,
+   "tokens": {
+    "total": 14677,
+    "input": 14562,
+    "output": 61,
+    "reasoning": 12,
+    "cache": {
+     "read": 42,
+     "write": 0
+    }
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_e03582e5a0099xkIMNNWkDDk07",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e03581f43001zbjScSRiX448H4",
+    "type": "tool",
+    "callID": "call_abc6461c98284ccab74fb3c5",
+    "tool": "bash",
+    "state": {
+     "status": "completed",
+     "title": "Configure cmake build",
+     "input": {
+      "description": "Configure cmake build"
+     },
+     "metadata": {
+      "exit": 0
+     },
+     "time": {
+      "start": 1778172626129,
+      "end": 1778172626131
+     }
+    }
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_e035958b00018HXx6GBIpZAdyn",
+   "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+   "role": "assistant",
+   "time": {
+    "created": 1778172647600,
+    "completed": 1778172654494
+   },
+   "modelID": "glm-5v-turbo",
+   "providerID": "zai",
+   "mode": "build",
+   "agent": "build",
+   "cost": 0.01926688,
+   "tokens": {
+    "total": 15926,
+    "input": 15814,
+    "output": 33,
+    "reasoning": 37,
+    "cache": {
+     "read": 42,
+     "write": 0
+    }
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_e03597364002n1SEmKN4zMVlhq",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e035958b00018HXx6GBIpZAdyn",
+    "type": "tool",
+    "callID": "call_fb620b89bb0c4bf0b7b1dbe4",
+    "tool": "grep",
+    "state": {
+     "status": "completed",
+     "title": "BindParameter|bind.*param|:refId|:result",
+     "input": {
+      "pattern": "BindParameter|bind.*param|:refId|:result",
+      "include": "*.cpp,*.h"
+     },
+     "metadata": {
+      "matches": 0
+     },
+     "time": {
+      "start": 1778172654437,
+      "end": 1778172654445
+     }
+    }
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_e03580957001AepUkEid2pWZet",
+   "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+   "role": "assistant",
+   "time": {
+    "created": 1778172561751,
+    "completed": 1778172567360
+   },
+   "modelID": "glm-5v-turbo",
+   "providerID": "zai",
+   "mode": "build",
+   "agent": "build",
+   "cost": 0.01797368,
+   "tokens": {
+    "total": 14412,
+    "input": 14113,
+    "output": 164,
+    "reasoning": 93,
+    "cache": {
+     "read": 42,
+     "write": 0
+    }
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_e03581eed001t1RV0JVp25vfRT",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e03580957001AepUkEid2pWZet",
+    "type": "tool",
+    "callID": "call_4ca75ef827bf489e830ff07a",
+    "tool": "todowrite",
+    "state": {
+     "status": "completed",
+     "title": "5 todos",
+     "input": {},
+     "metadata": {
+      "todos": [
+       {
+        "status": "in_progress"
+       },
+       {
+        "status": "pending"
+       },
+       {
+        "status": "pending"
+       },
+       {
+        "status": "pending"
+       },
+       {
+        "status": "pending"
+       }
+      ]
+     },
+     "time": {
+      "start": 1778172567284,
+      "end": 1778172567288
+     }
+    }
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_e12834cda0019bH6xTvVDzye1z",
+   "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+   "role": "assistant",
+   "time": {
+    "created": 1778427055322,
+    "completed": 1778427087558
+   },
+   "modelID": "glm-5v-turbo",
+   "providerID": "zai",
+   "mode": "build",
+   "agent": "build",
+   "cost": 0.09267136,
+   "tokens": {
+    "total": 75800,
+    "input": 75123,
+    "output": 264,
+    "reasoning": 364,
+    "cache": {
+     "read": 49,
+     "write": 0
+    }
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_e128399530013dh0zHJiv0AA4X",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e12834cda0019bH6xTvVDzye1z",
+    "type": "tool",
+    "callID": "call_3481ee38054b472f867cb649",
+    "tool": "question",
+    "state": {
+     "status": "completed",
+     "title": "Asked 1 question",
+     "input": {},
+     "metadata": {},
+     "time": {
+      "start": 1778427074903,
+      "end": 1778427087507
+     }
+    }
+   }
+  ]
+ },
+ {
+  "info": {
+   "id": "msg_e11dae332001d4sTCDIdT6TJJ4",
+   "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+   "role": "user",
+   "time": {
+    "created": 1778416018401
+   },
+   "agent": "build",
+   "model": {
+    "providerID": "zai",
+    "modelID": "glm-5v-turbo"
+   }
+  },
+  "parts": [
+   {
+    "id": "prt_e11dae336002cXuzilAbIMBa5Q",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_create_table.cpp",
+    "url": "file:///codegen_tests_create_table.cpp?start=266&end=266"
+   },
+   {
+    "id": "prt_e11dae336004EHjccharqKY9yH",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_create_table.cpp",
+    "url": "file:///codegen_tests_create_table.cpp?start=425&end=425"
+   },
+   {
+    "id": "prt_e11dae337001S3V1PqogtJy2YS",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_create_table.cpp",
+    "url": "file:///codegen_tests_create_table.cpp?start=440&end=440"
+   },
+   {
+    "id": "prt_e11dae337003mTLgHOFwdfkLeP",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_create_table.cpp",
+    "url": "file:///codegen_tests_create_table.cpp?start=455&end=455"
+   },
+   {
+    "id": "prt_e11dae337005T4Q3GurfyY8JXs",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_create_table.cpp",
+    "url": "file:///codegen_tests_create_table.cpp?start=501&end=501"
+   },
+   {
+    "id": "prt_e11dae337007W8SgDIRHKDWJJT",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_create_table.cpp",
+    "url": "file:///codegen_tests_create_table.cpp?start=524&end=524"
+   },
+   {
+    "id": "prt_e11dae3370096C66dhYNGKltXt",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_dml.cpp",
+    "url": "file:///codegen_tests_dml.cpp?start=45&end=45"
+   },
+   {
+    "id": "prt_e11dae33700buKPpuHYOyDYTyg",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_dml.cpp",
+    "url": "file:///codegen_tests_dml.cpp?start=52&end=52"
+   },
+   {
+    "id": "prt_e11dae33700dnD9cMbBeQ2fUvx",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_dml.cpp",
+    "url": "file:///codegen_tests_dml.cpp?start=75&end=75"
+   },
+   {
+    "id": "prt_e11dae33700fLBXAPvbS3M1KCT",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_dml.cpp",
+    "url": "file:///codegen_tests_dml.cpp?start=80&end=80"
+   },
+   {
+    "id": "prt_e11dae337011SyAKaSi02BeG7i",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_dml.cpp",
+    "url": "file:///codegen_tests_dml.cpp?start=85&end=85"
+   },
+   {
+    "id": "prt_e11dae337013C5d9YxqunocE6s",
+    "sessionID": "ses_1fca8f2a4ffeyRXHwv6SCuKKnu",
+    "messageID": "msg_e11dae332001d4sTCDIdT6TJJ4",
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "codegen_tests_dml.cpp",
+    "url": "file:///codegen_tests_dml.cpp?start=124&end=124"
+   }
+  ]
+ }
+]
