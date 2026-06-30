@@ -8,6 +8,9 @@ import Foundation
 struct EventStream {
     let url: URL
     let authHeader: String?
+    /// In relay mode, the per-tunnel token the relay requires before it will
+    /// proxy the stream (`X-Tunnel-Token`); nil in direct mode.
+    var tunnelToken: String? = nil
 
     func frames() -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
@@ -19,6 +22,9 @@ struct EventStream {
                     request.timeoutInterval = 86_400
                     if let authHeader {
                         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+                    }
+                    if let tunnelToken {
+                        request.setValue(tunnelToken, forHTTPHeaderField: "X-Tunnel-Token")
                     }
 
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)

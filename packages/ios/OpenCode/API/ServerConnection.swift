@@ -84,10 +84,7 @@ final class ServerConnection {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let password = config.password, !password.isEmpty {
-            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
-            request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
-        }
+        applyAuth(to: &request)
         var body: [String: Any] = [:]
         if let title, !title.isEmpty { body["title"] = title }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -149,6 +146,25 @@ final class ServerConnection {
         ])
     }
 
+    /// In relay mode, the per-tunnel token the relay checks (`X-Tunnel-Token`)
+    /// before proxying to the connector; nil in direct mode.
+    private var tunnelToken: String? {
+        config.mode == .relay && !config.token.isEmpty ? config.token : nil
+    }
+
+    /// Applies the auth headers every request shares: the OpenCode server
+    /// password as Basic auth (forwarded through the connector) and, in relay
+    /// mode, the X-Tunnel-Token the relay requires.
+    private func applyAuth(to request: inout URLRequest) {
+        if let password = config.password, !password.isEmpty {
+            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
+            request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
+        }
+        if let tunnelToken {
+            request.setValue(tunnelToken, forHTTPHeaderField: "X-Tunnel-Token")
+        }
+    }
+
     func post(_ path: String, query: [String: String] = [:], body: [String: Any]) async throws {
         guard var components = URLComponents(string: config.baseURL + path) else {
             throw ClientError.invalidURL
@@ -161,10 +177,7 @@ final class ServerConnection {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let password = config.password, !password.isEmpty {
-            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
-            request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
-        }
+        applyAuth(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -192,7 +205,7 @@ final class ServerConnection {
             let cred = Data("opencode:\(password)".utf8).base64EncodedString()
             authHeader = "Basic \(cred)"
         }
-        return EventStream(url: url, authHeader: authHeader)
+        return EventStream(url: url, authHeader: authHeader, tunnelToken: tunnelToken)
     }
 
     func get<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
@@ -208,10 +221,7 @@ final class ServerConnection {
         var request = URLRequest(url: url)
         // The OpenCode server's password (OPENCODE_SERVER_PASSWORD) is forwarded
         // as Basic auth; in relay mode the connector passes the header through.
-        if let password = config.password, !password.isEmpty {
-            let cred = Data("opencode:\(password)".utf8).base64EncodedString()
-            request.setValue("Basic \(cred)", forHTTPHeaderField: "Authorization")
-        }
+        applyAuth(to: &request)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0

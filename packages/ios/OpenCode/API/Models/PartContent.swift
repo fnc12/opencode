@@ -5,6 +5,10 @@ enum PartContent {
     case tool(ToolContent)
     case stepStart(StepStartContent)
     case stepFinish(StepFinishContent)
+    /// A committed change snapshot: the set of files touched in one assistant turn.
+    case patch(PatchContent)
+    /// A referenced file (IDE context attachment), rendered as a compact chip.
+    case file(FileRefContent)
 
     init?(from decoder: Decoder, type: String) throws {
         switch type {
@@ -17,6 +21,10 @@ enum PartContent {
             self = .stepStart(try StepStartContent(from: decoder))
         case "step-finish":
             self = .stepFinish(try StepFinishContent(from: decoder))
+        case "patch":
+            self = .patch(try PatchContent(from: decoder))
+        case "file":
+            self = .file(try FileRefContent(from: decoder))
         default:
             return nil
         }
@@ -40,6 +48,42 @@ struct ToolState: Decodable {
     let error: String?
     let title: String?
     let time: ToolTime?
+    let metadata: ToolMetadata?
+}
+
+/// Per-tool result metadata. Fields are tool-specific and all optional; the
+/// renderer reads whichever apply (edit → filediff, grep → matches, bash → exit).
+struct ToolMetadata: Decodable {
+    let filediff: FileDiff?
+    let matches: Int?
+    let exit: Int?
+    let todos: [MetaTodo]?
+}
+
+/// One todo entry from a `todowrite` tool's metadata (we only need its status
+/// to show the completed/total ratio).
+struct MetaTodo: Decodable {
+    let status: String?
+}
+
+/// Line-change counts for an `edit`/`write` tool, used for the "+N −M" badge.
+struct FileDiff: Decodable {
+    let additions: Int?
+    let deletions: Int?
+}
+
+/// A `patch` part: the files committed in one assistant turn.
+struct PatchContent: Decodable {
+    let hash: String?
+    let files: [String]
+}
+
+/// A `file` part: a referenced file with an optional line range encoded in the
+/// `url` query (`?start=266&end=266`).
+struct FileRefContent: Decodable {
+    let filename: String?
+    let url: String?
+    let mime: String?
 }
 
 struct ToolTime: Decodable {

@@ -62,8 +62,10 @@ struct SessionView: View {
     }
 
     private var thread: some View {
+        // No .ignoresSafeArea here: the composer is installed via
+        // .safeAreaInset(.bottom), so the list must stay within that reduced
+        // safe area — otherwise its last rows scroll underneath the composer.
         MessageListView(messages: store.messages, revision: store.revision)
-            .ignoresSafeArea(.container, edges: .bottom)
     }
 
     /// Loads the message history, then consumes the SSE stream, reconnecting
