@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit
 class EventStream(
     private val url: String,
     private val authHeader: String?,
+    /** In relay mode, the per-tunnel token the relay requires (`X-Tunnel-Token`); null in direct mode. */
+    private val tunnelToken: String? = null,
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -35,6 +37,7 @@ class EventStream(
             .url(url)
             .header("Accept", "text/event-stream")
         authHeader?.let { requestBuilder.header("Authorization", it) }
+        tunnelToken?.let { requestBuilder.header("X-Tunnel-Token", it) }
 
         client.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) throw ClientError.Http(response.code)

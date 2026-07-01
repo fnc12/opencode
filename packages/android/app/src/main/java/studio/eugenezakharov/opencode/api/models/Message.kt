@@ -1,8 +1,10 @@
 package studio.eugenezakharov.opencode.api.models
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -138,7 +140,7 @@ data class MessagePart(
     }
 }
 
-/** Resolved content of a message part. */
+/** Resolved content of a message part. Mirrors iOS `PartContent`. */
 sealed interface PartContent {
     data class Text(val text: String) : PartContent
     data class Tool(
@@ -148,9 +150,16 @@ sealed interface PartContent {
         val title: String? = null,
         val output: String? = null,
         val error: String? = null,
+        /** Stringified `state.input` (filePath, command, description, pattern, …). */
+        val input: Map<String, String> = emptyMap(),
+        val metadata: ToolMeta? = null,
     ) : PartContent
     data class StepStart(val title: String? = null) : PartContent
     data class StepFinish(val reason: String? = null) : PartContent
+    /** A committed change snapshot: the files touched in one assistant turn. */
+    data class Patch(val hash: String? = null, val files: List<String> = emptyList()) : PartContent
+    /** A referenced file (IDE context attachment), rendered as a compact chip. */
+    data class FileRef(val filename: String? = null, val url: String? = null, val mime: String? = null) : PartContent
 
     companion object {
         fun from(type: String, obj: JsonObject): PartContent? = when (type) {
@@ -164,11 +173,64 @@ sealed interface PartContent {
                     title = state?.get("title")?.jsonPrimitive?.contentOrNull,
                     output = state?.get("output")?.jsonPrimitive?.contentOrNull,
                     error = state?.get("error")?.jsonPrimitive?.contentOrNull,
+                    input = parseInput(state?.get("input")),
+                    metadata = ToolMeta.from(state?.get("metadata")),
                 )
             }
             "step-start" -> StepStart(obj["title"]?.jsonPrimitive?.contentOrNull)
             "step-finish" -> StepFinish(obj["reason"]?.jsonPrimitive?.contentOrNull)
+            "patch" -> Patch(
+                hash = obj["hash"]?.jsonPrimitive?.contentOrNull,
+                files = (obj["files"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+            )
+            "file" -> FileRef(
+                filename = obj["filename"]?.jsonPrimitive?.contentOrNull,
+                url = obj["url"]?.jsonPrimitive?.contentOrNull,
+                mime = obj["mime"]?.jsonPrimitive?.contentOrNull,
+            )
             else -> null
+        }
+
+        /** Flattens the tool `input` object to string values (skips nested arrays/objects). */
+        private fun parseInput(element: JsonElement?): Map<String, String> {
+            val obj = element as? JsonObject ?: return emptyMap()
+            val out = mutableMapOf<String, String>()
+            for ((k, v) in obj) {
+                (v as? JsonPrimitive)?.contentOrNull?.let { out[k] = it }
+            }
+            return out
+        }
+    }
+}
+
+/**
+ * Per-tool result metadata (all optional). The renderer reads whichever apply:
+ * edit → additions/deletions, grep → matches, bash → exit, todowrite → todos.
+ * Mirrors iOS `ToolMetadata`.
+ */
+data class ToolMeta(
+    val additions: Int? = null,
+    val deletions: Int? = null,
+    val matches: Int? = null,
+    val exit: Int? = null,
+    val todoTotal: Int? = null,
+    val todoCompleted: Int? = null,
+) {
+    companion object {
+        fun from(element: JsonElement?): ToolMeta? {
+            val obj = element as? JsonObject ?: return null
+            val filediff = obj["filediff"]?.jsonObject
+            val todos = obj["todos"] as? JsonArray
+            return ToolMeta(
+                additions = filediff?.get("additions")?.jsonPrimitive?.intOrNull,
+                deletions = filediff?.get("deletions")?.jsonPrimitive?.intOrNull,
+                matches = obj["matches"]?.jsonPrimitive?.intOrNull,
+                exit = obj["exit"]?.jsonPrimitive?.intOrNull,
+                todoTotal = todos?.size,
+                todoCompleted = todos?.count {
+                    (it as? JsonObject)?.get("status")?.jsonPrimitive?.contentOrNull == "completed"
+                },
+            )
         }
     }
 }
