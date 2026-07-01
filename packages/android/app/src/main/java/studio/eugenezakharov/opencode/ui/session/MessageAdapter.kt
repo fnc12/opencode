@@ -162,7 +162,11 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                 h = 31 * h + part.id.hashCode()
                 when (val c = part.content) {
                     is PartContent.Text -> h = 31 * h + c.text.length
-                    is PartContent.Tool -> { h = 31 * h + c.status.hashCode(); h = 31 * h + (c.output?.length ?: 0) }
+                    is PartContent.Tool -> {
+                        h = 31 * h + c.status.hashCode(); h = 31 * h + (c.title?.hashCode() ?: 0); h = 31 * h + c.tool.hashCode()
+                    }
+                    is PartContent.Patch -> { h = 31 * h + c.files.size; h = 31 * h + (c.hash?.hashCode() ?: 0) }
+                    is PartContent.FileRef -> { h = 31 * h + (c.filename?.hashCode() ?: 0); h = 31 * h + (c.url?.hashCode() ?: 0) }
                     is PartContent.StepStart -> h = 31 * h + (c.title?.hashCode() ?: 0)
                     else -> {}
                 }
@@ -188,6 +192,8 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                     is PartContent.Tool -> {
                         spacer(); body.append(toolLine(c))
                     }
+                    is PartContent.Patch -> { spacer(); body.append(patchLine(c)) }
+                    is PartContent.FileRef -> { spacer(); body.append(fileChip(c)) }
                     is PartContent.StepStart -> c.title?.let { spacer(); body.append(it) }
                     else -> {}
                 }
@@ -221,19 +227,34 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
         private fun toolLine(tool: PartContent.Tool): CharSequence {
             val mark = when (tool.status) {
-                "completed" -> "✓ "
-                "running" -> "… "
-                "error" -> "✕ "
-                "pending" -> "◷ "
-                else -> "▸ "
+                "completed" -> "✓"
+                "running" -> "…"
+                "error" -> "✕"
+                "pending" -> "◷"
+                else -> "▸"
             }
-            val sb = SpannableStringBuilder(mark + (tool.title ?: tool.tool))
-            tool.output?.takeIf { it.isNotEmpty() }?.let { output ->
-                val snippet = if (output.length > 400) output.take(400) + "…" else output
-                sb.append("\n").append(snippet)
+            val (label, detail) = ToolDisplay.describe(tool)
+            val sb = SpannableStringBuilder("$mark $label")
+            if (!detail.isNullOrEmpty()) sb.append("  ").append(detail)
+            // Never dump tool output inline — for `read` it's a whole file, for
+            // `bash` a full build log. Only surface an error (matches iOS).
+            if (tool.status == "error") {
+                val err = tool.error ?: tool.output
+                if (!err.isNullOrEmpty()) {
+                    val snippet = if (err.length > 200) err.take(200) + "…" else err
+                    sb.append("\n").append(snippet)
+                }
             }
             return sb
         }
+
+        /** A `patch` part: "⌥ Patch  N files" (the committed change snapshot). */
+        private fun patchLine(patch: PartContent.Patch): CharSequence =
+            SpannableStringBuilder("⌥ Patch  ").append(PatchDisplay.summary(patch))
+
+        /** A `file` part: a compact context chip "📎 filename:line". */
+        private fun fileChip(file: PartContent.FileRef): CharSequence =
+            SpannableStringBuilder("📎 ").append(FileRefDisplay.chip(file))
 
         private fun tokenSummary(info: MessageInfo.Assistant): String {
             fun fmt(n: Int) = if (n >= 1000) "${n / 1000}k" else "$n"

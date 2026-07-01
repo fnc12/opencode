@@ -59,8 +59,20 @@ class ServerConnection(
 
     private fun basicAuthHeader(): String? =
         config.password?.takeIf { it.isNotEmpty() }?.let { pwd ->
-            "Basic " + Base64.getEncoder().encodeToString("admin:$pwd".toByteArray())
+            // The OpenCode server's default username is "opencode" (not "admin");
+            // the connector forwards this Basic header through in relay mode.
+            "Basic " + Base64.getEncoder().encodeToString("opencode:$pwd".toByteArray())
         }
+
+    /** In relay mode, the per-tunnel token the relay checks (`X-Tunnel-Token`); null in direct mode. */
+    private fun tunnelToken(): String? =
+        config.token.takeIf { config.mode == ConnectionMode.RELAY && it.isNotEmpty() }
+
+    /** Applies the auth headers every request shares: Basic password + relay X-Tunnel-Token. */
+    private fun applyAuth(rb: Request.Builder) {
+        basicAuthHeader()?.let { rb.header("Authorization", it) }
+        tunnelToken()?.let { rb.header("X-Tunnel-Token", it) }
+    }
 
     suspend fun health(): HealthResponse = get("/global/health", HealthResponse.serializer())
 
@@ -193,7 +205,7 @@ class ServerConnection(
      */
     fun eventStream(): EventStream? {
         val url = (config.baseURL + "/global/event").toHttpUrlOrNull()?.toString() ?: return null
-        return EventStream(url, basicAuthHeader())
+        return EventStream(url, basicAuthHeader(), tunnelToken())
     }
 
     private suspend fun <T> get(
@@ -210,7 +222,7 @@ class ServerConnection(
         query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
 
         val requestBuilder = Request.Builder().url(urlBuilder.build())
-        basicAuthHeader()?.let { requestBuilder.header("Authorization", it) }
+        applyAuth(requestBuilder)
 
         client.newCall(requestBuilder.build()).execute().use { response ->
             val body = response.body?.string() ?: ""
@@ -231,7 +243,7 @@ class ServerConnection(
         val requestBuilder = Request.Builder()
             .url(urlBuilder.build())
             .post(jsonBody.toRequestBody("application/json".toMediaType()))
-        basicAuthHeader()?.let { requestBuilder.header("Authorization", it) }
+        applyAuth(requestBuilder)
 
         client.newCall(requestBuilder.build()).execute().use { response ->
             val body = response.body?.string() ?: ""
@@ -251,7 +263,7 @@ class ServerConnection(
         val requestBuilder = Request.Builder()
             .url(urlBuilder.build())
             .post(jsonBody.toRequestBody("application/json".toMediaType()))
-        basicAuthHeader()?.let { requestBuilder.header("Authorization", it) }
+        applyAuth(requestBuilder)
 
         client.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) {
