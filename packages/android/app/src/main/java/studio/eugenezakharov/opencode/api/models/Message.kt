@@ -162,6 +162,8 @@ sealed interface PartContent {
     data class Patch(val hash: String? = null, val files: List<String> = emptyList()) : PartContent
     /** A referenced file (IDE context attachment), rendered as a compact chip. */
     data class FileRef(val filename: String? = null, val url: String? = null, val mime: String? = null) : PartContent
+    /** A marker where earlier conversation was summarized/compacted. */
+    data class Compaction(val auto: Boolean = false) : PartContent
 
     companion object {
         fun from(type: String, obj: JsonObject): PartContent? = when (type) {
@@ -190,6 +192,9 @@ sealed interface PartContent {
                 filename = obj["filename"]?.jsonPrimitive?.contentOrNull,
                 url = obj["url"]?.jsonPrimitive?.contentOrNull,
                 mime = obj["mime"]?.jsonPrimitive?.contentOrNull,
+            )
+            "compaction" -> Compaction(
+                auto = obj["auto"]?.jsonPrimitive?.let { it.contentOrNull == "true" || it.contentOrNull == "True" } ?: false,
             )
             else -> null
         }

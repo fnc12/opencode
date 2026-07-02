@@ -211,6 +211,12 @@ struct MessageListView: UIViewRepresentable {
                     blocks.append(.text(patchLine(patch)))
                 case .file(let file):
                     blocks.append(.text(fileChip(file)))
+                case .compaction(let auto):
+                    let para = NSMutableParagraphStyle(); para.alignment = .center
+                    blocks.append(.text(NSAttributedString(
+                        string: auto ? "⸻  earlier context summarized  ⸻" : "⸻  context summarized  ⸻",
+                        attributes: [.font: UIFont.systemFont(ofSize: 11, weight: .medium),
+                                     .foregroundColor: UIColor.tertiaryLabel, .paragraphStyle: para])))
                 case .stepStart(let step):
                     if let title = step.title, !title.isEmpty {
                         blocks.append(.text(NSAttributedString(string: title, attributes: [
@@ -378,6 +384,7 @@ struct MessageListView: UIViewRepresentable {
                 case .tool(let tool): hasher.combine(tool.state.status); hasher.combine(tool.state.title); hasher.combine(tool.tool)
                 case .patch(let patch): hasher.combine(patch.files.count); hasher.combine(patch.hash)
                 case .file(let file): hasher.combine(file.filename); hasher.combine(file.url)
+                case .compaction(let auto): hasher.combine("compaction"); hasher.combine(auto)
                 case .stepStart(let step): hasher.combine(step.title)
                 case .stepFinish, nil: break
                 }
