@@ -7,6 +7,7 @@ struct SessionView: View {
     @State private var store = SessionStore()
     @State private var loading = true
     @State private var error: String?
+    @State private var showDiff = false
 
     var body: some View {
         ZStack {
@@ -40,8 +41,23 @@ struct SessionView: View {
                         .accessibilityIdentifier("session.stop")
                         .accessibilityLabel("Stop")
                     }
+                    Button { showDiff = true } label: {
+                        Image(systemName: "plusminus")
+                    }
+                    .accessibilityIdentifier("session.diff")
+                    .accessibilityLabel("Changes")
                     StreamStatusBadge(status: store.status)
                 }
+            }
+        }
+        .sheet(isPresented: $showDiff) {
+            NavigationStack {
+                DiffView(session: session, server: server)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showDiff = false }
+                        }
+                    }
             }
         }
         .task { await run() }
