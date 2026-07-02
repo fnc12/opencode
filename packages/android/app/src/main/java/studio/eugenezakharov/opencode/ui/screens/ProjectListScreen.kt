@@ -38,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -125,11 +126,19 @@ fun ProjectListScreen(
                 loading -> CircularProgressIndicator()
                 error != null -> CenteredMessage("Error", error!!)
                 projects.isEmpty() -> EmptyProjects(onOpenFolder = { showOpenFolder = true })
-                else -> LazyColumn(Modifier.fillMaxSize()) {
-                    items(projects, key = { it.id }) { project ->
-                        ProjectRow(project, Modifier.clickable { onProjectClick(project) })
-                        HorizontalDivider()
-                    }
+                else -> {
+                    val primary = MaterialTheme.colorScheme.onSurface.toArgb()
+                    val secondary = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            androidx.recyclerview.widget.RecyclerView(ctx).apply {
+                                layoutManager = androidx.recyclerview.widget.LinearLayoutManager(ctx)
+                                adapter = ProjectListAdapter(primary, secondary, onClick = onProjectClick)
+                            }
+                        },
+                        update = { rv -> (rv.adapter as ProjectListAdapter).submit(projects) },
+                    )
                 }
             }
         }
