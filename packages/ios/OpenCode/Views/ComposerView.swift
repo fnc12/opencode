@@ -10,11 +10,13 @@ struct ComposerView: View {
     @State private var text = ""
     @State private var sendError: String?
     @State private var providers: [ProviderInfo] = []
+    @State private var agents: [AgentInfo] = []
     @State private var showModelPicker = false
 
-    // Last-used model, remembered across sessions/launches.
+    // Last-used model + agent, remembered across sessions/launches.
     @AppStorage("composer.providerID") private var providerID = ""
     @AppStorage("composer.modelID") private var modelID = ""
+    @AppStorage("composer.agent") private var agentName = "build"
 
     var body: some View {
         VStack(spacing: 6) {
@@ -26,7 +28,25 @@ struct ComposerView: View {
             }
             // Model selector on its own compact line, so the message field can
             // take the full width of the bar.
-            HStack {
+            HStack(spacing: 14) {
+                Menu {
+                    Picker("Agent", selection: $agentName) {
+                        ForEach(agentChoices, id: \.self) { name in
+                            Text(name.capitalized).tag(name)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: agentIcon)
+                        Text(agentName.capitalized).lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
+                    }
+                    .font(.caption2)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(agentName == "plan" ? Color.orange : .secondary)
+                .accessibilityIdentifier("composer.agent")
+
                 Button { showModelPicker = true } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "cpu")
@@ -78,9 +98,23 @@ struct ComposerView: View {
         return modelID
     }
 
+    /// Selectable agent names; falls back to build/plan until the list loads.
+    private var agentChoices: [String] {
+        let loaded = agents.filter(\.selectable).map(\.name)
+        return loaded.isEmpty ? ["build", "plan"] : loaded
+    }
+
+    private var agentIcon: String {
+        switch agentName {
+        case "plan": return "list.bullet.rectangle"
+        case "build": return "hammer"
+        default: return "person"
+        }
+    }
+
     private func loadProviders() async {
-        guard providers.isEmpty else { return }
-        providers = (try? await server.providers()) ?? []
+        if providers.isEmpty { providers = (try? await server.providers()) ?? [] }
+        if agents.isEmpty { agents = (try? await server.agents()) ?? [] }
         if modelID.isEmpty { autoSelectDefault() }
     }
 
@@ -103,6 +137,7 @@ struct ComposerView: View {
         text = "" // optimistic; the user message echoes back over the stream
         sendError = nil
         let dir = session.directory, sid = session.id, pid = providerID, mid = modelID
+        let ag = agentName
         // Fire-and-forget: the reply arrives over the SSE event stream, and the
         // server keeps generating regardless of this POST — so its duration or
         // timeout must never gate the UI. Surface only a genuine rejection (an
@@ -111,7 +146,7 @@ struct ComposerView: View {
         Task {
             do {
                 try await server.sendPrompt(directory: dir, sessionID: sid, text: prompt,
-                                            providerID: pid, modelID: mid)
+                                            providerID: pid, modelID: mid, agent: ag)
             } catch let e as URLError where [.timedOut, .cancelled, .networkConnectionLost].contains(e.code) {
                 // in flight — the reply comes over the stream
             } catch {

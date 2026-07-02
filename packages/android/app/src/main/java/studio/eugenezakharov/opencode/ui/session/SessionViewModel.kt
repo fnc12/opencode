@@ -34,6 +34,8 @@ data class SessionUiState(
     val providers: List<ProviderInfo> = emptyList(),
     val providerID: String = "",
     val modelID: String = "",
+    val agents: List<studio.eugenezakharov.opencode.api.models.AgentInfo> = emptyList(),
+    val agentName: String = "build",
     val sending: Boolean = false,
     val sendError: String? = null,
     // Permission requests (#27): the agent is blocked until these are answered.
@@ -63,7 +65,7 @@ class SessionViewModel(
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _state = MutableStateFlow(
-        SessionUiState(providerID = prefs.providerID, modelID = prefs.modelID),
+        SessionUiState(providerID = prefs.providerID, modelID = prefs.modelID, agentName = prefs.agent),
     )
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
@@ -165,6 +167,15 @@ class SessionViewModel(
             _state.update { it.copy(providers = list) }
             if (_state.value.modelID.isEmpty()) autoSelectDefault(list)
         }
+        viewModelScope.launch {
+            val agents = runCatching { server.agents() }.getOrDefault(emptyList())
+            _state.update { it.copy(agents = agents) }
+        }
+    }
+
+    fun selectAgent(name: String) {
+        prefs.agent = name
+        _state.update { it.copy(agentName = name) }
     }
 
     /** Pick a sensible default if none chosen — prefer a free `opencode` model. */
@@ -205,7 +216,7 @@ class SessionViewModel(
         _state.update { it.copy(sending = true, sendError = null) }
         viewModelScope.launch {
             runCatching {
-                server.sendPrompt(session.directory, session.id, prompt, s.providerID, s.modelID)
+                server.sendPrompt(session.directory, session.id, prompt, s.providerID, s.modelID, s.agentName)
             }.onSuccess {
                 _state.update { it.copy(sending = false) }
             }.onFailure { e ->

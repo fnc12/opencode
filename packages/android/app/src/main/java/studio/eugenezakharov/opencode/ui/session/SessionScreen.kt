@@ -27,6 +27,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
@@ -443,6 +445,9 @@ private fun QuestionDock(
 private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
     var text by remember { mutableStateOf("") }
     var showPicker by remember { mutableStateOf(false) }
+    var showAgentMenu by remember { mutableStateOf(false) }
+
+    val agentChoices = state.agents.filter { it.selectable }.map { it.name }.ifEmpty { listOf("build", "plan") }
 
     Surface(tonalElevation = 3.dp) {
         Column(
@@ -460,14 +465,39 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                 )
                 Spacer(Modifier.size(4.dp))
             }
-            Row(verticalAlignment = Alignment.Bottom) {
+            // Agent + model pickers on their own line, so the field takes the width.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    FilledTonalButton(
+                        onClick = { showAgentMenu = true },
+                        modifier = Modifier.testTag("composer.agent"),
+                    ) {
+                        Text(
+                            state.agentName.replaceFirstChar { it.uppercase() },
+                            maxLines = 1,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                    DropdownMenu(expanded = showAgentMenu, onDismissRequest = { showAgentMenu = false }) {
+                        agentChoices.forEach { name ->
+                            DropdownMenuItem(
+                                text = { Text(name.replaceFirstChar { it.uppercase() }) },
+                                onClick = { viewModel.selectAgent(name); showAgentMenu = false },
+                                trailingIcon = { if (name == state.agentName) Text("✓") },
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
                 FilledTonalButton(
                     onClick = { showPicker = true },
                     modifier = Modifier.testTag("composer.model"),
                 ) {
                     Text(viewModel.modelLabel(), maxLines = 1, style = MaterialTheme.typography.labelMedium)
                 }
-                Spacer(Modifier.width(8.dp))
+            }
+            Spacer(Modifier.size(6.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },

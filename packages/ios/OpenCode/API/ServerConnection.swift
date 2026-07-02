@@ -111,6 +111,12 @@ final class ServerConnection {
         return response.providers
     }
 
+    /// The available agents (`GET /agent`) — build / plan / custom. The composer
+    /// offers the non-hidden primary ones.
+    func agents() async throws -> [AgentInfo] {
+        try await get("/agent")
+    }
+
     /// Pending permission requests across all sessions (seed on session open).
     func permissions(directory: String) async throws -> [PermissionRequest] {
         try await get("/permission", query: ["directory": directory])
@@ -176,15 +182,17 @@ final class ServerConnection {
     /// the event stream, so the caller doesn't need the response body. A model is
     /// required — the server has no default.
     func sendPrompt(directory: String, sessionID: String, text: String,
-                    providerID: String, modelID: String) async throws {
+                    providerID: String, modelID: String, agent: String? = nil) async throws {
         // Note: the server holds this POST open until the whole turn finishes,
         // but the turn keeps generating (and streaming over SSE) even if the POST
         // stops being awaited. The composer sends this fire-and-forget, so the
         // POST's timeout never gates the UI.
-        try await post("/session/\(sessionID)/message", query: ["directory": directory], body: [
+        var body: [String: Any] = [
             "parts": [["type": "text", "text": text]],
             "model": ["providerID": providerID, "modelID": modelID],
-        ])
+        ]
+        if let agent, !agent.isEmpty { body["agent"] = agent }
+        try await post("/session/\(sessionID)/message", query: ["directory": directory], body: body)
     }
 
     /// In relay mode, the per-tunnel token the relay checks (`X-Tunnel-Token`)
