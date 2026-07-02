@@ -131,6 +131,26 @@ class ServerConnection(
             mapOf("directory" to directory),
         )
 
+    /** Slash commands available for this server (`GET /command`). Mirrors iOS. */
+    suspend fun commands(directory: String): List<studio.eugenezakharov.opencode.api.models.CommandInfo> =
+        get(
+            "/command",
+            kotlinx.serialization.builtins.ListSerializer(
+                studio.eugenezakharov.opencode.api.models.CommandInfo.serializer(),
+            ),
+            mapOf("directory" to directory),
+        )
+
+    /** Run a slash command in the session (`POST /session/:id/command`). */
+    suspend fun runCommand(directory: String, sessionID: String, command: String, arguments: String = "") =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                put("command", command)
+                put("arguments", arguments)
+            }
+            postRaw("/session/$sessionID/command", mapOf("directory" to directory), body.toString())
+        }
+
     /** The aggregate file changes for a session (`GET /session/:id/diff`). Mirrors iOS. */
     suspend fun sessionDiff(directory: String, sessionID: String): List<SessionFileDiff> =
         get(

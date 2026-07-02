@@ -44,6 +44,7 @@ data class SessionUiState(
     // Agent questions (#28): the agent is blocked until these are answered/skipped.
     val pendingQuestions: List<QuestionRequest> = emptyList(),
     val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem> = emptyList(),
+    val commands: List<studio.eugenezakharov.opencode.api.models.CommandInfo> = emptyList(),
 )
 
 /**
@@ -116,6 +117,9 @@ class SessionViewModel(
             }
             runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let { todos ->
                 store.setInitialTodos(todos)
+            }
+            runCatching { server.commands(session.directory) }.getOrNull()?.let { cmds ->
+                _state.update { it.copy(commands = cmds) }
             }
             // UI tests inject synthetic requests (after the seeds, so they win) so the
             // docks can be driven without the server being configured to "ask".
@@ -204,6 +208,13 @@ class SessionViewModel(
     fun revert(messageID: String) {
         viewModelScope.launch {
             runCatching { server.revertSession(session.directory, session.id, messageID) }
+        }
+    }
+
+    /** Runs a slash command; its expansion + reply stream back over SSE. */
+    fun runCommand(name: String) {
+        viewModelScope.launch {
+            runCatching { server.runCommand(session.directory, session.id, name) }
         }
     }
 

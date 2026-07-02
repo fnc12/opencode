@@ -77,6 +77,18 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/todo", query: ["directory": directory])
     }
 
+    /// Slash commands available for this server (`GET /command`).
+    func commands(directory: String) async throws -> [CommandInfo] {
+        try await get("/command", query: ["directory": directory])
+    }
+
+    /// Run a slash command in the session (`POST /session/:id/command`) — it is
+    /// expanded to a prompt and streams back like any other turn.
+    func runCommand(directory: String, sessionID: String, command: String, arguments: String = "") async throws {
+        try await post("/session/\(sessionID)/command", query: ["directory": directory],
+                       body: ["command": command, "arguments": arguments])
+    }
+
     /// Lists the entries (folders + files) of a directory on the server, for the
     /// folder browser. Works for any path the server can read.
     func listDirectory(path: String) async throws -> [FileEntry] {

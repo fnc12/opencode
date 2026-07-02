@@ -553,6 +553,7 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
     var text by remember { mutableStateOf("") }
     var showPicker by remember { mutableStateOf(false) }
     var showAgentMenu by remember { mutableStateOf(false) }
+    var showCommands by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<Pair<Bitmap, PromptAttachment>>>(emptyList()) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -644,6 +645,14 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                 ) {
                     Text("📷")
                 }
+                if (state.commands.isNotEmpty()) {
+                    IconButton(
+                        onClick = { showCommands = true },
+                        modifier = Modifier.testTag("composer.commands"),
+                    ) {
+                        Text("/", style = MaterialTheme.typography.titleLarge)
+                    }
+                }
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -680,6 +689,41 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
             state = state,
             onSelect = { p, m -> viewModel.selectModel(p, m); showPicker = false },
             onDismiss = { showPicker = false },
+        )
+    }
+
+    if (showCommands) {
+        AlertDialog(
+            onDismissRequest = { showCommands = false },
+            title = { Text("Commands") },
+            text = {
+                Column {
+                    state.commands.forEach { cmd ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { showCommands = false; viewModel.runCommand(cmd.name) }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            Text(
+                                "/${cmd.name}",
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            cmd.description?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showCommands = false }) { Text("Cancel") } },
         )
     }
 }
