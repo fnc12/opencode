@@ -66,6 +66,12 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/message", query: ["directory": directory])
     }
 
+    /// The aggregate file changes for a session (`GET /session/:id/diff`) — one
+    /// unified diff per touched file.
+    func sessionDiff(directory: String, sessionID: String) async throws -> [SessionFileDiff] {
+        try await get("/session/\(sessionID)/diff", query: ["directory": directory])
+    }
+
     /// Lists the entries (folders + files) of a directory on the server, for the
     /// folder browser. Works for any path the server can read.
     func listDirectory(path: String) async throws -> [FileEntry] {
