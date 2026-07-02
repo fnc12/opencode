@@ -187,6 +187,8 @@ struct MessageListView: UIViewRepresentable {
                 switch part.content {
                 case .text(let text) where !text.isEmpty:
                     blocks.append(contentsOf: textToBlocks(text))
+                case .reasoning(let text) where !text.isEmpty:
+                    blocks.append(contentsOf: reasoningBlocks(text))
                 case .tool(let tool):
                     blocks.append(.text(toolLine(tool)))
                 case .patch(let patch):
@@ -198,7 +200,7 @@ struct MessageListView: UIViewRepresentable {
                         blocks.append(.text(NSAttributedString(string: title, attributes: [
                             .font: UIFont.systemFont(ofSize: 12), .foregroundColor: UIColor.secondaryLabel])))
                     }
-                case .text, .stepFinish, nil:
+                case .text, .reasoning, .stepFinish, nil:
                     break
                 }
             }
@@ -217,6 +219,24 @@ struct MessageListView: UIViewRepresentable {
                     roleText: info.agent, roleColor: .systemGreen, metaText: tokenSummary(info),
                     blocks: blocks, bubbleColor: UIColor.white.withAlphaComponent(0.06))
             }
+        }
+
+        /// The model's reasoning: a small "THINKING" label followed by the thought
+        /// in dimmed italic, so it reads as meta and recedes behind the real reply.
+        private static func reasoningBlocks(_ text: String) -> [MessageBlock] {
+            let italic = UIFont.italicSystemFont(ofSize: bodyFont.pointSize - 1)
+            var out: [MessageBlock] = [.text(NSAttributedString(string: "THINKING", attributes: [
+                .font: UIFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: UIColor.tertiaryLabel,
+                .kern: 0.6]))]
+            for paragraph in text.components(separatedBy: "\n\n") {
+                let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                for chunk in boundedChunks(trimmed, maxChars: 1500) {
+                    out.append(.text(MarkdownRenderer.inlineAttributed(chunk, font: italic, color: .tertiaryLabel)))
+                }
+            }
+            return out
         }
 
         /// Splits a text part into blocks: bounded markdown paragraphs (so no
@@ -338,6 +358,7 @@ struct MessageListView: UIViewRepresentable {
                 hasher.combine(part.id)
                 switch part.content {
                 case .text(let text): hasher.combine(text.count)
+                case .reasoning(let text): hasher.combine(text.count)
                 case .tool(let tool): hasher.combine(tool.state.status); hasher.combine(tool.state.title); hasher.combine(tool.tool)
                 case .patch(let patch): hasher.combine(patch.files.count); hasher.combine(patch.hash)
                 case .file(let file): hasher.combine(file.filename); hasher.combine(file.url)

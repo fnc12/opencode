@@ -1,8 +1,13 @@
 package studio.eugenezakharov.opencode.ui.session
 
 import android.graphics.Color
+import android.graphics.Typeface
+import android.text.Spannable
 import android.text.Spanned
 import android.text.SpannableStringBuilder
+import android.text.style.ForegroundColorSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -162,6 +167,7 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                 h = 31 * h + part.id.hashCode()
                 when (val c = part.content) {
                     is PartContent.Text -> h = 31 * h + c.text.length
+                    is PartContent.Reasoning -> h = 31 * h + c.text.length
                     is PartContent.Tool -> {
                         h = 31 * h + c.status.hashCode(); h = 31 * h + (c.title?.hashCode() ?: 0); h = 31 * h + c.tool.hashCode()
                     }
@@ -188,6 +194,9 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                 when (val c = part.content) {
                     is PartContent.Text -> if (c.text.isNotEmpty()) {
                         spacer(); body.append(MarkdownRenderer.render(c.text, baseSizePx, Color.TRANSPARENT))
+                    }
+                    is PartContent.Reasoning -> if (c.text.isNotEmpty()) {
+                        spacer(); appendReasoning(body, c.text, baseSizePx)
                     }
                     is PartContent.Tool -> {
                         spacer(); body.append(toolLine(c))
@@ -223,6 +232,21 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                     )
                 }
             }
+        }
+
+        /** Reasoning: a small dimmed "THINKING" label, then the thought in dimmed
+         *  italic (inline code still monospaced) so it reads as meta. Matches iOS. */
+        private fun appendReasoning(body: SpannableStringBuilder, text: String, baseSizePx: Int) {
+            val dim = 0xFF9A9A9A.toInt()
+            val flag = Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+            val labelStart = body.length
+            body.append("THINKING\n")
+            body.setSpan(RelativeSizeSpan(0.7f), labelStart, body.length - 1, flag)
+            body.setSpan(ForegroundColorSpan(dim), labelStart, body.length - 1, flag)
+            val textStart = body.length
+            body.append(MarkdownRenderer.render(text, baseSizePx, Color.TRANSPARENT))
+            body.setSpan(StyleSpan(Typeface.ITALIC), textStart, body.length, flag)
+            body.setSpan(ForegroundColorSpan(dim), textStart, body.length, flag)
         }
 
         private fun toolLine(tool: PartContent.Tool): CharSequence {
