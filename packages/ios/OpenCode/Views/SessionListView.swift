@@ -9,6 +9,8 @@ struct SessionListView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var creating = false
+    @State private var renameTarget: Session?
+    @State private var renameText = ""
 
     var body: some View {
         Group {
@@ -27,14 +29,38 @@ struct SessionListView: View {
                         .accessibilityIdentifier("sessions.new.empty")
                 }
             } else {
-                List(sessions) { session in
-                    NavigationLink(value: AppRoute.session(session)) {
-                        SessionRow(session: session)
+                List {
+                    ForEach(sessions) { session in
+                        NavigationLink(value: AppRoute.session(session)) {
+                            SessionRow(session: session)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { Task { await delete(session) } } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            Button { startRename(session) } label: {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                            .tint(.blue)
+                        }
+                        .contextMenu {
+                            Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
+                            Button(role: .destructive) { Task { await delete(session) } } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .listStyle(.plain)
                 .refreshable { await load() }
             }
+        }
+        .alert("Rename session", isPresented: Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } })) {
+            TextField("Title", text: $renameText)
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+            Button("Rename") { Task { await commitRename() } }
         }
         .navigationTitle(project.name ?? project.worktree.components(separatedBy: "/").last ?? "Sessions")
         .toolbar {
@@ -58,6 +84,33 @@ struct SessionListView: View {
             path.append(.session(session))
         } catch {
             creating = false
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func delete(_ session: Session) async {
+        do {
+            try await server.deleteSession(directory: project.worktree, sessionID: session.id)
+            sessions.removeAll { $0.id == session.id }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func startRename(_ session: Session) {
+        renameTarget = session
+        renameText = session.title
+    }
+
+    private func commitRename() async {
+        guard let target = renameTarget else { return }
+        let title = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        renameTarget = nil
+        guard !title.isEmpty, title != target.title else { return }
+        do {
+            try await server.renameSession(directory: project.worktree, sessionID: target.id, title: title)
+            await load()
+        } catch {
             self.error = error.localizedDescription
         }
     }

@@ -135,6 +135,37 @@ final class ServerConnection {
         try await post("/session/\(sessionID)/abort", query: ["directory": directory], body: [:])
     }
 
+    /// Rename a session (sets its title). `PATCH /session/:id`.
+    func renameSession(directory: String, sessionID: String, title: String) async throws {
+        try await send("PATCH", "/session/\(sessionID)", query: ["directory": directory], body: ["title": title])
+    }
+
+    /// Delete a session. `DELETE /session/:id`.
+    func deleteSession(directory: String, sessionID: String) async throws {
+        try await send("DELETE", "/session/\(sessionID)", query: ["directory": directory], body: nil)
+    }
+
+    /// Generic request for verbs beyond GET/POST (PATCH/DELETE), body optional.
+    private func send(_ method: String, _ path: String,
+                      query: [String: String] = [:], body: [String: Any]? = nil) async throws {
+        guard var components = URLComponents(string: config.baseURL + path) else { throw ClientError.invalidURL }
+        if !query.isEmpty { components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        guard let url = components.url else { throw ClientError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        applyAuth(to: &request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            print("❌ \(method) \(code): \(url.absoluteString)\n\(String(data: data, encoding: .utf8)?.prefix(400) ?? "")")
+            throw ClientError.http(code)
+        }
+    }
+
     /// Sends a text prompt to a session. The assistant's reply streams back over
     /// the event stream, so the caller doesn't need the response body. A model is
     /// required — the server has no default.

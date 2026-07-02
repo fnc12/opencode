@@ -169,6 +169,19 @@ class ServerConnection(
         postRaw("/session/$sessionID/abort", mapOf("directory" to directory), "{}")
     }
 
+    /** Renames a session (sets its title). `PATCH /session/{id}`. Mirrors iOS. */
+    suspend fun renameSession(directory: String, sessionID: String, title: String) =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject { put("title", title) }
+            sendRaw("PATCH", "/session/$sessionID", mapOf("directory" to directory), body.toString())
+        }
+
+    /** Deletes a session. `DELETE /session/{id}`. Mirrors iOS. */
+    suspend fun deleteSession(directory: String, sessionID: String) =
+        withContext(Dispatchers.IO) {
+            sendRaw("DELETE", "/session/$sessionID", mapOf("directory" to directory), null)
+        }
+
     /**
      * Sends a text prompt to a session. The assistant's reply streams back over
      * the event stream, so the caller doesn't need the response body. A model is
@@ -263,6 +276,25 @@ class ServerConnection(
         val requestBuilder = Request.Builder()
             .url(urlBuilder.build())
             .post(jsonBody.toRequestBody("application/json".toMediaType()))
+        applyAuth(requestBuilder)
+
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                val body = response.body?.string() ?: ""
+                System.err.println("HTTP ${response.code}: ${urlBuilder.build()}\n$body")
+                throw ClientError.Http(response.code)
+            }
+        }
+    }
+
+    /** Generic request for verbs beyond GET/POST (PATCH/DELETE); body optional. */
+    private fun sendRaw(method: String, path: String, query: Map<String, String>, jsonBody: String?) {
+        val httpUrl = (config.baseURL + path).toHttpUrlOrNull() ?: throw ClientError.InvalidURL
+        val urlBuilder = httpUrl.newBuilder()
+        query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+
+        val reqBody = jsonBody?.toRequestBody("application/json".toMediaType())
+        val requestBuilder = Request.Builder().url(urlBuilder.build()).method(method, reqBody)
         applyAuth(requestBuilder)
 
         client.newCall(requestBuilder.build()).execute().use { response ->
