@@ -235,15 +235,20 @@ class SessionViewModel(
      * the echoed user message) arrive over the SSE stream. [onCleared] lets the
      * UI clear its field; [restore] is invoked with the original text on failure.
      */
-    fun send(text: String, onCleared: () -> Unit, restore: (String) -> Unit) {
+    fun send(
+        text: String,
+        attachments: List<studio.eugenezakharov.opencode.api.models.PromptAttachment> = emptyList(),
+        onCleared: () -> Unit,
+        restore: (String) -> Unit,
+    ) {
         val prompt = text.trim()
         val s = _state.value
-        if (prompt.isEmpty() || s.modelID.isEmpty() || s.sending) return
+        if ((prompt.isEmpty() && attachments.isEmpty()) || s.modelID.isEmpty() || s.sending) return
         onCleared()
         _state.update { it.copy(sending = true, sendError = null) }
         viewModelScope.launch {
             runCatching {
-                server.sendPrompt(session.directory, session.id, prompt, s.providerID, s.modelID, s.agentName)
+                server.sendPrompt(session.directory, session.id, prompt, s.providerID, s.modelID, s.agentName, attachments)
             }.onSuccess {
                 _state.update { it.copy(sending = false) }
             }.onFailure { e ->

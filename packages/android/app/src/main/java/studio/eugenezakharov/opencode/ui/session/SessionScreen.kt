@@ -1,11 +1,19 @@
 package studio.eugenezakharov.opencode.ui.session
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
@@ -19,7 +27,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.asImageBitmap
+import studio.eugenezakharov.opencode.api.models.PromptAttachment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import androidx.compose.material.icons.Icons
 import android.content.Intent
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -46,6 +61,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -480,6 +498,14 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
     var text by remember { mutableStateOf("") }
     var showPicker by remember { mutableStateOf(false) }
     var showAgentMenu by remember { mutableStateOf(false) }
+    var attachments by remember { mutableStateOf<List<Pair<Bitmap, PromptAttachment>>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(4),
+    ) { uris ->
+        if (uris.isNotEmpty()) scope.launch { attachments = uris.mapNotNull { loadAttachment(context, it) } }
+    }
 
     val agentChoices = state.agents.filter { it.selectable }.map { it.name }.ifEmpty { listOf("build", "plan") }
 
@@ -531,7 +557,38 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                 }
             }
             Spacer(Modifier.size(6.dp))
+            if (attachments.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(attachments, key = { it.second.url.hashCode() }) { (bmp, att) ->
+                        Box {
+                            Image(
+                                bmp.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
+                            IconButton(
+                                onClick = { attachments = attachments.filter { it.second.url != att.url } },
+                                modifier = Modifier.size(22.dp).align(Alignment.TopEnd),
+                            ) {
+                                Text("✕", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.size(6.dp))
+            }
             Row(verticalAlignment = Alignment.Bottom) {
+                IconButton(
+                    onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    modifier = Modifier.testTag("composer.attach"),
+                ) {
+                    Text("📷")
+                }
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -543,9 +600,17 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                         .testTag("composer.field"),
                 )
                 Spacer(Modifier.width(8.dp))
-                val canSend = text.isNotBlank() && !state.sending && state.modelID.isNotEmpty()
+                val canSend = (text.isNotBlank() || attachments.isNotEmpty()) &&
+                    !state.sending && state.modelID.isNotEmpty()
                 IconButton(
-                    onClick = { viewModel.send(text, onCleared = { text = "" }, restore = { text = it }) },
+                    onClick = {
+                        viewModel.send(
+                            text,
+                            attachments.map { it.second },
+                            onCleared = { text = ""; attachments = emptyList() },
+                            restore = { text = it },
+                        )
+                    },
                     enabled = canSend,
                     modifier = Modifier.testTag("composer.send"),
                 ) {
@@ -669,4 +734,17 @@ private fun StreamStatusBadge(status: SessionStore.StreamStatus) {
             Spacer(Modifier.width(8.dp))
         }
     }
+}
+
+/** Decodes a picked image Uri into a thumbnail bitmap + a JPEG data-URL attachment. */
+private suspend fun loadAttachment(
+    context: android.content.Context,
+    uri: android.net.Uri,
+): Pair<Bitmap, PromptAttachment>? = withContext(Dispatchers.IO) {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+    val out = ByteArrayOutputStream()
+    bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
+    val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    Pair(bmp, PromptAttachment("image/jpeg", "image.jpg", "data:image/jpeg;base64,$b64"))
 }
