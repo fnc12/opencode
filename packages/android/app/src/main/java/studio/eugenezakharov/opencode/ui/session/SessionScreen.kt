@@ -3,7 +3,11 @@ package studio.eugenezakharov.opencode.ui.session
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,9 +49,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import studio.eugenezakharov.opencode.api.models.SessionFileDiff
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -63,6 +78,7 @@ fun SessionScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var showDiff by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -89,6 +105,12 @@ fun SessionScreen(
                             Spacer(Modifier.width(4.dp))
                             Text("Stop")
                         }
+                    }
+                    IconButton(
+                        onClick = { showDiff = true },
+                        modifier = Modifier.testTag("session.diff"),
+                    ) {
+                        Text("±", style = MaterialTheme.typography.titleMedium)
                     }
                     StreamStatusBadge(state.status)
                 },
@@ -129,6 +151,127 @@ fun SessionScreen(
                 else -> MessageList(state)
             }
         }
+    }
+
+    if (showDiff) {
+        Dialog(
+            onDismissRequest = { showDiff = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            DiffScreen(load = { viewModel.loadDiff() }, onClose = { showDiff = false })
+        }
+    }
+}
+
+/** A session's aggregate changes: one card per file with a colored unified diff. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiffScreen(
+    load: suspend () -> List<SessionFileDiff>,
+    onClose: () -> Unit,
+) {
+    var diffs by remember { mutableStateOf<List<SessionFileDiff>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        runCatching { load() }
+            .onSuccess { list -> diffs = list.filter { !it.patch.isNullOrEmpty() || it.additions > 0 || it.deletions > 0 } }
+            .onFailure { error = it.message ?: "Failed to load changes" }
+    }
+    Surface(Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Changes") },
+                    navigationIcon = {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close")
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                when {
+                    error != null -> CenteredMessage("Error", error!!)
+                    diffs == null -> CircularProgressIndicator()
+                    diffs!!.isEmpty() -> CenteredMessage("No changes", "This session hasn't touched any files.")
+                    else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp)) {
+                        items(diffs!!, key = { it.file ?: it.hashCode().toString() }) { file ->
+                            DiffFileCard(file)
+                            Spacer(Modifier.height(14.dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiffFileCard(file: SessionFileDiff) {
+    val add = Color(0xFF1F9550)
+    val del = Color(0xFFCC3333)
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when (file.status) { "added" -> "＋"; "deleted" -> "－"; else -> "✎" },
+                color = when (file.status) { "added" -> add; "deleted" -> del; else -> Color(0xFFE8951F) },
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                file.file ?: "?",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            if (file.additions > 0) {
+                Text("+${file.additions}", color = add, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
+            }
+            if (file.deletions > 0) {
+                Spacer(Modifier.width(6.dp))
+                Text("−${file.deletions}", color = del, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        file.patch?.takeIf { it.isNotEmpty() }?.let { patch ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        RoundedCornerShape(8.dp),
+                    )
+                    .horizontalScroll(rememberScrollState())
+                    .padding(8.dp),
+            ) {
+                Text(coloredDiff(patch), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+/** Colors a unified diff: green additions, red deletions, dimmed headers. Bounded. */
+private fun coloredDiff(patch: String, maxLines: Int = 1200): AnnotatedString = buildAnnotatedString {
+    val add = SpanStyle(color = Color(0xFF1F9550), background = Color(0x1F1F9550))
+    val del = SpanStyle(color = Color(0xFFCC3333), background = Color(0x1FCC3333))
+    val hunk = SpanStyle(color = Color(0xFF2D7FF9))
+    val dim = SpanStyle(color = Color(0xFF999999))
+    val lines = patch.split("\n")
+    for (line in lines.take(maxLines)) {
+        val style = when {
+            line.startsWith("+") && !line.startsWith("+++") -> add
+            line.startsWith("-") && !line.startsWith("---") -> del
+            line.startsWith("@@") -> hunk
+            line.startsWith("diff ") || line.startsWith("index ") ||
+                line.startsWith("+++") || line.startsWith("---") -> dim
+            else -> SpanStyle()
+        }
+        withStyle(style) { append(line); append("\n") }
+    }
+    if (lines.size > maxLines) {
+        withStyle(dim) { append("… ${lines.size - maxLines} more lines") }
     }
 }
 
