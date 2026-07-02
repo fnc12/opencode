@@ -200,6 +200,20 @@ class ServerConnection(
             sendRaw("DELETE", "/session/$sessionID", mapOf("directory" to directory), null)
         }
 
+    /** Creates a public share link (`POST /session/{id}/share`); returns the updated session. */
+    suspend fun shareSession(directory: String, sessionID: String): Session =
+        withContext(Dispatchers.IO) {
+            val body = postRawForResult("/session/$sessionID/share", mapOf("directory" to directory), "{}")
+            json.decodeFromString(Session.serializer(), body)
+        }
+
+    /** Stops sharing (`DELETE /session/{id}/share`); returns the updated session. */
+    suspend fun unshareSession(directory: String, sessionID: String): Session =
+        withContext(Dispatchers.IO) {
+            val body = sendRawForResult("DELETE", "/session/$sessionID/share", mapOf("directory" to directory), null)
+            json.decodeFromString(Session.serializer(), body)
+        }
+
     /**
      * Sends a text prompt to a session. The assistant's reply streams back over
      * the event stream, so the caller doesn't need the response body. A model is
@@ -304,6 +318,24 @@ class ServerConnection(
                 System.err.println("HTTP ${response.code}: ${urlBuilder.build()}\n$body")
                 throw ClientError.Http(response.code)
             }
+        }
+    }
+
+    /** Like [sendRaw] but returns the response body (for verbs that reply with JSON). */
+    private fun sendRawForResult(method: String, path: String, query: Map<String, String>, jsonBody: String?): String {
+        val httpUrl = (config.baseURL + path).toHttpUrlOrNull() ?: throw ClientError.InvalidURL
+        val urlBuilder = httpUrl.newBuilder()
+        query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+        val reqBody = jsonBody?.toRequestBody("application/json".toMediaType())
+        val requestBuilder = Request.Builder().url(urlBuilder.build()).method(method, reqBody)
+        applyAuth(requestBuilder)
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            val body = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                System.err.println("HTTP ${response.code}: ${urlBuilder.build()}\n$body")
+                throw ClientError.Http(response.code)
+            }
+            return body
         }
     }
 

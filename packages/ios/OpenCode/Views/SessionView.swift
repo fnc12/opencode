@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SessionView: View {
     let session: Session
@@ -8,6 +9,8 @@ struct SessionView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var showDiff = false
+    @State private var shareURL: String?
+    @State private var shareItem: ShareURL?
 
     var body: some View {
         ZStack {
@@ -46,6 +49,19 @@ struct SessionView: View {
                     }
                     .accessibilityIdentifier("session.diff")
                     .accessibilityLabel("Changes")
+                    Menu {
+                        Button { Task { await share() } } label: {
+                            Label("Share link", systemImage: "square.and.arrow.up")
+                        }
+                        if shareURL != nil {
+                            Button(role: .destructive) { Task { await stopSharing() } } label: {
+                                Label("Stop sharing", systemImage: "xmark.circle")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: shareURL != nil ? "link.circle.fill" : "square.and.arrow.up")
+                    }
+                    .accessibilityIdentifier("session.share")
                     StreamStatusBadge(status: store.status)
                 }
             }
@@ -60,7 +76,13 @@ struct SessionView: View {
                     }
             }
         }
-        .task { await run() }
+        .sheet(item: $shareItem) { item in
+            ActivityView(items: [item.url])
+        }
+        .task {
+            shareURL = session.share?.url
+            await run()
+        }
     }
 
     /// Docks (permissions / questions) stacked above the composer — hosted inside
@@ -154,6 +176,43 @@ struct SessionView: View {
         store.dismissQuestion(id: request.id)
         try? await server.rejectQuestion(directory: session.directory, requestID: request.id)
     }
+
+    /// Create (or reuse) the public share link and open the system share sheet.
+    private func share() async {
+        do {
+            let updated = try await server.shareSession(directory: session.directory, sessionID: session.id)
+            if let url = updated.share?.url, let u = URL(string: url) {
+                shareURL = url
+                shareItem = ShareURL(url: u)
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func stopSharing() async {
+        do {
+            _ = try await server.unshareSession(directory: session.directory, sessionID: session.id)
+            shareURL = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
+/// A shareable URL wrapped for `.sheet(item:)`.
+struct ShareURL: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// Bridges `UIActivityViewController` (the system share sheet) into SwiftUI.
+struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// Small live/connecting/reconnecting indicator shown in the nav bar.
