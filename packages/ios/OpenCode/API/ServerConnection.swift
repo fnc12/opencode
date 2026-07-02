@@ -157,6 +157,37 @@ final class ServerConnection {
         try await send("DELETE", "/session/\(sessionID)", query: ["directory": directory], body: nil)
     }
 
+    /// Create a public share link (`POST /session/:id/share`) — returns the
+    /// updated session whose `share.url` is the link.
+    func shareSession(directory: String, sessionID: String) async throws -> Session {
+        try await sendForResult("POST", "/session/\(sessionID)/share", query: ["directory": directory])
+    }
+
+    /// Stop sharing (`DELETE /session/:id/share`).
+    func unshareSession(directory: String, sessionID: String) async throws -> Session {
+        try await sendForResult("DELETE", "/session/\(sessionID)/share", query: ["directory": directory])
+    }
+
+    /// Like `send` but decodes and returns the response body.
+    private func sendForResult<T: Decodable>(_ method: String, _ path: String,
+                                             query: [String: String] = [:], body: [String: Any]? = nil) async throws -> T {
+        guard var components = URLComponents(string: config.baseURL + path) else { throw ClientError.invalidURL }
+        if !query.isEmpty { components.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        guard let url = components.url else { throw ClientError.invalidURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        applyAuth(to: &request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw ClientError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
     /// Generic request for verbs beyond GET/POST (PATCH/DELETE), body optional.
     private func send(_ method: String, _ path: String,
                       query: [String: String] = [:], body: [String: Any]? = nil) async throws {

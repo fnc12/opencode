@@ -21,8 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import android.content.Intent
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -81,6 +84,8 @@ fun SessionScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showDiff by remember { mutableStateOf(false) }
+    var showShareMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -113,6 +118,35 @@ fun SessionScreen(
                         modifier = Modifier.testTag("session.diff"),
                     ) {
                         Text("±", style = MaterialTheme.typography.titleMedium)
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { showShareMenu = true },
+                            modifier = Modifier.testTag("session.share"),
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = "Share")
+                        }
+                        DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Share link") },
+                                onClick = {
+                                    showShareMenu = false
+                                    viewModel.share { url ->
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, url)
+                                        }
+                                        context.startActivity(Intent.createChooser(send, "Share session"))
+                                    }
+                                },
+                            )
+                            if (state.shareUrl != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Stop sharing") },
+                                    onClick = { showShareMenu = false; viewModel.unshare() },
+                                )
+                            }
+                        }
                     }
                     StreamStatusBadge(state.status)
                 },

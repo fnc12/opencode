@@ -36,6 +36,7 @@ data class SessionUiState(
     val modelID: String = "",
     val agents: List<studio.eugenezakharov.opencode.api.models.AgentInfo> = emptyList(),
     val agentName: String = "build",
+    val shareUrl: String? = null,
     val sending: Boolean = false,
     val sendError: String? = null,
     // Permission requests (#27): the agent is blocked until these are answered.
@@ -65,7 +66,12 @@ class SessionViewModel(
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _state = MutableStateFlow(
-        SessionUiState(providerID = prefs.providerID, modelID = prefs.modelID, agentName = prefs.agent),
+        SessionUiState(
+            providerID = prefs.providerID,
+            modelID = prefs.modelID,
+            agentName = prefs.agent,
+            shareUrl = session.share?.url,
+        ),
     )
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
@@ -176,6 +182,27 @@ class SessionViewModel(
     fun selectAgent(name: String) {
         prefs.agent = name
         _state.update { it.copy(agentName = name) }
+    }
+
+    /** Creates (or reuses) the public share link; [onLink] gets the URL to share. */
+    fun share(onLink: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching { server.shareSession(session.directory, session.id) }
+                .onSuccess { s ->
+                    s.share?.url?.let { url ->
+                        _state.update { st -> st.copy(shareUrl = url) }
+                        onLink(url)
+                    }
+                }
+                .onFailure { e -> _state.update { st -> st.copy(sendError = e.message ?: "Share failed") } }
+        }
+    }
+
+    fun unshare() {
+        viewModelScope.launch {
+            runCatching { server.unshareSession(session.directory, session.id) }
+                .onSuccess { _state.update { st -> st.copy(shareUrl = null) } }
+        }
     }
 
     /** Pick a sensible default if none chosen — prefer a free `opencode` model. */
