@@ -226,9 +226,18 @@ class ServerConnection(
         providerID: String,
         modelID: String,
         agent: String? = null,
+        attachments: List<studio.eugenezakharov.opencode.api.models.PromptAttachment> = emptyList(),
     ) = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             putJsonArray("parts") {
+                attachments.forEach { att ->
+                    addJsonObject {
+                        put("type", "file")
+                        put("mime", att.mime)
+                        put("filename", att.filename)
+                        put("url", att.url)
+                    }
+                }
                 addJsonObject {
                     put("type", "text")
                     put("text", text)
