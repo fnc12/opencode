@@ -29,30 +29,14 @@ struct SessionListView: View {
                         .accessibilityIdentifier("sessions.new.empty")
                 }
             } else {
-                List {
-                    ForEach(sessions) { session in
-                        NavigationLink(value: AppRoute.session(session)) {
-                            SessionRow(session: session)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { Task { await delete(session) } } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            Button { startRename(session) } label: {
-                                Label("Rename", systemImage: "pencil")
-                            }
-                            .tint(.blue)
-                        }
-                        .contextMenu {
-                            Button { startRename(session) } label: { Label("Rename", systemImage: "pencil") }
-                            Button(role: .destructive) { Task { await delete(session) } } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                    }
-                }
-                .listStyle(.plain)
-                .refreshable { await load() }
+                SessionTableView(
+                    sessions: sessions,
+                    onSelect: { path.append(.session($0)) },
+                    onDelete: { session in Task { await delete(session) } },
+                    onRename: { startRename($0) },
+                    onRefresh: { await load() }
+                )
+                .ignoresSafeArea(edges: .bottom)
             }
         }
         .alert("Rename session", isPresented: Binding(
