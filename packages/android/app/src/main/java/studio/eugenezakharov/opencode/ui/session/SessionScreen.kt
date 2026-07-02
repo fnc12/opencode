@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.graphics.asImageBitmap
 import studio.eugenezakharov.opencode.api.models.PromptAttachment
+import studio.eugenezakharov.opencode.api.models.TodoItem
+import androidx.compose.ui.text.style.TextDecoration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -175,6 +177,9 @@ fun SessionScreen(
             // can be started. Hidden only while history is still loading or failed.
             if (!state.loading && state.error == null) {
                 Column {
+                    if (state.todos.isNotEmpty()) {
+                        TodoDock(state.todos)
+                    }
                     // Permission docks sit above the composer; the agent is blocked
                     // until each is answered (#27).
                     state.pendingPermissions.forEach { request ->
@@ -488,11 +493,61 @@ private fun QuestionDock(
     }
 }
 
-/**
- * Bottom composer: model picker, text input (the keyboard's mic key covers
- * dictation), and a send button. Mirrors iOS `ComposerView`. Sending clears the
- * input optimistically; the reply streams back over the SSE already wired.
- */
+/** The agent's task list above the composer — a collapsible checklist with progress. */
+@Composable
+private fun TodoDock(todos: List<TodoItem>) {
+    var expanded by remember { mutableStateOf(true) }
+    val done = todos.count { it.done }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .background(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                RoundedCornerShape(12.dp),
+            )
+            .padding(10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Tasks $done/${todos.size}",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(if (expanded) "▲" else "▼", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (expanded) {
+            Spacer(Modifier.size(4.dp))
+            todos.forEach { todo ->
+                Row(verticalAlignment = Alignment.Top) {
+                    val (glyph, color) = when (todo.status) {
+                        "completed" -> "✓" to androidx.compose.ui.graphics.Color(0xFF1F9550)
+                        "in_progress" -> "◐" to androidx.compose.ui.graphics.Color(0xFF2D7FF9)
+                        "cancelled" -> "✕" to MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> "○" to MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                    Text(glyph, color = color, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        todo.content,
+                        style = MaterialTheme.typography.bodySmall,
+                        textDecoration = if (todo.done) TextDecoration.LineThrough else null,
+                        color = if (todo.done) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.size(2.dp))
+            }
+        }
+    }
+}
+
 @Composable
 private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
     var text by remember { mutableStateOf("") }

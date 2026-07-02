@@ -47,6 +47,15 @@ class SessionStore {
     /** Pending questions the agent is asking for this session (it is blocked on them). */
     val pendingQuestions: List<QuestionRequest> get() = _pendingQuestions.toList()
 
+    private var _todos = listOf<studio.eugenezakharov.opencode.api.models.TodoItem>()
+    /** The agent's current task list (shown as a checklist above the composer). */
+    val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem> get() = _todos
+
+    fun setInitialTodos(todos: List<studio.eugenezakharov.opencode.api.models.TodoItem>) {
+        _todos = todos
+        onChange?.invoke()
+    }
+
     /** Listener invoked after any state change (messages/permissions/questions/status/revision). */
     var onChange: (() -> Unit)? = null
 
@@ -139,6 +148,10 @@ class SessionStore {
 
             is ServerEvent.QuestionResolved -> if (event.sessionID == sessionID) {
                 _pendingQuestions.removeAll { it.id == event.requestID }; true
+            } else false
+
+            is ServerEvent.TodoUpdated -> if (event.sessionID == sessionID) {
+                _todos = event.todos; true
             } else false
 
             else -> false // SessionUpdated / Other: no state change

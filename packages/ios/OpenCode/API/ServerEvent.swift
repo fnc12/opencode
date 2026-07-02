@@ -26,6 +26,8 @@ enum ServerEvent {
     case questionAsked(QuestionRequest)
     /// A question was answered or rejected (`question.v2.replied` / `.rejected`).
     case questionResolved(sessionID: String, requestID: String)
+    /// The session's todo list changed (`todo.updated`).
+    case todoUpdated(sessionID: String, todos: [TodoItem])
     /// Any event type we don't model.
     case other(type: String)
 }
@@ -43,7 +45,7 @@ struct PartDelta {
 extension ServerEvent: Decodable {
     private enum CodingKeys: String, CodingKey { case type, properties, payload }
     private enum Prop: String, CodingKey {
-        case sessionID, info, part, messageID, partID, field, delta, requestID
+        case sessionID, info, part, messageID, partID, field, delta, requestID, todos
     }
 
     init(from decoder: Decoder) throws {
@@ -109,6 +111,11 @@ extension ServerEvent: Decodable {
             self = .questionResolved(
                 sessionID: try p.decode(String.self, forKey: .sessionID),
                 requestID: try p.decode(String.self, forKey: .requestID))
+        case "todo.updated":
+            let p = try c.nestedContainer(keyedBy: Prop.self, forKey: .properties)
+            self = .todoUpdated(
+                sessionID: try p.decode(String.self, forKey: .sessionID),
+                todos: (try? p.decode([TodoItem].self, forKey: .todos)) ?? [])
         default:
             self = .other(type: type)
         }

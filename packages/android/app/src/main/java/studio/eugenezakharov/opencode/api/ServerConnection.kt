@@ -121,6 +121,16 @@ class ServerConnection(
             MessageParsing.parseMessageList(json, body)
         }
 
+    /** The session's current todo list (`GET /session/:id/todo`). Mirrors iOS. */
+    suspend fun sessionTodos(directory: String, sessionID: String): List<studio.eugenezakharov.opencode.api.models.TodoItem> =
+        get(
+            "/session/$sessionID/todo",
+            kotlinx.serialization.builtins.ListSerializer(
+                studio.eugenezakharov.opencode.api.models.TodoItem.serializer(),
+            ),
+            mapOf("directory" to directory),
+        )
+
     /** The aggregate file changes for a session (`GET /session/:id/diff`). Mirrors iOS. */
     suspend fun sessionDiff(directory: String, sessionID: String): List<SessionFileDiff> =
         get(

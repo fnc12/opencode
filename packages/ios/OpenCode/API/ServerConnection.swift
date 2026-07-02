@@ -72,6 +72,11 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/diff", query: ["directory": directory])
     }
 
+    /// The session's current todo list (`GET /session/:id/todo`).
+    func sessionTodos(directory: String, sessionID: String) async throws -> [TodoItem] {
+        try await get("/session/\(sessionID)/todo", query: ["directory": directory])
+    }
+
     /// Lists the entries (folders + files) of a directory on the server, for the
     /// folder browser. Works for any path the server can read.
     func listDirectory(path: String) async throws -> [FileEntry] {

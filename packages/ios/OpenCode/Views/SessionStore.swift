@@ -21,6 +21,8 @@ final class SessionStore {
     private(set) var pendingPermissions: [PermissionRequest] = []
     /// Pending questions the agent is asking for this session.
     private(set) var pendingQuestions: [QuestionRequest] = []
+    /// The agent's current task list (shown as a checklist above the composer).
+    private(set) var todos: [TodoItem] = []
     /// Bumped on every applied change so the view can react (e.g. auto-scroll)
     /// even when text grows inside an existing message.
     private(set) var revision = 0
@@ -37,6 +39,10 @@ final class SessionStore {
     /// Drop a permission locally (optimistically, after the user answers it).
     func dismissPermission(id: String) {
         pendingPermissions = pendingPermissions.filter { $0.id != id }
+    }
+
+    func setInitialTodos(_ todos: [TodoItem]) {
+        self.todos = todos
     }
 
     func setInitialQuestions(_ questions: [QuestionRequest]) {
@@ -80,6 +86,8 @@ final class SessionStore {
             }
         case .questionResolved(let sid, let requestID) where sid == sessionID:
             dismissQuestion(id: requestID)
+        case .todoUpdated(let sid, let t) where sid == sessionID:
+            todos = t
         default:
             return // not ours / unmodeled: no revision bump
         }

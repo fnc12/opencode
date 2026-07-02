@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
         // UI tests inject a synthetic permission / question so the docks can be driven.
         UiTestFlags.injectPermission = intent?.getBooleanExtra("UITEST_PERMISSION", false) == true
         UiTestFlags.injectQuestion = intent?.getBooleanExtra("UITEST_QUESTION", false) == true
+        UiTestFlags.injectTodo = intent?.getBooleanExtra("UITEST_TODO", false) == true
         enableEdgeToEdge()
         handlePairingIntent(intent)
         setContent {
