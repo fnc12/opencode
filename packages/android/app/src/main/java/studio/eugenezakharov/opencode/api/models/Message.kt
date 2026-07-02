@@ -143,6 +143,8 @@ data class MessagePart(
 /** Resolved content of a message part. Mirrors iOS `PartContent`. */
 sealed interface PartContent {
     data class Text(val text: String) : PartContent
+    /** The model's private thinking, rendered dimmed/italic under a "THINKING" label. */
+    data class Reasoning(val text: String) : PartContent
     data class Tool(
         val tool: String,
         val callID: String,
@@ -164,6 +166,7 @@ sealed interface PartContent {
     companion object {
         fun from(type: String, obj: JsonObject): PartContent? = when (type) {
             "text" -> Text(obj["text"]?.jsonPrimitive?.contentOrNull ?: "")
+            "reasoning" -> Reasoning(obj["text"]?.jsonPrimitive?.contentOrNull ?: "")
             "tool" -> {
                 val state = obj["state"]?.jsonObject
                 Tool(

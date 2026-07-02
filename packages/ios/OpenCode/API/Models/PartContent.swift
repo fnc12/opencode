@@ -2,6 +2,8 @@ import Foundation
 
 enum PartContent {
     case text(String)
+    /// The model's private thinking, rendered dimmed/italic under a "THINKING" label.
+    case reasoning(String)
     case tool(ToolContent)
     case stepStart(StepStartContent)
     case stepFinish(StepFinishContent)
@@ -15,6 +17,9 @@ enum PartContent {
         case "text":
             let payload = try TextPartPayload(from: decoder)
             self = .text(payload.text)
+        case "reasoning":
+            let payload = try TextPartPayload(from: decoder)
+            self = .reasoning(payload.text)
         case "tool":
             self = .tool(try ToolContent(from: decoder))
         case "step-start":
