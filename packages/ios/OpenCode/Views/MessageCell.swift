@@ -12,6 +12,16 @@ struct RenderedMessage {
     let metaText: String?       // e.g. token summary, top-right
     let blocks: [MessageBlock]
     let bubbleColor: UIColor
+
+    /// Plain text of the whole message, for copy-to-clipboard.
+    var plainText: String {
+        blocks.map { block in
+            switch block {
+            case .text(let s): return s.string
+            case .table(let t): return ([t.header] + t.rows).map { $0.joined(separator: "\t") }.joined(separator: "\n")
+            }
+        }.joined(separator: "\n\n")
+    }
 }
 
 /// Shared spacing constants and the single height formula used by both the cell
