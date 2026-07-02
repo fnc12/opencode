@@ -30,13 +30,12 @@ struct ProjectListView: View {
                             .accessibilityIdentifier("projects.openFolder.empty")
                     }
                 } else {
-                    List(projects) { project in
-                        NavigationLink(value: AppRoute.sessions(project)) {
-                            ProjectRow(project: project)
-                        }
-                    }
-                    .listStyle(.plain)
-                    .refreshable { await load() }
+                    ProjectTableView(
+                        projects: projects,
+                        onSelect: { path.append(.sessions($0)) },
+                        onRefresh: { await load() }
+                    )
+                    .ignoresSafeArea(edges: .bottom)
                 }
             }
             .navigationTitle("Projects")
