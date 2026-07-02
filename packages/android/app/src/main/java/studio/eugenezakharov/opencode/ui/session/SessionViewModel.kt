@@ -226,6 +226,10 @@ class SessionViewModel(
         }
     }
 
+    /** The session's aggregate file changes (for the "Changes" / diff screen). */
+    suspend fun loadDiff(): List<studio.eugenezakharov.opencode.api.models.SessionFileDiff> =
+        server.sessionDiff(session.directory, session.id)
+
     /**
      * Answers a permission request and clears it locally right away. [reply] is
      * `"once"`, `"always"`, or `"reject"`. Mirrors iOS `handleReply`.

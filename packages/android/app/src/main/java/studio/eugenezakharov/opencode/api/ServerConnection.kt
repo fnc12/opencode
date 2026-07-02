@@ -25,6 +25,7 @@ import studio.eugenezakharov.opencode.api.models.QuestionRequest
 import studio.eugenezakharov.opencode.api.models.ProviderInfo
 import studio.eugenezakharov.opencode.api.models.ProvidersParsing
 import studio.eugenezakharov.opencode.api.models.Session
+import studio.eugenezakharov.opencode.api.models.SessionFileDiff
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
@@ -119,6 +120,14 @@ class ServerConnection(
             val body = getRaw("/session/$sessionID/message", mapOf("directory" to directory))
             MessageParsing.parseMessageList(json, body)
         }
+
+    /** The aggregate file changes for a session (`GET /session/:id/diff`). Mirrors iOS. */
+    suspend fun sessionDiff(directory: String, sessionID: String): List<SessionFileDiff> =
+        get(
+            "/session/$sessionID/diff",
+            kotlinx.serialization.builtins.ListSerializer(SessionFileDiff.serializer()),
+            mapOf("directory" to directory),
+        )
 
     /** Lists providers and their models for the model picker (`GET /config/providers`). */
     suspend fun providers(): List<ProviderInfo> = withContext(Dispatchers.IO) {
