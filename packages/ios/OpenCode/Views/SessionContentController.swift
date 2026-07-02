@@ -43,6 +43,11 @@ final class SessionContentController: UIViewController {
         didSet { coordinator.receive(messages, table: table) }
     }
 
+    /// Wired from SwiftUI: called with a message id when the user picks "Revert to here".
+    var onRevert: ((String) -> Void)? {
+        didSet { coordinator.onRevert = onRevert }
+    }
+
     init(bar: InputBarView) {
         self.bar = bar
         super.init(nibName: nil, bundle: nil)
@@ -136,6 +141,7 @@ final class SessionContentController: UIViewController {
 struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     let messages: [MessageWithParts]
     let revision: Int
+    var onRevert: ((String) -> Void)? = nil
     @ViewBuilder var bar: () -> Bar
 
     func makeUIViewController(context: Context) -> SessionContentController {
@@ -146,12 +152,14 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         // appearance forwarding. The coordinator retains `host` instead.
         context.coordinator.host = host
         let controller = SessionContentController(bar: InputBarView(content: host.view))
+        controller.onRevert = onRevert
         controller.messages = messages
         return controller
     }
 
     func updateUIViewController(_ controller: SessionContentController, context: Context) {
         context.coordinator.host?.rootView = bar()
+        controller.onRevert = onRevert
         controller.messages = messages
     }
 

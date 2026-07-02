@@ -59,6 +59,8 @@ struct MessageListView: UIViewRepresentable {
         /// shrinks for the keyboard, so the controller only shifts when this is false.
         private var pinnedToBottom = true
         var isPinnedToBottom: Bool { pinnedToBottom }
+        /// Called when the user picks "Revert to here" on a message (its id).
+        var onRevert: ((String) -> Void)?
 
         func makeDataSource(for table: UITableView) {
             dataSource = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, indexPath, id in
@@ -112,14 +114,23 @@ struct MessageListView: UIViewRepresentable {
         func tableView(_ tableView: UITableView,
                        contextMenuConfigurationForRowAt indexPath: IndexPath,
                        point: CGPoint) -> UIContextMenuConfiguration? {
-            guard let id = dataSource?.itemIdentifier(for: indexPath),
-                  let text = rendered[id]?.message.plainText, !text.isEmpty else { return nil }
+            guard let id = dataSource?.itemIdentifier(for: indexPath) else { return nil }
+            let text = rendered[id]?.message.plainText ?? ""
+            let revert = onRevert
+            guard !text.isEmpty || revert != nil else { return nil }
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
-                UIMenu(children: [
-                    UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in
+                var actions: [UIAction] = []
+                if !text.isEmpty {
+                    actions.append(UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in
                         UIPasteboard.general.string = text
-                    },
-                ])
+                    })
+                }
+                if let revert {
+                    actions.append(UIAction(title: "Revert to here",
+                                            image: UIImage(systemName: "arrow.uturn.backward"),
+                                            attributes: .destructive) { _ in revert(id) })
+                }
+                return UIMenu(children: actions)
             }
         }
 

@@ -152,6 +152,17 @@ final class ServerConnection {
         try await post("/session/\(sessionID)/abort", query: ["directory": directory], body: [:])
     }
 
+    /// Revert the session to just before `messageID` — undoes that message and
+    /// everything after it, including the file changes. `POST /session/:id/revert`.
+    func revertSession(directory: String, sessionID: String, messageID: String) async throws {
+        try await post("/session/\(sessionID)/revert", query: ["directory": directory], body: ["messageID": messageID])
+    }
+
+    /// Restore all reverted messages. `POST /session/:id/unrevert`.
+    func unrevertSession(directory: String, sessionID: String) async throws {
+        try await post("/session/\(sessionID)/unrevert", query: ["directory": directory], body: [:])
+    }
+
     /// Rename a session (sets its title). `PATCH /session/:id`.
     func renameSession(directory: String, sessionID: String, title: String) async throws {
         try await send("PATCH", "/session/\(sessionID)", query: ["directory": directory], body: ["title": title])
