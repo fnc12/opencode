@@ -15,6 +15,8 @@ struct ComposerView: View {
     @State private var showModelPicker = false
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var attachments: [Attachment] = []
+    @State private var commands: [CommandInfo] = []
+    @State private var showCommands = false
 
     /// A picked image staged for the next prompt (thumbnail + its data URL).
     struct Attachment: Identifiable {
@@ -100,6 +102,13 @@ struct ComposerView: View {
                 }
                 .accessibilityIdentifier("composer.attach")
 
+                if !commands.isEmpty {
+                    Button { showCommands = true } label: {
+                        Image(systemName: "slash.circle").font(.title3)
+                    }
+                    .accessibilityIdentifier("composer.commands")
+                }
+
                 TextField("Message", text: $text, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...5)
@@ -120,6 +129,9 @@ struct ComposerView: View {
         .task { await loadProviders() }
         .sheet(isPresented: $showModelPicker) {
             ModelPickerView(providers: providers, providerID: $providerID, modelID: $modelID)
+        }
+        .sheet(isPresented: $showCommands) {
+            CommandPickerView(commands: commands) { runCommand($0) }
         }
         .onChange(of: pickerItems) { _, items in
             guard !items.isEmpty else { return }
@@ -172,7 +184,23 @@ struct ComposerView: View {
     private func loadProviders() async {
         if providers.isEmpty { providers = (try? await server.providers()) ?? [] }
         if agents.isEmpty { agents = (try? await server.agents()) ?? [] }
+        if commands.isEmpty { commands = (try? await server.commands(directory: session.directory)) ?? [] }
         if modelID.isEmpty { autoSelectDefault() }
+    }
+
+    /// Runs a slash command; the expansion + reply stream back over the SSE.
+    private func runCommand(_ command: CommandInfo) {
+        let dir = session.directory, sid = session.id
+        sendError = nil
+        Task {
+            do {
+                try await server.runCommand(directory: dir, sessionID: sid, command: command.name)
+            } catch let e as URLError where [.timedOut, .cancelled, .networkConnectionLost].contains(e.code) {
+                // in flight — the reply comes over the stream
+            } catch {
+                sendError = error.localizedDescription
+            }
+        }
     }
 
     /// Pick a sensible default if none chosen — prefer a free `opencode` model.
@@ -213,6 +241,39 @@ struct ComposerView: View {
                 sendError = error.localizedDescription
                 if text.isEmpty { text = prompt } // restore only if untouched
             }
+        }
+    }
+}
+
+/// Lists the session's slash commands; tapping one runs it and dismisses.
+struct CommandPickerView: View {
+    let commands: [CommandInfo]
+    let onRun: (CommandInfo) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(commands) { command in
+                Button {
+                    onRun(command)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("/\(command.name)")
+                            .font(.body.monospaced())
+                            .foregroundStyle(.primary)
+                        if let description = command.description, !description.isEmpty {
+                            Text(description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Commands")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() } } }
         }
     }
 }
