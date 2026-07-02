@@ -140,6 +140,10 @@ final class ServerConnection {
     /// required — the server has no default.
     func sendPrompt(directory: String, sessionID: String, text: String,
                     providerID: String, modelID: String) async throws {
+        // Note: the server holds this POST open until the whole turn finishes,
+        // but the turn keeps generating (and streaming over SSE) even if the POST
+        // stops being awaited. The composer sends this fire-and-forget, so the
+        // POST's timeout never gates the UI.
         try await post("/session/\(sessionID)/message", query: ["directory": directory], body: [
             "parts": [["type": "text", "text": text]],
             "model": ["providerID": providerID, "modelID": modelID],

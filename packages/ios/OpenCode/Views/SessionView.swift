@@ -9,63 +9,61 @@ struct SessionView: View {
     @State private var error: String?
 
     var body: some View {
-        content
-            .safeAreaInset(edge: .bottom) {
-                if !loading && error == nil {
-                    VStack(spacing: 0) {
-                        ForEach(store.pendingPermissions) { request in
-                            PermissionDock(request: request) { reply in
-                                Task { await handleReply(request, reply) }
-                            }
-                        }
-                        ForEach(store.pendingQuestions) { request in
-                            QuestionDock(
-                                request: request,
-                                onReply: { answers in Task { await handleQuestionReply(request, answers) } },
-                                onReject: { Task { await handleQuestionReject(request) } })
-                        }
-                        ComposerView(server: server, session: session)
-                    }
+        ZStack {
+            if let error {
+                ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else {
+                // The whole screen is UIKit (message list + bottom bar) so the
+                // keyboard is handled natively: the composer is the controller's
+                // inputAccessoryView. Ignore SwiftUI's keyboard avoidance here.
+                SessionContent(messages: store.messages, revision: store.revision) {
+                    bottomBar
+                }
+                .ignoresSafeArea(.keyboard, edges: .bottom)
+                if loading {
+                    ProgressView("Loading messages...")
                 }
             }
-            .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 10) {
-                        if store.isBusy {
-                            Button(role: .destructive) {
-                                Task { try? await server.abort(directory: session.directory, sessionID: session.id) }
-                            } label: {
-                                Label("Stop", systemImage: "stop.circle.fill")
-                            }
-                            .tint(.red)
-                            .accessibilityIdentifier("session.stop")
-                        }
-                        StreamStatusBadge(status: store.status)
-                    }
-                }
-            }
-            .task { await run() }
-    }
-
-    @ViewBuilder private var content: some View {
-        if loading {
-            ProgressView("Loading messages...")
-        } else if let error {
-            ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
-        } else if store.messages.isEmpty {
-            ContentUnavailableView("Start the conversation", systemImage: "bubble.left", description: Text("Send a message to begin"))
-        } else {
-            thread
         }
+        .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 10) {
+                    if store.isBusy {
+                        Button(role: .destructive) {
+                            Task { try? await server.abort(directory: session.directory, sessionID: session.id) }
+                        } label: {
+                            Image(systemName: "stop.circle.fill")
+                        }
+                        .tint(.red)
+                        .accessibilityIdentifier("session.stop")
+                        .accessibilityLabel("Stop")
+                    }
+                    StreamStatusBadge(status: store.status)
+                }
+            }
+        }
+        .task { await run() }
     }
 
-    private var thread: some View {
-        // No .ignoresSafeArea here: the composer is installed via
-        // .safeAreaInset(.bottom), so the list must stay within that reduced
-        // safe area — otherwise its last rows scroll underneath the composer.
-        MessageListView(messages: store.messages, revision: store.revision)
+    /// Docks (permissions / questions) stacked above the composer — hosted inside
+    /// the UIKit controller so it rides the keyboard with the list.
+    @ViewBuilder private var bottomBar: some View {
+        VStack(spacing: 0) {
+            ForEach(store.pendingPermissions) { request in
+                PermissionDock(request: request) { reply in
+                    Task { await handleReply(request, reply) }
+                }
+            }
+            ForEach(store.pendingQuestions) { request in
+                QuestionDock(
+                    request: request,
+                    onReply: { answers in Task { await handleQuestionReply(request, answers) } },
+                    onReject: { Task { await handleQuestionReject(request) } })
+            }
+            ComposerView(server: server, session: session)
+        }
     }
 
     /// Loads the message history, then consumes the SSE stream, reconnecting
@@ -151,10 +149,10 @@ private struct StreamStatusBadge: View {
         case .idle:
             EmptyView()
         case .live:
-            Label("Live", systemImage: "circle.fill")
-                .labelStyle(.titleAndIcon)
-                .font(.caption2)
-                .foregroundStyle(.green)
+            HStack(spacing: 4) {
+                Circle().fill(.green).frame(width: 7, height: 7)
+                Text("Live").font(.caption2).foregroundStyle(.secondary)
+            }
         case .connecting, .reconnecting:
             HStack(spacing: 4) {
                 ProgressView().controlSize(.mini)
