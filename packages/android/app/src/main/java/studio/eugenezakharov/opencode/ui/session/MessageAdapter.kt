@@ -6,9 +6,11 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.widget.Toast
+import android.text.Layout
 import android.text.Spannable
 import android.text.Spanned
 import android.text.SpannableStringBuilder
+import android.text.style.AlignmentSpan
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
@@ -192,6 +194,7 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                     }
                     is PartContent.Patch -> { h = 31 * h + c.files.size; h = 31 * h + (c.hash?.hashCode() ?: 0) }
                     is PartContent.FileRef -> { h = 31 * h + (c.filename?.hashCode() ?: 0); h = 31 * h + (c.url?.hashCode() ?: 0) }
+                    is PartContent.Compaction -> h = 31 * h + c.auto.hashCode()
                     is PartContent.StepStart -> h = 31 * h + (c.title?.hashCode() ?: 0)
                     else -> {}
                 }
@@ -222,6 +225,15 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
                     }
                     is PartContent.Patch -> { spacer(); body.append(patchLine(c)) }
                     is PartContent.FileRef -> { spacer(); body.append(fileChip(c)) }
+                    is PartContent.Compaction -> {
+                        spacer()
+                        val start = body.length
+                        body.append(if (c.auto) "⸻  earlier context summarized  ⸻" else "⸻  context summarized  ⸻")
+                        val flag = Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                        body.setSpan(AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), start, body.length, flag)
+                        body.setSpan(ForegroundColorSpan(0xFF9A9A9A.toInt()), start, body.length, flag)
+                        body.setSpan(RelativeSizeSpan(0.8f), start, body.length, flag)
+                    }
                     is PartContent.StepStart -> c.title?.let { spacer(); body.append(it) }
                     else -> {}
                 }

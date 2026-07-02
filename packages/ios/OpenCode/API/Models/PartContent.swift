@@ -11,6 +11,8 @@ enum PartContent {
     case patch(PatchContent)
     /// A referenced file (IDE context attachment), rendered as a compact chip.
     case file(FileRefContent)
+    /// A marker where earlier conversation was summarized/compacted.
+    case compaction(auto: Bool)
 
     init?(from decoder: Decoder, type: String) throws {
         switch type {
@@ -30,6 +32,9 @@ enum PartContent {
             self = .patch(try PatchContent(from: decoder))
         case "file":
             self = .file(try FileRefContent(from: decoder))
+        case "compaction":
+            let payload = try CompactionPayload(from: decoder)
+            self = .compaction(auto: payload.auto ?? false)
         default:
             return nil
         }
@@ -38,6 +43,10 @@ enum PartContent {
 
 private struct TextPartPayload: Decodable {
     let text: String
+}
+
+private struct CompactionPayload: Decodable {
+    let auto: Bool?
 }
 
 struct ToolContent: Decodable {
