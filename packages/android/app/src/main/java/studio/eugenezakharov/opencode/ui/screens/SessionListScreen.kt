@@ -1,6 +1,8 @@
 package studio.eugenezakharov.opencode.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,15 +16,22 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,7 +50,7 @@ import studio.eugenezakharov.opencode.api.ServerConnection
 import studio.eugenezakharov.opencode.api.models.Project
 import studio.eugenezakharov.opencode.api.models.Session
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SessionListScreen(
     server: ServerConnection,
@@ -53,6 +62,9 @@ fun SessionListScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var menuFor by remember { mutableStateOf<Session?>(null) }
+    var renameFor by remember { mutableStateOf<Session?>(null) }
+    var renameText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(project.id) {
@@ -71,6 +83,28 @@ fun SessionListScreen(
             runCatching { server.createSession(project.worktree) }
                 .onSuccess { creating = false; onSessionClick(it) }
                 .onFailure { creating = false; error = it.message ?: "Failed to create session" }
+        }
+    }
+
+    fun deleteSession(session: Session) {
+        scope.launch {
+            runCatching { server.deleteSession(project.worktree, session.id) }
+                .onSuccess { sessions = sessions.filter { it.id != session.id } }
+                .onFailure { error = it.message ?: "Failed to delete session" }
+        }
+    }
+
+    fun commitRename(target: Session) {
+        val newTitle = renameText.trim()
+        renameFor = null
+        if (newTitle.isEmpty() || newTitle == target.title) return
+        scope.launch {
+            runCatching {
+                server.renameSession(project.worktree, target.id, newTitle)
+                server.sessions(project.worktree)
+            }
+                .onSuccess { s -> sessions = s.sortedByDescending { it.time.updated } }
+                .onFailure { error = it.message ?: "Failed to rename session" }
         }
     }
 
@@ -107,12 +141,52 @@ fun SessionListScreen(
                 sessions.isEmpty() -> EmptySessions(creating = creating, onNewSession = { newSession() })
                 else -> LazyColumn(Modifier.fillMaxSize()) {
                     items(sessions, key = { it.id }) { session ->
-                        SessionRow(session, Modifier.clickable { onSessionClick(session) })
+                        Box {
+                            SessionRow(
+                                session,
+                                Modifier.combinedClickable(
+                                    onClick = { onSessionClick(session) },
+                                    onLongClick = { menuFor = session },
+                                ),
+                            )
+                            DropdownMenu(
+                                expanded = menuFor?.id == session.id,
+                                onDismissRequest = { menuFor = null },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                    onClick = { menuFor = null; renameText = session.title; renameFor = session },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                    onClick = { menuFor = null; deleteSession(session) },
+                                )
+                            }
+                        }
                         HorizontalDivider()
                     }
                 }
             }
         }
+    }
+
+    renameFor?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameFor = null },
+            title = { Text("Rename session") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    singleLine = true,
+                    modifier = Modifier.testTag("session.rename.field"),
+                )
+            },
+            confirmButton = { TextButton(onClick = { commitRename(target) }) { Text("Rename") } },
+            dismissButton = { TextButton(onClick = { renameFor = null }) { Text("Cancel") } },
+        )
     }
 }
 
