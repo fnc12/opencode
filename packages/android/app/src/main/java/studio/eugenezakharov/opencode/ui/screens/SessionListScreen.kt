@@ -42,9 +42,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
 import studio.eugenezakharov.opencode.api.ServerConnection
 import studio.eugenezakharov.opencode.api.models.Project
@@ -139,34 +143,26 @@ fun SessionListScreen(
                 loading -> CircularProgressIndicator()
                 error != null -> CenteredMessage("Error", error!!)
                 sessions.isEmpty() -> EmptySessions(creating = creating, onNewSession = { newSession() })
-                else -> LazyColumn(Modifier.fillMaxSize()) {
-                    items(sessions, key = { it.id }) { session ->
-                        Box {
-                            SessionRow(
-                                session,
-                                Modifier.combinedClickable(
-                                    onClick = { onSessionClick(session) },
-                                    onLongClick = { menuFor = session },
-                                ),
-                            )
-                            DropdownMenu(
-                                expanded = menuFor?.id == session.id,
-                                onDismissRequest = { menuFor = null },
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Rename") },
-                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                                    onClick = { menuFor = null; renameText = session.title; renameFor = session },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Delete") },
-                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
-                                    onClick = { menuFor = null; deleteSession(session) },
+                else -> {
+                    val primary = MaterialTheme.colorScheme.onSurface.toArgb()
+                    val secondary = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+                    val addColor = android.graphics.Color.parseColor("#1F9550")
+                    val delColor = MaterialTheme.colorScheme.error.toArgb()
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx ->
+                            RecyclerView(ctx).apply {
+                                layoutManager = LinearLayoutManager(ctx)
+                                adapter = SessionListAdapter(
+                                    primary, secondary, addColor, delColor,
+                                    onClick = onSessionClick,
+                                    onRename = { session -> renameText = session.title; renameFor = session },
+                                    onDelete = { session -> deleteSession(session) },
                                 )
                             }
-                        }
-                        HorizontalDivider()
-                    }
+                        },
+                        update = { rv -> (rv.adapter as SessionListAdapter).submit(sessions) },
+                    )
                 }
             }
         }
@@ -246,7 +242,7 @@ private fun SessionRow(session: Session, modifier: Modifier = Modifier) {
 }
 
 /** Coarse relative-time label (ms epoch). */
-private fun relativeTime(epochMillis: Double): String {
+fun relativeTime(epochMillis: Double): String {
     val now = System.currentTimeMillis()
     val diff = (now - epochMillis.toLong()).coerceAtLeast(0)
     val minutes = diff / 60_000
