@@ -45,6 +45,12 @@ enum MarkdownRenderer {
 
     // MARK: inline
 
+    /// Renders a single line of inline markdown (bold / italic / `code` / links)
+    /// — used for table cells, which aren't block constructs.
+    static func inlineAttributed(_ string: String, font: UIFont, color: UIColor) -> NSAttributedString {
+        inline(string, font: font, color: color)
+    }
+
     private static func inline(_ string: String, font: UIFont, color: UIColor) -> NSAttributedString {
         guard !string.isEmpty else { return NSAttributedString(string: "") }
         let options = AttributedString.MarkdownParsingOptions(

@@ -8,7 +8,6 @@ struct ComposerView: View {
     let session: Session
 
     @State private var text = ""
-    @State private var sending = false
     @State private var sendError: String?
     @State private var providers: [ProviderInfo] = []
     @State private var showModelPicker = false
@@ -25,27 +24,32 @@ struct ComposerView: View {
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(alignment: .bottom, spacing: 8) {
+            // Model selector on its own compact line, so the message field can
+            // take the full width of the bar.
+            HStack {
                 Button { showModelPicker = true } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "cpu")
                         Text(modelLabel).lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8))
                     }
                     .font(.caption2)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("composer.model")
+                Spacer(minLength: 0)
+            }
 
+            HStack(alignment: .bottom, spacing: 8) {
                 TextField("Message", text: $text, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...5)
-                    .disabled(sending)
                     .accessibilityIdentifier("composer.field")
 
-                Button { Task { await send() } } label: {
+                Button { send() } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .symbolEffect(.pulse, isActive: sending)
                 }
                 .disabled(!canSend)
                 .accessibilityIdentifier("composer.send")
@@ -62,7 +66,7 @@ struct ComposerView: View {
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sending && !modelID.isEmpty
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !modelID.isEmpty
     }
 
     private var modelLabel: String {
@@ -93,20 +97,28 @@ struct ComposerView: View {
         }
     }
 
-    private func send() async {
+    private func send() {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty, !modelID.isEmpty else { return }
         text = "" // optimistic; the user message echoes back over the stream
-        sending = true
         sendError = nil
-        do {
-            try await server.sendPrompt(directory: session.directory, sessionID: session.id,
-                                        text: prompt, providerID: providerID, modelID: modelID)
-        } catch {
-            sendError = error.localizedDescription
-            text = prompt // restore so the user doesn't lose what they typed
+        let dir = session.directory, sid = session.id, pid = providerID, mid = modelID
+        // Fire-and-forget: the reply arrives over the SSE event stream, and the
+        // server keeps generating regardless of this POST — so its duration or
+        // timeout must never gate the UI. Surface only a genuine rejection (an
+        // HTTP error); a transport hiccup (timeout / cancelled / dropped) just
+        // means the turn is already under way.
+        Task {
+            do {
+                try await server.sendPrompt(directory: dir, sessionID: sid, text: prompt,
+                                            providerID: pid, modelID: mid)
+            } catch let e as URLError where [.timedOut, .cancelled, .networkConnectionLost].contains(e.code) {
+                // in flight — the reply comes over the stream
+            } catch {
+                sendError = error.localizedDescription
+                if text.isEmpty { text = prompt } // restore only if untouched
+            }
         }
-        sending = false
     }
 }
 

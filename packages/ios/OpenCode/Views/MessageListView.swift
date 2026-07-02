@@ -6,6 +6,16 @@ import UIKit
 /// Markdown is rendered to `NSAttributedString` once per content change; while a
 /// message streams we `reconfigureItems` only that one row and recompute only
 /// its height.
+/// UITableView that notifies on every layout pass, so the list can re-pin to the
+/// newest message when its frame changes (keyboard show/hide, rotation, load).
+final class MessageTableView: UITableView {
+    var onLayout: (() -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
 struct MessageListView: UIViewRepresentable {
     let messages: [MessageWithParts]
     /// Bumped by the store on every change; ties SwiftUI's `updateUIView` to data updates.
@@ -14,7 +24,7 @@ struct MessageListView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UITableView {
-        let table = UITableView(frame: .zero, style: .plain)
+        let table = MessageTableView(frame: .zero, style: .plain)
         table.separatorStyle = .none
         table.backgroundColor = .clear
         table.allowsSelection = false
@@ -23,19 +33,15 @@ struct MessageListView: UIViewRepresentable {
         table.register(MessageCell.self, forCellReuseIdentifier: MessageCell.reuseID)
         table.contentInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         table.delegate = context.coordinator
+        // Re-pin to the newest message whenever the table re-lays out — first
+        // load, keyboard show/hide (the frame shrinks/grows), rotation.
+        table.onLayout = { [weak coordinator = context.coordinator] in coordinator?.tableDidLayout() }
         context.coordinator.makeDataSource(for: table)
         return table
     }
 
     func updateUIView(_ table: UITableView, context: Context) {
-        let coordinator = context.coordinator
-        let stickToBottom = coordinator.isNearBottom(table)
-        coordinator.apply(messages, table: table)
-        coordinator.hasApplied = true
-        if stickToBottom {
-            table.layoutIfNeeded()
-            coordinator.scrollToBottom(table)
-        }
+        context.coordinator.receive(messages, table: table)
     }
 
     @MainActor
@@ -45,6 +51,14 @@ struct MessageListView: UIViewRepresentable {
         private var rendered: [String: (signature: Int, message: RenderedMessage)] = [:]
         private var heightCache: [String: CGFloat] = [:]
         var hasApplied = false
+        private weak var table: UITableView?
+        /// Latest messages held back while the user is actively scrolling (#1).
+        private var pending: [MessageWithParts]?
+        /// Whether the list should stay pinned to the newest message. At the
+        /// bottom the scroll view already keeps the last row visible as the frame
+        /// shrinks for the keyboard, so the controller only shifts when this is false.
+        private var pinnedToBottom = true
+        var isPinnedToBottom: Bool { pinnedToBottom }
 
         func makeDataSource(for table: UITableView) {
             dataSource = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, indexPath, id in
@@ -93,7 +107,42 @@ struct MessageListView: UIViewRepresentable {
             return height
         }
 
-        // MARK: scrolling
+        // MARK: scrolling + update scheduling
+
+        /// Entry point from `updateUIView`. Buffers the update while the user is
+        /// dragging so the list never jumps under their finger (#1).
+        func receive(_ messages: [MessageWithParts], table: UITableView) {
+            self.table = table
+            if table.isTracking || table.isDragging || table.isDecelerating {
+                pending = messages
+                return
+            }
+            applyNow(messages, table: table)
+        }
+
+        private func applyNow(_ messages: [MessageWithParts], table: UITableView) {
+            apply(messages, table: table)
+            hasApplied = true
+            if pinnedToBottom {
+                table.layoutIfNeeded()
+                scrollToBottom(table)
+            }
+        }
+
+        private func flushPending() {
+            guard let table, let messages = pending else { return }
+            pending = nil
+            applyNow(messages, table: table)
+        }
+
+        /// Called from `MessageTableView.layoutSubviews` — re-pins to the bottom
+        /// when the frame changes (keyboard, rotation, first load), so the newest
+        /// message stays visible and moves in sync with the keyboard (#5, #6).
+        func tableDidLayout() {
+            guard let table, pinnedToBottom,
+                  !table.isTracking, !table.isDragging, !table.isDecelerating else { return }
+            scrollToBottom(table)
+        }
 
         func isNearBottom(_ table: UITableView, threshold: CGFloat = 140) -> Bool {
             guard hasApplied else { return true } // first load: pin to bottom
@@ -101,35 +150,53 @@ struct MessageListView: UIViewRepresentable {
             return distance <= threshold
         }
 
+        /// Idempotent — only moves if not already at the bottom, so it is safe to
+        /// call from `layoutSubviews` without looping.
         func scrollToBottom(_ table: UITableView) {
-            let bottom = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
-            guard bottom > 0 else { return }
-            table.setContentOffset(CGPoint(x: 0, y: bottom), animated: false)
+            let target = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
+            guard target > 0, abs(table.contentOffset.y - target) > 0.5 else { return }
+            table.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+        }
+
+        // MARK: scroll delegate — track pin state + flush deferred updates
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard let table = scrollView as? UITableView,
+                  scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else { return }
+            pinnedToBottom = isNearBottom(table)
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if let table = scrollView as? UITableView { pinnedToBottom = isNearBottom(table) }
+            if !decelerate { flushPending() }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            if let table = scrollView as? UITableView { pinnedToBottom = isNearBottom(table) }
+            flushPending()
         }
 
         // MARK: rendering
 
-        private static let bodyFont = UIFont.preferredFont(forTextStyle: .body)
+        private static let bodyFont = MessageMetrics.bodyFont
 
         private static func render(_ message: MessageWithParts) -> RenderedMessage {
-            let body = NSMutableAttributedString()
-            func spacer() { if body.length > 0 { body.append(NSAttributedString(string: "\n\n")) } }
+            var blocks: [MessageBlock] = []
 
             for part in message.parts {
                 switch part.content {
                 case .text(let text) where !text.isEmpty:
-                    spacer(); body.append(MarkdownRenderer.attributed(text, font: bodyFont, color: .label))
+                    blocks.append(contentsOf: textToBlocks(text))
                 case .tool(let tool):
-                    spacer(); body.append(toolLine(tool))
+                    blocks.append(.text(toolLine(tool)))
                 case .patch(let patch):
-                    spacer(); body.append(patchLine(patch))
+                    blocks.append(.text(patchLine(patch)))
                 case .file(let file):
-                    spacer(); body.append(fileChip(file))
+                    blocks.append(.text(fileChip(file)))
                 case .stepStart(let step):
-                    if let title = step.title {
-                        spacer()
-                        body.append(NSAttributedString(string: title, attributes: [
-                            .font: UIFont.systemFont(ofSize: 12), .foregroundColor: UIColor.secondaryLabel]))
+                    if let title = step.title, !title.isEmpty {
+                        blocks.append(.text(NSAttributedString(string: title, attributes: [
+                            .font: UIFont.systemFont(ofSize: 12), .foregroundColor: UIColor.secondaryLabel])))
                     }
                 case .text, .stepFinish, nil:
                     break
@@ -140,17 +207,68 @@ struct MessageListView: UIViewRepresentable {
             case .user:
                 return RenderedMessage(
                     roleText: "You", roleColor: .systemBlue, metaText: nil,
-                    body: body, bubbleColor: UIColor.systemBlue.withAlphaComponent(0.12))
+                    blocks: blocks, bubbleColor: UIColor.systemBlue.withAlphaComponent(0.12))
             case .assistant(let info):
                 if let error = info.error {
-                    spacer()
-                    body.append(NSAttributedString(string: "Error: \(error.displayText)", attributes: [
-                        .font: bodyFont, .foregroundColor: UIColor.systemOrange]))
+                    blocks.append(.text(NSAttributedString(string: "Error: \(error.displayText)", attributes: [
+                        .font: bodyFont, .foregroundColor: UIColor.systemOrange])))
                 }
                 return RenderedMessage(
                     roleText: info.agent, roleColor: .systemGreen, metaText: tokenSummary(info),
-                    body: body, bubbleColor: UIColor.white.withAlphaComponent(0.06))
+                    blocks: blocks, bubbleColor: UIColor.white.withAlphaComponent(0.06))
             }
+        }
+
+        /// Splits a text part into blocks: bounded markdown paragraphs (so no
+        /// label grows huge), with any GFM table lifted out as a structured
+        /// `.table` block rendered by `TableBlockView`.
+        private static func textToBlocks(_ text: String) -> [MessageBlock] {
+            var out: [MessageBlock] = []
+            var textBuf: [String] = []
+            func flushText() {
+                guard !textBuf.isEmpty else { return }
+                let joined = textBuf.joined(separator: "\n")
+                textBuf.removeAll()
+                for paragraph in joined.components(separatedBy: "\n\n") {
+                    let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { continue }
+                    for chunk in boundedChunks(trimmed, maxChars: 1500) {
+                        out.append(.text(MarkdownRenderer.attributed(chunk, font: bodyFont, color: .label)))
+                    }
+                }
+            }
+            let lines = text.components(separatedBy: "\n")
+            var i = 0
+            while i < lines.count {
+                let next = i + 1 < lines.count ? lines[i + 1] : nil
+                if MarkdownTable.isStart(lines[i], next: next) {
+                    flushText()
+                    var rows: [String] = []
+                    while i < lines.count, lines[i].contains("|") { rows.append(lines[i]); i += 1 }
+                    if let table = MarkdownTable.parse(rows) { out.append(.table(table)) }
+                    continue
+                }
+                textBuf.append(lines[i]); i += 1
+            }
+            flushText()
+            return out
+        }
+
+        /// Breaks a very long block on line boundaries so each piece stays under
+        /// `maxChars`. Short blocks pass through unchanged.
+        private static func boundedChunks(_ s: String, maxChars: Int) -> [String] {
+            guard s.count > maxChars else { return [s] }
+            var chunks: [String] = []
+            var current = ""
+            for line in s.split(separator: "\n", omittingEmptySubsequences: false) {
+                if !current.isEmpty && current.count + line.count > maxChars {
+                    chunks.append(current)
+                    current = ""
+                }
+                current += (current.isEmpty ? "" : "\n") + line
+            }
+            if !current.isEmpty { chunks.append(current) }
+            return chunks
         }
 
         private static func toolLine(_ tool: ToolContent) -> NSAttributedString {
