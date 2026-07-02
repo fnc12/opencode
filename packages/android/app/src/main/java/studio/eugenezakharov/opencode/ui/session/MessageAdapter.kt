@@ -1,7 +1,11 @@
 package studio.eugenezakharov.opencode.ui.session
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.widget.Toast
 import android.text.Spannable
 import android.text.Spanned
 import android.text.SpannableStringBuilder
@@ -138,7 +142,22 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         private val meta: TextView,
         private val body: TextView,
     ) : RecyclerView.ViewHolder(itemView) {
+        private var current: RenderedMessage? = null
+
+        init {
+            // Long-press a message to copy its text to the clipboard.
+            itemView.setOnLongClickListener { v ->
+                val text = current?.body?.toString()?.takeIf { it.isNotBlank() }
+                    ?: return@setOnLongClickListener false
+                val cm = v.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("message", text))
+                Toast.makeText(v.context, "Copied", Toast.LENGTH_SHORT).show()
+                true
+            }
+        }
+
         fun bind(message: RenderedMessage) {
+            current = message
             (bubble.background as? android.graphics.drawable.GradientDrawable)
                 ?.setColor(message.bubbleColor)
             role.text = message.roleText
