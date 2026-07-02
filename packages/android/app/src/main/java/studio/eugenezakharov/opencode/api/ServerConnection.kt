@@ -197,6 +197,18 @@ class ServerConnection(
         postRaw("/session/$sessionID/abort", mapOf("directory" to directory), "{}")
     }
 
+    /** Reverts the session to before [messageID] (undoes it + everything after, incl. file changes). */
+    suspend fun revertSession(directory: String, sessionID: String, messageID: String) =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject { put("messageID", messageID) }
+            postRaw("/session/$sessionID/revert", mapOf("directory" to directory), body.toString())
+        }
+
+    /** Restores all reverted messages. `POST /session/:id/unrevert`. */
+    suspend fun unrevertSession(directory: String, sessionID: String) = withContext(Dispatchers.IO) {
+        postRaw("/session/$sessionID/unrevert", mapOf("directory" to directory), "{}")
+    }
+
     /** Renames a session (sets its title). `PATCH /session/{id}`. Mirrors iOS. */
     suspend fun renameSession(directory: String, sessionID: String, title: String) =
         withContext(Dispatchers.IO) {

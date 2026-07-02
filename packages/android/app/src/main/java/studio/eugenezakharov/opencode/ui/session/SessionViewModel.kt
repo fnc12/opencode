@@ -200,6 +200,13 @@ class SessionViewModel(
         _state.update { it.copy(agentName = name) }
     }
 
+    /** Reverts the session to before [messageID]; the removed messages arrive over SSE. */
+    fun revert(messageID: String) {
+        viewModelScope.launch {
+            runCatching { server.revertSession(session.directory, session.id, messageID) }
+        }
+    }
+
     /** Creates (or reuses) the public share link; [onLink] gets the URL to share. */
     fun share(onLink: (String) -> Unit) {
         viewModelScope.launch {

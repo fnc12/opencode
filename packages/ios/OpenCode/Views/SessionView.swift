@@ -11,6 +11,7 @@ struct SessionView: View {
     @State private var showDiff = false
     @State private var shareURL: String?
     @State private var shareItem: ShareURL?
+    @State private var revertTarget: String?
 
     var body: some View {
         ZStack {
@@ -20,7 +21,8 @@ struct SessionView: View {
                 // The whole screen is UIKit (message list + bottom bar) so the
                 // keyboard is handled natively: the composer is the controller's
                 // inputAccessoryView. Ignore SwiftUI's keyboard avoidance here.
-                SessionContent(messages: store.messages, revision: store.revision) {
+                SessionContent(messages: store.messages, revision: store.revision,
+                               onRevert: { revertTarget = $0 }) {
                     bottomBar
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -78,6 +80,18 @@ struct SessionView: View {
         }
         .sheet(item: $shareItem) { item in
             ActivityView(items: [item.url])
+        }
+        .confirmationDialog("Revert to this message?",
+                            isPresented: Binding(get: { revertTarget != nil },
+                                                 set: { if !$0 { revertTarget = nil } }),
+                            titleVisibility: .visible) {
+            Button("Revert", role: .destructive) {
+                if let id = revertTarget { Task { await revert(id) } }
+                revertTarget = nil
+            }
+            Button("Cancel", role: .cancel) { revertTarget = nil }
+        } message: {
+            Text("Undoes this message and everything after it, including file changes.")
         }
         .task {
             shareURL = session.share?.url
@@ -210,6 +224,12 @@ struct SessionView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// Revert the session to before `messageID`. The reverted state arrives over
+    /// the SSE stream (removed messages), so we just fire the request.
+    private func revert(_ messageID: String) async {
+        try? await server.revertSession(directory: session.directory, sessionID: session.id, messageID: messageID)
     }
 }
 

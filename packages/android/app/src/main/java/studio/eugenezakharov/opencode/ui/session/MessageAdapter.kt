@@ -46,6 +46,9 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
     private val items = mutableListOf<RenderedMessage>()
 
+    /** Invoked with a message id when the user picks "Revert to here". */
+    var onRevert: ((String) -> Unit)? = null
+
     /** Replaces the list, issuing minimal notifications. Returns true if anything changed. */
     fun submit(messages: List<MessageWithParts>): Boolean {
         val next = messages.map { render(it) }
@@ -130,7 +133,7 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         bubble.addView(header)
         bubble.addView(body)
         outer.addView(bubble)
-        return MessageViewHolder(outer, bubble, role, meta, body)
+        return MessageViewHolder(outer, bubble, role, meta, body) { onRevert }
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
@@ -143,17 +146,35 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         private val role: TextView,
         private val meta: TextView,
         private val body: TextView,
+        private val revertProvider: () -> ((String) -> Unit)?,
     ) : RecyclerView.ViewHolder(itemView) {
         private var current: RenderedMessage? = null
 
         init {
-            // Long-press a message to copy its text to the clipboard.
+            // Long-press a message → Copy / Revert to here.
             itemView.setOnLongClickListener { v ->
-                val text = current?.body?.toString()?.takeIf { it.isNotBlank() }
-                    ?: return@setOnLongClickListener false
-                val cm = v.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("message", text))
-                Toast.makeText(v.context, "Copied", Toast.LENGTH_SHORT).show()
+                val msg = current ?: return@setOnLongClickListener false
+                val text = msg.body.toString().takeIf { it.isNotBlank() }
+                val popup = android.widget.PopupMenu(v.context, v)
+                if (text != null) popup.menu.add("Copy")
+                popup.menu.add("Revert to here")
+                popup.setOnMenuItemClickListener { item ->
+                    when (item.title) {
+                        "Copy" -> {
+                            val cm = v.context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("message", text))
+                            Toast.makeText(v.context, "Copied", Toast.LENGTH_SHORT).show()
+                        }
+                        "Revert to here" -> android.app.AlertDialog.Builder(v.context)
+                            .setTitle("Revert to this message?")
+                            .setMessage("Undoes this message and everything after it, including file changes.")
+                            .setPositiveButton("Revert") { _, _ -> revertProvider()?.invoke(msg.id) }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                    true
+                }
+                popup.show()
                 true
             }
         }

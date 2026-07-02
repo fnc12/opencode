@@ -207,7 +207,7 @@ fun SessionScreen(
                 state.loading -> CircularProgressIndicator()
                 state.error != null -> CenteredMessage("Error", state.error!!)
                 state.messages.isEmpty() -> CenteredMessage("No Messages", "This session has no messages yet")
-                else -> MessageList(state)
+                else -> MessageList(state, onRevert = { viewModel.revert(it) })
             }
         }
     }
@@ -738,19 +738,20 @@ private fun ModelPickerDialog(
  * single row. Auto-scrolls to the bottom while pinned there.
  */
 @Composable
-private fun MessageList(state: SessionUiState) {
+private fun MessageList(state: SessionUiState, onRevert: (String) -> Unit) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             RecyclerView(context).apply {
                 layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
-                adapter = MessageAdapter()
+                adapter = MessageAdapter().apply { this.onRevert = onRevert }
                 clipToPadding = false
                 setPadding(0, 8, 0, 8)
             }
         },
         update = { recycler ->
             val adapter = recycler.adapter as MessageAdapter
+            adapter.onRevert = onRevert
             val lm = recycler.layoutManager as LinearLayoutManager
             val atBottom = lm.findLastVisibleItemPosition() >= adapter.itemCount - 2 || adapter.itemCount == 0
             val changed = adapter.submit(state.messages)
