@@ -13,4 +13,8 @@ object UiTestFlags {
     /** When true, an injected synthetic question seeds the dock (UITEST_QUESTION). */
     @Volatile
     var injectQuestion: Boolean = false
+
+    /** When true, synthetic todos seed the panel (UITEST_TODO). */
+    @Volatile
+    var injectTodo: Boolean = false
 }

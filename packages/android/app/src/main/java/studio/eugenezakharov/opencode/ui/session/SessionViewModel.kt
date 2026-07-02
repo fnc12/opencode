@@ -43,6 +43,7 @@ data class SessionUiState(
     val pendingPermissions: List<PermissionRequest> = emptyList(),
     // Agent questions (#28): the agent is blocked until these are answered/skipped.
     val pendingQuestions: List<QuestionRequest> = emptyList(),
+    val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem> = emptyList(),
 )
 
 /**
@@ -60,6 +61,8 @@ class SessionViewModel(
     private val injectTestPermission: Boolean = false,
     /** UI tests inject a synthetic question so the dock can be driven (mirrors iOS UITEST_QUESTION). */
     private val injectTestQuestion: Boolean = false,
+    /** UI tests inject synthetic todos so the panel can be driven (mirrors iOS UITEST_TODO). */
+    private val injectTestTodo: Boolean = false,
 ) : ViewModel() {
 
     private val store = SessionStore()
@@ -85,6 +88,7 @@ class SessionViewModel(
                     isBusy = store.isBusy,
                     pendingPermissions = store.pendingPermissions,
                     pendingQuestions = store.pendingQuestions,
+                    todos = store.todos,
                 )
             }
         }
@@ -109,6 +113,9 @@ class SessionViewModel(
             }
             runCatching { server.questions(session.directory) }.getOrNull()?.let { pending ->
                 store.setInitialQuestions(pending.filter { it.sessionID == session.id })
+            }
+            runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let { todos ->
+                store.setInitialTodos(todos)
             }
             // UI tests inject synthetic requests (after the seeds, so they win) so the
             // docks can be driven without the server being configured to "ask".
@@ -143,6 +150,15 @@ class SessionViewModel(
                                 ),
                             ),
                         ),
+                    ),
+                )
+            }
+            if (injectTestTodo) {
+                store.setInitialTodos(
+                    listOf(
+                        studio.eugenezakharov.opencode.api.models.TodoItem("Read the AST query schema", "completed", "high"),
+                        studio.eugenezakharov.opencode.api.models.TodoItem("Rename qr → qualifiedColumnRefNode across the codebase", "in_progress", "high"),
+                        studio.eugenezakharov.opencode.api.models.TodoItem("Run the test suite and verify 623 tests pass", "pending", "medium"),
                     ),
                 )
             }

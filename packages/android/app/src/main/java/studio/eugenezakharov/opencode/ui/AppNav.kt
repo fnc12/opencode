@@ -80,6 +80,7 @@ private fun SessionDestination(
             studio.eugenezakharov.opencode.api.ComposerPrefs(context),
             injectTestPermission = UiTestFlags.injectPermission,
             injectTestQuestion = UiTestFlags.injectQuestion,
+            injectTestTodo = UiTestFlags.injectTodo,
         )
     }
     SessionScreen(viewModel = vm, session = session, onBack = onBack)

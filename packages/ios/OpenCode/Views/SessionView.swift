@@ -89,6 +89,9 @@ struct SessionView: View {
     /// the UIKit controller so it rides the keyboard with the list.
     @ViewBuilder private var bottomBar: some View {
         VStack(spacing: 0) {
+            if !store.todos.isEmpty {
+                TodoDock(todos: store.todos)
+            }
             ForEach(store.pendingPermissions) { request in
                 PermissionDock(request: request) { reply in
                     Task { await handleReply(request, reply) }
@@ -124,6 +127,9 @@ struct SessionView: View {
         if let pendingQuestions = try? await server.questions(directory: session.directory) {
             store.setInitialQuestions(pendingQuestions.filter { $0.sessionID == session.id })
         }
+        if let todos = try? await server.sessionTodos(directory: session.directory, sessionID: session.id) {
+            store.setInitialTodos(todos)
+        }
         // UI tests inject synthetic requests (after the seeds, so they win) so the
         // docks can be driven deterministically without configuring the server to "ask".
         if ProcessInfo.processInfo.arguments.contains("UITEST_PERMISSION") {
@@ -136,6 +142,13 @@ struct SessionView: View {
                              options: [QuestionOption(label: "Option A", description: "the first"),
                                        QuestionOption(label: "Option B", description: "the second")],
                              multiple: false, custom: false)])])
+        }
+        if ProcessInfo.processInfo.arguments.contains("UITEST_TODO") {
+            store.setInitialTodos([
+                TodoItem(content: "Read the AST query schema", status: "completed", priority: "high"),
+                TodoItem(content: "Rename qr → qualifiedColumnRefNode across the codebase", status: "in_progress", priority: "high"),
+                TodoItem(content: "Run the test suite and verify 623 tests pass", status: "pending", priority: "medium"),
+            ])
         }
 
         let decoder = JSONDecoder()

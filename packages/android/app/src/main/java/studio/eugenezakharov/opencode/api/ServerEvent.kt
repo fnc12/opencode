@@ -56,6 +56,12 @@ sealed interface ServerEvent {
     /** A question was answered or rejected (`question.v2.replied` / `.rejected`). */
     data class QuestionResolved(val sessionID: String, val requestID: String) : ServerEvent
 
+    /** The session's todo list changed (`todo.updated`). */
+    data class TodoUpdated(
+        val sessionID: String,
+        val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem>,
+    ) : ServerEvent
+
     /** Any event type we don't model (including `sync`). */
     data class Other(val type: String) : ServerEvent
 
@@ -121,6 +127,17 @@ sealed interface ServerEvent {
                 "question.v2.replied", "question.v2.rejected" -> QuestionResolved(
                     sessionID = str("sessionID") ?: return Other(type),
                     requestID = str("requestID") ?: return Other(type),
+                )
+                "todo.updated" -> TodoUpdated(
+                    sessionID = str("sessionID") ?: return Other(type),
+                    todos = runCatching {
+                        json.decodeFromJsonElement(
+                            kotlinx.serialization.builtins.ListSerializer(
+                                studio.eugenezakharov.opencode.api.models.TodoItem.serializer(),
+                            ),
+                            props["todos"] ?: kotlinx.serialization.json.JsonArray(emptyList()),
+                        )
+                    }.getOrDefault(emptyList()),
                 )
                 else -> Other(type)
             }
