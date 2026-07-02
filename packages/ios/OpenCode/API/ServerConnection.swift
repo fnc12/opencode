@@ -213,13 +213,18 @@ final class ServerConnection {
     /// the event stream, so the caller doesn't need the response body. A model is
     /// required — the server has no default.
     func sendPrompt(directory: String, sessionID: String, text: String,
-                    providerID: String, modelID: String, agent: String? = nil) async throws {
+                    providerID: String, modelID: String, agent: String? = nil,
+                    attachments: [[String: String]] = []) async throws {
         // Note: the server holds this POST open until the whole turn finishes,
         // but the turn keeps generating (and streaming over SSE) even if the POST
         // stops being awaited. The composer sends this fire-and-forget, so the
         // POST's timeout never gates the UI.
+        var parts: [[String: Any]] = attachments.map {
+            ["type": "file", "mime": $0["mime"] ?? "", "filename": $0["filename"] ?? "", "url": $0["url"] ?? ""]
+        }
+        parts.append(["type": "text", "text": text])
         var body: [String: Any] = [
-            "parts": [["type": "text", "text": text]],
+            "parts": parts,
             "model": ["providerID": providerID, "modelID": modelID],
         ]
         if let agent, !agent.isEmpty { body["agent"] = agent }

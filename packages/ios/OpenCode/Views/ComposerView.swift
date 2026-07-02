@@ -1,8 +1,9 @@
 import SwiftUI
+import PhotosUI
 
-/// Bottom input bar for a session: pick a model, type (keyboard dictation works
-/// out of the box via the mic key), and send. The reply streams back through the
-/// existing event stream, so sending is fire-and-forget from the UI's side.
+/// Bottom input bar for a session: pick a model, attach images, type (keyboard
+/// dictation works out of the box via the mic key), and send. The reply streams
+/// back through the existing event stream, so sending is fire-and-forget.
 struct ComposerView: View {
     var server: ServerConnection
     let session: Session
@@ -12,6 +13,17 @@ struct ComposerView: View {
     @State private var providers: [ProviderInfo] = []
     @State private var agents: [AgentInfo] = []
     @State private var showModelPicker = false
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var attachments: [Attachment] = []
+
+    /// A picked image staged for the next prompt (thumbnail + its data URL).
+    struct Attachment: Identifiable {
+        let id = UUID()
+        let filename: String
+        let mime: String
+        let dataURL: String
+        let image: UIImage
+    }
 
     // Last-used model + agent, remembered across sessions/launches.
     @AppStorage("composer.providerID") private var providerID = ""
@@ -61,7 +73,33 @@ struct ComposerView: View {
                 Spacer(minLength: 0)
             }
 
+            if !attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(attachments) { att in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: att.image)
+                                    .resizable().scaledToFill()
+                                    .frame(width: 56, height: 56)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                Button { attachments.removeAll { $0.id == att.id } } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.white, .black.opacity(0.6))
+                                }
+                                .padding(2)
+                            }
+                        }
+                    }
+                }
+                .frame(height: 60)
+            }
+
             HStack(alignment: .bottom, spacing: 8) {
+                PhotosPicker(selection: $pickerItems, maxSelectionCount: 4, matching: .images) {
+                    Image(systemName: "photo").font(.title3)
+                }
+                .accessibilityIdentifier("composer.attach")
+
                 TextField("Message", text: $text, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...5)
@@ -83,10 +121,29 @@ struct ComposerView: View {
         .sheet(isPresented: $showModelPicker) {
             ModelPickerView(providers: providers, providerID: $providerID, modelID: $modelID)
         }
+        .onChange(of: pickerItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await loadAttachments(items) }
+        }
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !modelID.isEmpty
+        (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && !modelID.isEmpty
+    }
+
+    /// Decodes picked photos into JPEG data-URL attachments (+ a thumbnail).
+    private func loadAttachments(_ items: [PhotosPickerItem]) async {
+        var loaded: [Attachment] = []
+        for (i, item) in items.enumerated() {
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let img = UIImage(data: data),
+               let jpeg = img.jpegData(compressionQuality: 0.7) {
+                loaded.append(Attachment(
+                    filename: "image\(i + 1).jpg", mime: "image/jpeg",
+                    dataURL: "data:image/jpeg;base64,\(jpeg.base64EncodedString())", image: img))
+            }
+        }
+        attachments = loaded
     }
 
     private var modelLabel: String {
@@ -133,8 +190,11 @@ struct ComposerView: View {
 
     private func send() {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty, !modelID.isEmpty else { return }
+        guard !prompt.isEmpty || !attachments.isEmpty, !modelID.isEmpty else { return }
+        let atts = attachments.map { ["mime": $0.mime, "filename": $0.filename, "url": $0.dataURL] }
         text = "" // optimistic; the user message echoes back over the stream
+        attachments = []
+        pickerItems = []
         sendError = nil
         let dir = session.directory, sid = session.id, pid = providerID, mid = modelID
         let ag = agentName
@@ -146,7 +206,7 @@ struct ComposerView: View {
         Task {
             do {
                 try await server.sendPrompt(directory: dir, sessionID: sid, text: prompt,
-                                            providerID: pid, modelID: mid, agent: ag)
+                                            providerID: pid, modelID: mid, agent: ag, attachments: atts)
             } catch let e as URLError where [.timedOut, .cancelled, .networkConnectionLost].contains(e.code) {
                 // in flight — the reply comes over the stream
             } catch {
