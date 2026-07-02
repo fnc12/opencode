@@ -134,6 +134,15 @@ class ServerConnection(
         ProvidersParsing.parse(json, getRaw("/config/providers", emptyMap()))
     }
 
+    /** Lists available agents (`GET /agent`) — build / plan / custom. Mirrors iOS. */
+    suspend fun agents(): List<studio.eugenezakharov.opencode.api.models.AgentInfo> =
+        get(
+            "/agent",
+            kotlinx.serialization.builtins.ListSerializer(
+                studio.eugenezakharov.opencode.api.models.AgentInfo.serializer(),
+            ),
+        )
+
     /** Lists pending permission requests (`GET /permission?directory=…`). */
     suspend fun permissions(directory: String): List<PermissionRequest> = withContext(Dispatchers.IO) {
         PermissionRequest.parseList(json, getRaw("/permission", mapOf("directory" to directory)))
@@ -202,6 +211,7 @@ class ServerConnection(
         text: String,
         providerID: String,
         modelID: String,
+        agent: String? = null,
     ) = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             putJsonArray("parts") {
@@ -214,6 +224,7 @@ class ServerConnection(
                 put("providerID", providerID)
                 put("modelID", modelID)
             }
+            if (!agent.isNullOrEmpty()) put("agent", agent)
         }
         postRaw("/session/$sessionID/message", mapOf("directory" to directory), body.toString())
     }
