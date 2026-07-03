@@ -144,4 +144,10 @@ func printPairing(cfg config) {
 		"    "+link+"\n\n"+
 		"  tunnel: "+cfg.tunnelID+"\n"+
 		"  token:  "+cfg.token+"\n\n")
+
+	// Also persist it next to the identity so a service-managed connector (whose
+	// stdout goes to a log) can still surface the link — the installer reads it.
+	if path, err := identityPath(); err == nil {
+		_ = os.WriteFile(filepath.Join(filepath.Dir(path), "pairing.txt"), []byte(link+"\n"), 0o600)
+	}
 }
