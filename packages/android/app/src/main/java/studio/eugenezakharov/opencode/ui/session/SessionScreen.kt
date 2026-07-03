@@ -189,6 +189,26 @@ fun SessionScreen(
             // can be started. Hidden only while history is still loading or failed.
             if (!state.loading && state.error == null) {
                 Column {
+                    val revertID = state.revertMessageID
+                    if (revertID != null) {
+                        val idx = state.messages.indexOfFirst { it.id == revertID }
+                        val count = if (idx >= 0) state.messages.size - idx else 0
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable { viewModel.restore() }
+                                .background(Color(0xFFE8951F).copy(alpha = 0.18f))
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "↩ $count message${if (count == 1) "" else "s"} reverted",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color(0xFFB4700F),
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text("Restore", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFB4700F))
+                        }
+                    }
                     if (state.todos.isNotEmpty()) {
                         TodoPill(state.todos) { showTodos = true }
                     }
@@ -917,7 +937,15 @@ private fun MessageList(
             adapter.onSelect = onSelect
             val lm = recycler.layoutManager as LinearLayoutManager
             val atBottom = lm.findLastVisibleItemPosition() >= adapter.itemCount - 2 || adapter.itemCount == 0
-            val changed = adapter.submit(state.messages)
+            // Hide messages after the revert boundary.
+            val revertID = state.revertMessageID
+            val visible = if (revertID != null) {
+                val idx = state.messages.indexOfFirst { it.id == revertID }
+                if (idx >= 0) state.messages.subList(0, idx) else state.messages
+            } else {
+                state.messages
+            }
+            val changed = adapter.submit(visible)
             if (changed && atBottom && adapter.itemCount > 0) {
                 recycler.post { recycler.scrollToPosition(adapter.itemCount - 1) }
             }

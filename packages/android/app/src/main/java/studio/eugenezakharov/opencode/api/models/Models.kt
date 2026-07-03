@@ -37,6 +37,13 @@ data class Session(
     val time: SessionTime,
     val summary: SessionSummary? = null,
     val share: SessionShare? = null,
+    /** Set when the session is reverted — messages from `messageID` onward are undone. */
+    val revert: SessionRevert? = null,
+)
+
+@Serializable
+data class SessionRevert(
+    val messageID: String,
 )
 
 @Serializable
