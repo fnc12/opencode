@@ -25,21 +25,28 @@ var (
 // (also what the connector registers with). ClaimCode is one-time — cleared
 // once redeemed.
 type Tunnel struct {
-	ID        string `json:"id"`
-	Token     string `json:"token"`
-	ClaimCode string `json:"claimCode,omitempty"`
-	Claimed   bool   `json:"claimed"`
-	Label     string `json:"label,omitempty"`
-	CreatedAt int64  `json:"createdAt"`
+	ID         string `json:"id"`
+	Token      string `json:"token"`
+	ClaimCode  string `json:"claimCode,omitempty"`
+	Claimed    bool   `json:"claimed"`
+	Label      string `json:"label,omitempty"`
+	CustomerID string `json:"customerId,omitempty"` // Stripe customer, when billed
+	CreatedAt  int64  `json:"createdAt"`
 }
 
 // Store persists provisioned tunnels. Implementations must be safe for
 // concurrent use.
 type Store interface {
 	Mint(label string, now int64) (Tunnel, error)
+	// MintFor mints a tunnel bound to a billing customer, reusing the existing
+	// one if that customer already has a tunnel (idempotent for webhook retries).
+	MintFor(customerID, label string, now int64) (Tunnel, error)
 	Claim(code string) (Tunnel, error)
 	Get(id string) (Tunnel, bool)
+	GetByCustomer(customerID string) (Tunnel, bool)
 	Delete(id string) error
+	// DeleteByCustomer revokes a customer's tunnel; returns the id (or "").
+	DeleteByCustomer(customerID string) string
 	List() []Tunnel
 }
 
@@ -102,6 +109,62 @@ func (s *FileStore) Mint(label string, now int64) (Tunnel, error) {
 		return Tunnel{}, err
 	}
 	return t, nil
+}
+
+// MintFor mints a tunnel bound to a billing customer. If the customer already
+// has one, it's returned unchanged (idempotent — Stripe retries webhooks).
+func (s *FileStore) MintFor(customerID, label string, now int64) (Tunnel, error) {
+	s.mu.Lock()
+	for _, t := range s.byID {
+		if t.CustomerID != "" && t.CustomerID == customerID {
+			s.mu.Unlock()
+			return t, nil
+		}
+	}
+	t := Tunnel{
+		ID:         "tun_" + randHex(8),
+		Token:      randHex(24),
+		ClaimCode:  randCode(),
+		Label:      label,
+		CustomerID: customerID,
+		CreatedAt:  now,
+	}
+	s.byID[t.ID] = t
+	err := s.flush()
+	if err != nil {
+		delete(s.byID, t.ID)
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return Tunnel{}, err
+	}
+	return t, nil
+}
+
+// GetByCustomer returns a customer's tunnel, if any.
+func (s *FileStore) GetByCustomer(customerID string) (Tunnel, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.byID {
+		if t.CustomerID != "" && t.CustomerID == customerID {
+			return t, true
+		}
+	}
+	return Tunnel{}, false
+}
+
+// DeleteByCustomer revokes a customer's tunnel and returns its id ("" if none).
+func (s *FileStore) DeleteByCustomer(customerID string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, t := range s.byID {
+		if t.CustomerID != "" && t.CustomerID == customerID {
+			delete(s.byID, id)
+			_ = s.flush()
+			return id
+		}
+	}
+	return ""
 }
 
 // Claim redeems a one-time code, returning the tunnel's id + token and marking

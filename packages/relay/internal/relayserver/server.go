@@ -47,6 +47,10 @@ type Config struct {
 	// https://relay.shubat.org) baked into the installer.
 	AssetDir  string
 	PublicURL string
+
+	// StripeWebhookSecret, when set (with Provision), enables POST /stripe/webhook
+	// to mint access on subscription start and revoke it on cancellation.
+	StripeWebhookSecret string
 }
 
 // Server is the relay. The zero value is not usable; call New.
@@ -58,8 +62,9 @@ type Server struct {
 	dispatcher  *push.Dispatcher
 	provision   provision.Store
 	adminSecret string
-	assetDir    string
-	publicURL   string
+	assetDir     string
+	publicURL    string
+	stripeSecret string
 }
 
 // New constructs a Server.
@@ -76,8 +81,9 @@ func New(cfg Config) *Server {
 		dispatcher:  cfg.Dispatcher,
 		provision:   cfg.Provision,
 		adminSecret: cfg.AdminSecret,
-		assetDir:    cfg.AssetDir,
-		publicURL:   cfg.PublicURL,
+		assetDir:     cfg.AssetDir,
+		publicURL:    cfg.PublicURL,
+		stripeSecret: cfg.StripeWebhookSecret,
 	}
 }
 
@@ -93,6 +99,9 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /admin/tunnels", s.adminListTunnels)
 		mux.HandleFunc("DELETE /admin/tunnels/{id}", s.adminDeleteTunnel)
 		mux.HandleFunc("POST /connector/claim", s.claimTunnel)
+		if s.stripeSecret != "" {
+			mux.HandleFunc("POST /stripe/webhook", s.handleStripeWebhook)
+		}
 	}
 	if s.assetDir != "" {
 		mux.HandleFunc("GET /dl/{name}", s.serveBinary)

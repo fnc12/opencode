@@ -42,6 +42,10 @@ func main() {
 		}
 		cfg.Provision, cfg.AdminSecret = pstore, admin
 		logger.Info("provisioning enabled")
+		if sw := os.Getenv("STRIPE_WEBHOOK_SECRET"); sw != "" {
+			cfg.StripeWebhookSecret = sw
+			logger.Info("stripe billing enabled")
+		}
 	}
 	// One-command installer: serve connector binaries + install.sh from ASSET_DIR.
 	if dir := os.Getenv("ASSET_DIR"); dir != "" {
