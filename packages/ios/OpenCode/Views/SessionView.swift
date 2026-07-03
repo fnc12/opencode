@@ -10,6 +10,8 @@ struct SessionView: View {
     @State private var error: String?
     @State private var showDiff = false
     @State private var showShell = false
+    @State private var showFilePicker = false
+    @State private var fileAttachments: [FileAttachment] = []
     @State private var shareURL: String?
     @State private var shareItem: ShareURL?
     @State private var revertTarget: String?
@@ -77,6 +79,11 @@ struct SessionView: View {
         .sheet(isPresented: $showShell) {
             ShellView(server: server, session: session)
         }
+        .sheet(isPresented: $showFilePicker) {
+            FilePickerSheet(server: server, startPath: session.directory) { entry in
+                attachFile(entry)
+            }
+        }
         .sheet(isPresented: $showDiff) {
             NavigationStack {
                 DiffView(session: session, server: server)
@@ -126,7 +133,8 @@ struct SessionView: View {
                     onReply: { answers in Task { await handleQuestionReply(request, answers) } },
                     onReject: { Task { await handleQuestionReject(request) } })
             }
-            ComposerView(server: server, session: session)
+            ComposerView(server: server, session: session,
+                         fileAttachments: $fileAttachments, showFilePicker: $showFilePicker)
         }
     }
 
@@ -239,6 +247,26 @@ struct SessionView: View {
     /// the SSE stream (removed messages), so we just fire the request.
     private func revert(_ messageID: String) async {
         try? await server.revertSession(directory: session.directory, sessionID: session.id, messageID: messageID)
+    }
+
+    /// Reads a picked repo file and stages it as a context part on the composer.
+    /// `/file/content` wants a path relative to `directory`, so use its folder.
+    private func attachFile(_ entry: FileEntry) {
+        let parent = (entry.absolute as NSString).deletingLastPathComponent
+        let id = UUID()
+        fileAttachments.append(FileAttachment(id: id, filename: entry.name, part: [
+            "type": "file", "mime": "text/plain",
+            "url": "file://\(entry.absolute)", "filename": entry.name,
+        ]))
+        Task { @MainActor in
+            guard let content = try? await server.readFile(directory: parent, path: entry.name),
+                  !content.isEmpty,
+                  let index = fileAttachments.firstIndex(where: { $0.id == id }) else { return }
+            fileAttachments[index].part["source"] = [
+                "type": "file", "path": entry.absolute,
+                "text": ["value": content, "start": 0, "end": content.count],
+            ]
+        }
     }
 }
 

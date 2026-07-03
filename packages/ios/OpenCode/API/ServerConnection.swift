@@ -113,6 +113,14 @@ final class ServerConnection {
         try await get("/file", query: ["directory": path, "path": "."])
     }
 
+    /// Reads a file's text content (`GET /file/content`) — used to attach a repo
+    /// file as prompt context.
+    func readFile(directory: String, path: String) async throws -> String {
+        struct FileContent: Decodable { let content: String }
+        let result: FileContent = try await get("/file/content", query: ["directory": directory, "path": path])
+        return result.content
+    }
+
     /// Creates a new session in a directory and returns it. Works for any folder
     /// the server can see — including on a fresh server with no projects yet.
     func createSession(directory: String, title: String? = nil) async throws -> Session {
@@ -260,14 +268,14 @@ final class ServerConnection {
     /// required — the server has no default.
     func sendPrompt(directory: String, sessionID: String, text: String,
                     providerID: String, modelID: String, agent: String? = nil,
-                    attachments: [[String: String]] = []) async throws {
+                    attachments: [[String: Any]] = []) async throws {
         // Note: the server holds this POST open until the whole turn finishes,
         // but the turn keeps generating (and streaming over SSE) even if the POST
         // stops being awaited. The composer sends this fire-and-forget, so the
         // POST's timeout never gates the UI.
-        var parts: [[String: Any]] = attachments.map {
-            ["type": "file", "mime": $0["mime"] ?? "", "filename": $0["filename"] ?? "", "url": $0["url"] ?? ""]
-        }
+        // `attachments` are already complete part dicts (image file parts, or
+        // repo-file context parts with a `source`), prepended before the text.
+        var parts: [[String: Any]] = attachments
         parts.append(["type": "text", "text": text])
         var body: [String: Any] = [
             "parts": parts,
