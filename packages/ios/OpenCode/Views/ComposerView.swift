@@ -7,6 +7,11 @@ import PhotosUI
 struct ComposerView: View {
     var server: ServerConnection
     let session: Session
+    /// File attachments + picker presentation live in `SessionView` (the main
+    /// window), because presenting a sheet from this input-accessory-hosted view
+    /// tears down the accessory. The composer just renders + toggles them.
+    @Binding var fileAttachments: [FileAttachment]
+    @Binding var showFilePicker: Bool
 
     @State private var text = ""
     @State private var sendError: String?
@@ -75,7 +80,7 @@ struct ComposerView: View {
                 Spacer(minLength: 0)
             }
 
-            if !attachments.isEmpty {
+            if !attachments.isEmpty || !fileAttachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(attachments) { att in
@@ -91,6 +96,20 @@ struct ComposerView: View {
                                 .padding(2)
                             }
                         }
+                        ForEach(fileAttachments) { file in
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.text")
+                                Text(file.filename).lineLimit(1)
+                                Button { fileAttachments.removeAll { $0.id == file.id } } label: {
+                                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                                }
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 10)
+                            .frame(height: 32)
+                            .background(Color(.secondarySystemBackground))
+                            .clipShape(Capsule())
+                        }
                     }
                 }
                 .frame(height: 60)
@@ -101,6 +120,11 @@ struct ComposerView: View {
                     Image(systemName: "photo").font(.title3)
                 }
                 .accessibilityIdentifier("composer.attach")
+
+                Button { showFilePicker = true } label: {
+                    Image(systemName: "doc.badge.plus").font(.title3)
+                }
+                .accessibilityIdentifier("composer.file")
 
                 if !commands.isEmpty {
                     Button { showCommands = true } label: {
@@ -140,8 +164,10 @@ struct ComposerView: View {
     }
 
     private var canSend: Bool {
-        (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && !modelID.isEmpty
+        (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+         || !attachments.isEmpty || !fileAttachments.isEmpty) && !modelID.isEmpty
     }
+
 
     /// Decodes picked photos into JPEG data-URL attachments (+ a thumbnail).
     private func loadAttachments(_ items: [PhotosPickerItem]) async {
@@ -218,10 +244,14 @@ struct ComposerView: View {
 
     private func send() {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !prompt.isEmpty || !attachments.isEmpty, !modelID.isEmpty else { return }
-        let atts = attachments.map { ["mime": $0.mime, "filename": $0.filename, "url": $0.dataURL] }
+        guard !prompt.isEmpty || !attachments.isEmpty || !fileAttachments.isEmpty, !modelID.isEmpty else { return }
+        let imageParts: [[String: Any]] = attachments.map {
+            ["type": "file", "mime": $0.mime, "filename": $0.filename, "url": $0.dataURL]
+        }
+        let atts = imageParts + fileAttachments.map { $0.part }
         text = "" // optimistic; the user message echoes back over the stream
         attachments = []
+        fileAttachments = []
         pickerItems = []
         sendError = nil
         let dir = session.directory, sid = session.id, pid = providerID, mid = modelID
