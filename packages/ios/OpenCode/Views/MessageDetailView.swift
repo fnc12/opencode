@@ -5,7 +5,7 @@ import SwiftUI
 /// from each tool's output — every block character-selectable/copyable.
 struct MessageDetailView: View {
     let message: MessageWithParts
-    @Environment(\.dismiss) private var dismiss
+    var onClose: () -> Void = {}
 
     private enum Block: Identifiable {
         case thinking(String)
@@ -74,7 +74,7 @@ struct MessageDetailView: View {
                     }
                     .accessibilityLabel("Copy all")
                 }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { onClose() } }
             }
         }
     }

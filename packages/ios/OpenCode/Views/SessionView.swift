@@ -11,7 +11,6 @@ struct SessionView: View {
     @State private var showDiff = false
     @State private var showShell = false
     @State private var showTodos = false
-    @State private var detailMessage: MessageWithParts?
     @State private var showFilePicker = false
     @State private var fileAttachments: [FileAttachment] = []
     @State private var shareURL: String?
@@ -28,8 +27,7 @@ struct SessionView: View {
                 // inputAccessoryView. Ignore SwiftUI's keyboard avoidance here.
                 SessionContent(messages: store.messages.filter { $0.hasRenderableContent },
                                revision: store.revision,
-                               onRevert: { revertTarget = $0 },
-                               onSelectMessage: { id in detailMessage = store.messages.first { $0.id == id } }) {
+                               onRevert: { revertTarget = $0 }) {
                     bottomBar
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -95,9 +93,6 @@ struct SessionView: View {
         .sheet(isPresented: $showTodos) {
             TodoSheet(todos: store.todos)
                 .presentationDetents([.medium, .large])
-        }
-        .sheet(item: $detailMessage) { message in
-            MessageDetailView(message: message)
         }
         .sheet(isPresented: $showFilePicker) {
             FilePickerSheet(server: server, startPath: session.directory) { entry in
