@@ -211,6 +211,9 @@ class SessionViewModel(
         }
     }
 
+    /** The session's working directory — used by the file picker to browse the repo. */
+    val directory: String get() = session.directory
+
     /** Runs a slash command; its expansion + reply stream back over SSE. */
     fun runCommand(name: String) {
         viewModelScope.launch {

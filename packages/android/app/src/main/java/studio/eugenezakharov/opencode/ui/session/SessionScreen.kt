@@ -566,6 +566,8 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
     var showAgentMenu by remember { mutableStateOf(false) }
     var showCommands by remember { mutableStateOf(false) }
     var attachments by remember { mutableStateOf<List<Pair<Bitmap, PromptAttachment>>>(emptyList()) }
+    var fileAttachments by remember { mutableStateOf<List<PromptAttachment>>(emptyList()) }
+    var showFilePicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val photoPicker = rememberLauncherForActivityResult(
@@ -645,6 +647,28 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                 }
                 Spacer(Modifier.size(6.dp))
             }
+            if (fileAttachments.isNotEmpty()) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(fileAttachments, key = { it.sourcePath ?: it.filename }) { file ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    RoundedCornerShape(16.dp),
+                                )
+                                .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        ) {
+                            Text("📄 ${file.filename}", style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                            IconButton(
+                                onClick = { fileAttachments = fileAttachments.filter { it !== file } },
+                                modifier = Modifier.size(20.dp),
+                            ) { Text("✕", style = MaterialTheme.typography.labelSmall) }
+                        }
+                    }
+                }
+                Spacer(Modifier.size(6.dp))
+            }
             Row(verticalAlignment = Alignment.Bottom) {
                 IconButton(
                     onClick = {
@@ -655,6 +679,12 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                     modifier = Modifier.testTag("composer.attach"),
                 ) {
                     Text("📷")
+                }
+                IconButton(
+                    onClick = { showFilePicker = true },
+                    modifier = Modifier.testTag("composer.file"),
+                ) {
+                    Text("📎")
                 }
                 if (state.commands.isNotEmpty()) {
                     IconButton(
@@ -675,14 +705,14 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                         .testTag("composer.field"),
                 )
                 Spacer(Modifier.width(8.dp))
-                val canSend = (text.isNotBlank() || attachments.isNotEmpty()) &&
+                val canSend = (text.isNotBlank() || attachments.isNotEmpty() || fileAttachments.isNotEmpty()) &&
                     !state.sending && state.modelID.isNotEmpty()
                 IconButton(
                     onClick = {
                         viewModel.send(
                             text,
-                            attachments.map { it.second },
-                            onCleared = { text = ""; attachments = emptyList() },
+                            attachments.map { it.second } + fileAttachments,
+                            onCleared = { text = ""; attachments = emptyList(); fileAttachments = emptyList() },
                             restore = { text = it },
                         )
                     },
@@ -700,6 +730,29 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
             state = state,
             onSelect = { p, m -> viewModel.selectModel(p, m); showPicker = false },
             onDismiss = { showPicker = false },
+        )
+    }
+
+    if (showFilePicker) {
+        FilePickerDialog(
+            server = viewModel.server,
+            startPath = viewModel.directory,
+            onPick = { entry ->
+                val parent = entry.absolute.substringBeforeLast('/', "").ifEmpty { "/" }
+                scope.launch {
+                    val content = runCatching { viewModel.server.readFile(parent, entry.name) }.getOrDefault("")
+                    if (content.isNotEmpty()) {
+                        fileAttachments = fileAttachments + PromptAttachment(
+                            mime = "text/plain",
+                            filename = entry.name,
+                            url = "file://${entry.absolute}",
+                            sourcePath = entry.absolute,
+                            sourceContent = content,
+                        )
+                    }
+                }
+            },
+            onDismiss = { showFilePicker = false },
         )
     }
 
