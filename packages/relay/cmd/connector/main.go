@@ -7,7 +7,9 @@
 //
 //	RELAY_URL         ws(s):// URL of the relay's /connector endpoint (required)
 //	TUNNEL_ID         tunnel id this connector serves (optional; generated+persisted)
-//	TUNNEL_TOKEN      auth token presented to the relay (optional; generated+persisted)
+//	TUNNEL_TOKEN      per-tunnel app-facing token (X-Tunnel-Token) (optional; generated+persisted)
+//	REGISTER_SECRET   secret the relay authorizes registration with; shared across
+//	                  connectors in multi-tenant setups (default: TUNNEL_TOKEN)
 //	OPENCODE_URL      local OpenCode server base URL (default http://127.0.0.1:4096)
 //	OPENCODE_PASSWORD optional; injected as Basic opencode:<pw> when the client sent no Authorization
 //
@@ -37,7 +39,8 @@ import (
 type config struct {
 	relayURL string
 	tunnelID string
-	token    string
+	token    string // per-tunnel, app-facing token (X-Tunnel-Token)
+	register string // register secret the relay authorizes registration with
 	localURL string
 	password string
 }
@@ -55,6 +58,7 @@ func loadConfig() (config, error) {
 		relayURL: relayURL,
 		tunnelID: id.TunnelID,
 		token:    id.Token,
+		register: os.Getenv("REGISTER_SECRET"),
 		localURL: envOr("OPENCODE_URL", "http://127.0.0.1:4096"),
 		password: os.Getenv("OPENCODE_PASSWORD"),
 	}, nil
@@ -140,7 +144,13 @@ func runSession(ctx context.Context, cfg config, client *http.Client, log *slog.
 }
 
 func (c *connector) register() error {
-	reg := tunnel.Register{TunnelID: c.cfg.tunnelID, Token: c.cfg.token}
+	// Register with the register secret (shared across connectors); default it
+	// to the tunnel token so single-tenant setups keep working.
+	register := c.cfg.register
+	if register == "" {
+		register = c.cfg.token
+	}
+	reg := tunnel.Register{TunnelID: c.cfg.tunnelID, Token: register, TunnelToken: c.cfg.token}
 	payload, _ := json.Marshal(reg)
 	if err := c.write(tunnel.Frame{Type: tunnel.TypeRegister, Payload: payload}); err != nil {
 		return err

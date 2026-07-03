@@ -107,9 +107,17 @@ type ResponseHead struct {
 }
 
 // Register is the JSON payload of a TypeRegister frame.
+//
+// Token is the register secret (proves the connector may register at all — the
+// relay checks it against its shared secret). TunnelToken is the per-tunnel,
+// app-facing token the caller must present as X-Tunnel-Token to reach this
+// tunnel. Keeping them separate lets many connectors share one register secret
+// while each tunnel stays isolated behind its own token. When TunnelToken is
+// empty the relay falls back to Token (single-tenant / older connectors).
 type Register struct {
-	TunnelID string `json:"tunnelId"`
-	Token    string `json:"token"`
+	TunnelID    string `json:"tunnelId"`
+	Token       string `json:"token"`
+	TunnelToken string `json:"tunnelToken,omitempty"`
 }
 
 // RegisterAck is the JSON payload of a TypeRegisterAck frame.
