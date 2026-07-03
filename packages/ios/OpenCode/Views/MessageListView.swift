@@ -211,6 +211,9 @@ struct MessageListView: UIViewRepresentable {
             var blocks: [MessageBlock] = []
 
             for part in message.parts {
+                // Hidden parts (synthetic tool-call narration, server-ignored) —
+                // matches the web client's `!synthetic && !ignored` filter.
+                guard part.isVisible else { continue }
                 switch part.content {
                 case .text(let text) where !text.isEmpty:
                     blocks.append(contentsOf: textToBlocks(text))

@@ -122,7 +122,14 @@ data class MessagePart(
     val messageID: String,
     val type: String,
     val content: PartContent? = null,
+    /** Filler the model wrote (e.g. a non-native-tool model narrating a tool call as text). */
+    val synthetic: Boolean = false,
+    /** Server-marked not-for-display. */
+    val ignored: Boolean = false,
 ) {
+    /** Whether this part should be shown (matches the web `!synthetic && !ignored`). */
+    val isVisible: Boolean get() = !synthetic && !ignored
+
     /** Returns a copy with `delta` appended to its text (only valid for text parts). */
     fun appendingText(delta: String): MessagePart {
         val existing = (content as? PartContent.Text)?.text ?: ""
@@ -135,7 +142,9 @@ data class MessagePart(
             val sessionID = obj["sessionID"]?.jsonPrimitive?.contentOrNull ?: ""
             val messageID = obj["messageID"]?.jsonPrimitive?.contentOrNull ?: ""
             val type = obj["type"]?.jsonPrimitive?.contentOrNull ?: ""
-            return MessagePart(id, sessionID, messageID, type, PartContent.from(type, obj))
+            val synthetic = obj["synthetic"]?.jsonPrimitive?.let { it.contentOrNull == "true" } ?: false
+            val ignored = obj["ignored"]?.jsonPrimitive?.let { it.contentOrNull == "true" } ?: false
+            return MessagePart(id, sessionID, messageID, type, PartContent.from(type, obj), synthetic, ignored)
         }
     }
 }
