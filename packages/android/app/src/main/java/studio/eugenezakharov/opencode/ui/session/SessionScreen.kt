@@ -225,6 +225,14 @@ fun SessionScreen(
                     onSelect = { detailMessage = it },
                 )
             }
+            val last = state.messages.lastOrNull()
+            val streaming = last?.info is studio.eugenezakharov.opencode.api.models.MessageInfo.Assistant &&
+                last.parts.any { p ->
+                    p.isVisible && (p.content as? studio.eugenezakharov.opencode.api.models.PartContent.Text)?.text?.isNotBlank() == true
+                }
+            if (state.isBusy && !streaming) {
+                TypingDots(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 10.dp))
+            }
         }
     }
 
