@@ -25,7 +25,7 @@ struct SessionView: View {
                 // The whole screen is UIKit (message list + bottom bar) so the
                 // keyboard is handled natively: the composer is the controller's
                 // inputAccessoryView. Ignore SwiftUI's keyboard avoidance here.
-                SessionContent(messages: store.messages.filter { $0.hasRenderableContent },
+                SessionContent(messages: visibleMessages,
                                revision: store.revision,
                                onRevert: { revertTarget = $0 }) {
                     bottomBar
@@ -145,8 +145,41 @@ struct SessionView: View {
 
     /// Docks (permissions / questions) stacked above the composer — hosted inside
     /// the UIKit controller so it rides the keyboard with the list.
+    /// Messages actually shown: renderable, and (if the session is reverted) only
+    /// those before the revert boundary.
+    private var visibleMessages: [MessageWithParts] {
+        var msgs = store.messages
+        if let revertID = store.revertMessageID,
+           let idx = msgs.firstIndex(where: { $0.id == revertID }) {
+            msgs = Array(msgs.prefix(idx))
+        }
+        return msgs.filter { $0.hasRenderableContent }
+    }
+
+    private var revertedCount: Int {
+        guard let revertID = store.revertMessageID,
+              let idx = store.messages.firstIndex(where: { $0.id == revertID }) else { return 0 }
+        return store.messages.count - idx
+    }
+
     @ViewBuilder private var bottomBar: some View {
         VStack(spacing: 0) {
+            if store.revertMessageID != nil {
+                Button { Task { await restore() } } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.uturn.backward")
+                        Text("\(revertedCount) message\(revertedCount == 1 ? "" : "s") reverted")
+                        Spacer()
+                        Text("Restore").fontWeight(.semibold)
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.orange.opacity(0.18))
+                    .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+            }
             if !store.todos.isEmpty {
                 TodoPill(todos: store.todos) { showTodos = true }
             }
@@ -172,6 +205,7 @@ struct SessionView: View {
         do {
             let initial = try await server.messages(directory: session.directory, sessionID: session.id)
             store.setInitial(initial)
+            store.setRevert(session.revert?.messageID)
         } catch {
             self.error = error.localizedDescription
             loading = false
@@ -272,9 +306,17 @@ struct SessionView: View {
     }
 
     /// Revert the session to before `messageID`. The reverted state arrives over
-    /// the SSE stream (removed messages), so we just fire the request.
+    /// the SSE stream (session.updated with the revert boundary).
     private func revert(_ messageID: String) async {
         try? await server.revertSession(directory: session.directory, sessionID: session.id, messageID: messageID)
+    }
+
+    /// Restore all reverted messages.
+    private func restore() async {
+        do {
+            try await server.unrevertSession(directory: session.directory, sessionID: session.id)
+            store.setRevert(nil)
+        } catch {}
     }
 
     /// Reads a picked repo file and stages it as a context part on the composer.

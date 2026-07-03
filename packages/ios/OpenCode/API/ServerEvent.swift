@@ -16,8 +16,8 @@ enum ServerEvent {
     case partRemoved(sessionID: String, messageID: String, partID: String)
     /// A message was removed (`message.removed`).
     case messageRemoved(sessionID: String, messageID: String)
-    /// Session metadata changed (`session.updated`); we only need the id for now.
-    case sessionUpdated(sessionID: String)
+    /// Session metadata changed (`session.updated`) — carries the revert boundary.
+    case sessionUpdated(sessionID: String, revertMessageID: String?)
     /// The agent is asking permission to act (`permission.v2.asked`).
     case permissionAsked(PermissionRequest)
     /// A permission request was answered/cleared (`permission.v2.replied`).
@@ -95,7 +95,9 @@ extension ServerEvent: Decodable {
                 messageID: try p.decode(String.self, forKey: .messageID))
         case "session.updated":
             let p = try c.nestedContainer(keyedBy: Prop.self, forKey: .properties)
-            self = .sessionUpdated(sessionID: try p.decode(String.self, forKey: .sessionID))
+            let info = try? p.decode(Session.self, forKey: .info)
+            let sid = info?.id ?? (try? p.decode(String.self, forKey: .sessionID))
+            self = .sessionUpdated(sessionID: sid ?? "", revertMessageID: info?.revert?.messageID)
         case "permission.v2.asked":
             // The event properties ARE the permission request (id, sessionID, action, resources…).
             self = .permissionAsked(try c.decode(PermissionRequest.self, forKey: .properties))

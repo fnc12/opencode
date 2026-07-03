@@ -11,6 +11,13 @@ struct Session: Decodable, Identifiable {
     let time: SessionTime
     let summary: SessionSummary?
     let share: SessionShare?
+    /// Set when the session has been reverted to a point — messages from
+    /// `messageID` onward are undone.
+    let revert: SessionRevert?
+}
+
+struct SessionRevert: Decodable {
+    let messageID: String
 }
 
 struct SessionTime: Decodable {
