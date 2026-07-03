@@ -82,6 +82,22 @@ final class ServerConnection {
         try await get("/command", query: ["directory": directory])
     }
 
+    /// Auth methods available per provider (`GET /provider/auth`) — a map of
+    /// providerID → the ways you can authenticate it (api key / oauth).
+    func providerAuthMethods() async throws -> [String: [ProviderAuthMethod]] {
+        try await get("/provider/auth")
+    }
+
+    /// Set an API key for a provider (`PUT /auth/:id`).
+    func setProviderKey(providerID: String, key: String) async throws {
+        let _: Bool = try await sendForResult("PUT", "/auth/\(providerID)", body: ["type": "api", "key": key])
+    }
+
+    /// Remove a provider's stored credentials (`DELETE /auth/:id`).
+    func removeProviderAuth(providerID: String) async throws {
+        let _: Bool = try await sendForResult("DELETE", "/auth/\(providerID)")
+    }
+
     /// Run a slash command in the session (`POST /session/:id/command`) — it is
     /// expanded to a prompt and streams back like any other turn.
     func runCommand(directory: String, sessionID: String, command: String, arguments: String = "") async throws {
