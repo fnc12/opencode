@@ -122,7 +122,13 @@ func (s *Server) connector(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn := tunnel.NewConn(reg.TunnelID, reg.Token, ws)
+	// The app-facing token is the per-tunnel token; fall back to the register
+	// token for older single-tenant connectors that don't send one.
+	tunnelToken := reg.TunnelToken
+	if tunnelToken == "" {
+		tunnelToken = reg.Token
+	}
+	conn := tunnel.NewConn(reg.TunnelID, tunnelToken, ws)
 	s.reg.Add(conn)
 	s.log.Info("connector registered", "tunnel", reg.TunnelID, "tunnels", s.reg.Count())
 

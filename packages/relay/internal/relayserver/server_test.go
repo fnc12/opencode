@@ -226,3 +226,63 @@ func waitTunnel(t *testing.T, ts *httptest.Server) {
 	}
 	t.Fatal("tunnel never registered")
 }
+
+// dialConnectorTokens registers with a register secret distinct from the
+// per-tunnel, app-facing token.
+func dialConnectorTokens(t *testing.T, ts *httptest.Server, tunnelID, registerSecret, tunnelToken string) *websocket.Conn {
+	t.Helper()
+	url := "ws" + strings.TrimPrefix(ts.URL, "http") + "/connector"
+	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	reg, _ := json.Marshal(tunnel.Register{TunnelID: tunnelID, Token: registerSecret, TunnelToken: tunnelToken})
+	if err := ws.WriteMessage(websocket.BinaryMessage, tunnel.Encode(tunnel.Frame{Type: tunnel.TypeRegister, Payload: reg})); err != nil {
+		t.Fatalf("send register: %v", err)
+	}
+	_, data, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("read ack: %v", err)
+	}
+	f, _ := tunnel.Decode(data)
+	var ack tunnel.RegisterAck
+	_ = json.Unmarshal(f.Payload, &ack)
+	if !ack.OK {
+		t.Fatalf("register rejected: %s", ack.Error)
+	}
+	return ws
+}
+
+// The register secret (shared across connectors) must not double as the
+// app-facing tunnel token — only the per-tunnel TunnelToken reaches the tunnel.
+func TestRegisterSecretDecoupledFromTunnelToken(t *testing.T) {
+	ts := newTestServer(t) // relay register secret = "secret"
+	ws := dialConnectorTokens(t, ts, "tunA", "secret", "app-token-A")
+	defer ws.Close()
+	waitTunnel(t, ts)
+
+	// The register secret is not a valid app token → rejected at the proxy.
+	resp, err := getTunnel(ts.URL+"/t/tunA/global/health", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("register secret accepted as app token: status %d", resp.StatusCode)
+	}
+
+	// The per-tunnel token is accepted.
+	go serveOnce(t, ws, func(head tunnel.RequestHead, body []byte, w func(tunnel.Frame)) {
+		rh, _ := json.Marshal(tunnel.ResponseHead{Status: 200})
+		w(tunnel.Frame{Type: tunnel.TypeResponseHead, Payload: rh})
+		w(tunnel.Frame{Type: tunnel.TypeEnd})
+	})
+	resp2, err := getTunnel(ts.URL+"/t/tunA/global/health", "app-token-A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 {
+		t.Fatalf("per-tunnel token rejected: status %d", resp2.StatusCode)
+	}
+}
