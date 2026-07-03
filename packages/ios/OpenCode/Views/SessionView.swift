@@ -9,6 +9,7 @@ struct SessionView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var showDiff = false
+    @State private var showShell = false
     @State private var shareURL: String?
     @State private var shareItem: ShareURL?
     @State private var revertTarget: String?
@@ -46,6 +47,11 @@ struct SessionView: View {
                         .accessibilityIdentifier("session.stop")
                         .accessibilityLabel("Stop")
                     }
+                    Button { showShell = true } label: {
+                        Image(systemName: "terminal")
+                    }
+                    .accessibilityIdentifier("session.shell")
+                    .accessibilityLabel("Shell")
                     Button { showDiff = true } label: {
                         Image(systemName: "plusminus")
                     }
@@ -67,6 +73,9 @@ struct SessionView: View {
                     StreamStatusBadge(status: store.status)
                 }
             }
+        }
+        .sheet(isPresented: $showShell) {
+            ShellView(server: server, session: session)
         }
         .sheet(isPresented: $showDiff) {
             NavigationStack {

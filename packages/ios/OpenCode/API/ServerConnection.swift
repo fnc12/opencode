@@ -89,6 +89,24 @@ final class ServerConnection {
                        body: ["command": command, "arguments": arguments])
     }
 
+    /// Run a shell command in the session context (`POST /session/:id/shell`) and
+    /// return its combined output — the terminal in your pocket.
+    func runShell(directory: String, sessionID: String, command: String, agent: String = "build") async throws -> String {
+        let message: MessageWithParts = try await sendForResult(
+            "POST", "/session/\(sessionID)/shell",
+            query: ["directory": directory], body: ["agent": agent, "command": command])
+        for part in message.parts {
+            if case .tool(let tool)? = part.content, let output = tool.state.output, !output.isEmpty {
+                return output
+            }
+        }
+        let text = message.parts.compactMap { part -> String? in
+            if case .text(let value)? = part.content, part.isVisible, !value.isEmpty { return value }
+            return nil
+        }.joined(separator: "\n")
+        return text.isEmpty ? "(no output)" : text
+    }
+
     /// Lists the entries (folders + files) of a directory on the server, for the
     /// folder browser. Works for any path the server can read.
     func listDirectory(path: String) async throws -> [FileEntry] {

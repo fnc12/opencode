@@ -104,6 +104,7 @@ fun SessionScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showDiff by remember { mutableStateOf(false) }
+    var showShell by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -132,6 +133,12 @@ fun SessionScreen(
                             Spacer(Modifier.width(4.dp))
                             Text("Stop")
                         }
+                    }
+                    IconButton(
+                        onClick = { showShell = true },
+                        modifier = Modifier.testTag("session.shell"),
+                    ) {
+                        Text(">_", style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
                     }
                     IconButton(
                         onClick = { showDiff = true },
@@ -219,6 +226,10 @@ fun SessionScreen(
         ) {
             DiffScreen(load = { viewModel.loadDiff() }, onClose = { showDiff = false })
         }
+    }
+
+    if (showShell) {
+        ShellScreen(server = viewModel.server, session = session, onDismiss = { showShell = false })
     }
 }
 
