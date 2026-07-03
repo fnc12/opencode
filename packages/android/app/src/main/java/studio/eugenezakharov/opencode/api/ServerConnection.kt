@@ -79,6 +79,25 @@ class ServerConnection(
         tunnelToken()?.let { rb.header("X-Tunnel-Token", it) }
     }
 
+    /**
+     * Registers this device's push token with the relay so it can wake the app
+     * when a session goes idle (`POST <relay-root>/api/devices`). Relay mode only.
+     */
+    suspend fun registerPushToken(token: String, provider: String = "fcm"): Boolean =
+        withContext(Dispatchers.IO) {
+            if (config.mode != ConnectionMode.RELAY || config.tunnelID.isEmpty()) return@withContext false
+            val url = config.relayURL.trimmedSlashes() + "/api/devices"
+            val body = buildJsonObject {
+                put("tunnelId", config.tunnelID)
+                put("provider", provider)
+                put("token", token)
+            }.toString()
+            val request = Request.Builder().url(url)
+                .post(body.toRequestBody("application/json".toMediaType())).build()
+            runCatching { client.newCall(request).execute().use { it.isSuccessful } }
+                .getOrDefault(false)
+        }
+
     suspend fun health(): HealthResponse = get("/global/health", HealthResponse.serializer())
 
     suspend fun projects(): List<Project> =
