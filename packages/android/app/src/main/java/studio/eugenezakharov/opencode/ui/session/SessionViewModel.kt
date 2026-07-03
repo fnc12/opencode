@@ -55,7 +55,7 @@ data class SessionUiState(
  * `SessionView` + `ComposerView`.
  */
 class SessionViewModel(
-    private val server: ServerConnection,
+    val server: ServerConnection,
     private val session: Session,
     private val prefs: ComposerPrefs,
     /** UI tests inject a synthetic permission so the dock can be driven (mirrors iOS UITEST_PERMISSION). */

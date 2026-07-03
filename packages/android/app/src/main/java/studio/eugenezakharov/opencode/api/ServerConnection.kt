@@ -3,6 +3,9 @@ package studio.eugenezakharov.opencode.api
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
 import kotlinx.serialization.json.addJsonObject
@@ -149,6 +152,26 @@ class ServerConnection(
                 put("arguments", arguments)
             }
             postRaw("/session/$sessionID/command", mapOf("directory" to directory), body.toString())
+        }
+
+    /** Run a shell command in the session (`POST /session/:id/shell`) and return its output. */
+    suspend fun runShell(directory: String, sessionID: String, command: String, agent: String = "build"): String =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                put("agent", agent)
+                put("command", command)
+            }
+            val raw = postRawForResult("/session/$sessionID/shell", mapOf("directory" to directory), body.toString())
+            val obj = json.parseToJsonElement(raw).jsonObject
+            val parts = obj["parts"]?.let { it as? kotlinx.serialization.json.JsonArray } ?: return@withContext "(no output)"
+            for (p in parts) {
+                val po = p.jsonObject
+                if (po["type"]?.jsonPrimitive?.contentOrNull == "tool") {
+                    val out = po["state"]?.jsonObject?.get("output")?.jsonPrimitive?.contentOrNull
+                    if (!out.isNullOrEmpty()) return@withContext out
+                }
+            }
+            "(no output)"
         }
 
     /** The aggregate file changes for a session (`GET /session/:id/diff`). Mirrors iOS. */
