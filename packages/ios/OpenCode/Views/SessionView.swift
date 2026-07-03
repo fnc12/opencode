@@ -26,7 +26,8 @@ struct SessionView: View {
                 // The whole screen is UIKit (message list + bottom bar) so the
                 // keyboard is handled natively: the composer is the controller's
                 // inputAccessoryView. Ignore SwiftUI's keyboard avoidance here.
-                SessionContent(messages: store.messages, revision: store.revision,
+                SessionContent(messages: store.messages.filter { $0.hasRenderableContent },
+                               revision: store.revision,
                                onRevert: { revertTarget = $0 },
                                onSelectMessage: { id in detailMessage = store.messages.first { $0.id == id } }) {
                     bottomBar

@@ -61,7 +61,7 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
     /** Replaces the list, issuing minimal notifications. Returns true if anything changed. */
     fun submit(messages: List<MessageWithParts>): Boolean {
-        val next = messages.map { Row(it.id, it, signature(it)) }
+        val next = messages.filter { it.hasRenderableContent }.map { Row(it.id, it, signature(it)) }
         val oldIds = items.map { it.id }
         val newIds = next.map { it.id }
 
