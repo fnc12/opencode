@@ -61,13 +61,16 @@ struct MessageListView: UIViewRepresentable {
         var isPinnedToBottom: Bool { pinnedToBottom }
         /// Called when the user picks "Revert to here" on a message (its id).
         var onRevert: ((String) -> Void)?
-        /// Called when a message row is tapped — opens its detail screen.
-        var onSelectMessage: ((String) -> Void)?
+        /// Called when a message row is tapped — opens its detail screen, zooming
+        /// from the cell's frame (in window coordinates).
+        var onSelectMessageAt: ((String, CGRect) -> Void)?
 
         func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: false)
-            guard let id = dataSource?.itemIdentifier(for: indexPath) else { return }
-            onSelectMessage?(id)
+            guard let id = dataSource?.itemIdentifier(for: indexPath),
+                  let cell = tableView.cellForRow(at: indexPath) else { return }
+            let frame = cell.convert(cell.bounds, to: nil)
+            onSelectMessageAt?(id, frame)
         }
 
         func makeDataSource(for table: UITableView) {

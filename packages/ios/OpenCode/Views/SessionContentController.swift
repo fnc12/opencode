@@ -62,8 +62,20 @@ final class SessionContentController: UIViewController {
     }
 
     /// Wired from SwiftUI: called with a message id when a row is tapped.
-    var onSelectMessage: ((String) -> Void)? {
-        didSet { coordinator.onSelectMessage = onSelectMessage }
+    private var zoomTransition: ZoomTransition?
+
+    /// Presents a message's detail screen, zooming out of the tapped cell.
+    private func presentDetail(id: String, from frame: CGRect) {
+        guard let message = messages.first(where: { $0.id == id }) else { return }
+        let host = UIHostingController(
+            rootView: MessageDetailView(message: message, onClose: { [weak self] in
+                self?.dismiss(animated: true)
+            }))
+        host.modalPresentationStyle = .fullScreen
+        let transition = ZoomTransition(sourceFrame: frame)
+        zoomTransition = transition          // transitioningDelegate is weak
+        host.transitioningDelegate = transition
+        present(host, animated: true)
     }
 
     init(bar: InputBarView) {
@@ -108,6 +120,7 @@ final class SessionContentController: UIViewController {
         // When the bar's own height changes (a dock appears, the tasks pill shows),
         // re-sync the list inset so the composer stays glued to the bottom.
         bar.onHeightChange = { [weak self] in self?.syncBottomInset() }
+        coordinator.onSelectMessageAt = { [weak self] id, frame in self?.presentDetail(id: id, from: frame) }
     }
 
     /// Bottom inset the list needs to clear the accessory bar, given the current
@@ -184,7 +197,6 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     let messages: [MessageWithParts]
     let revision: Int
     var onRevert: ((String) -> Void)? = nil
-    var onSelectMessage: ((String) -> Void)? = nil
     @ViewBuilder var bar: () -> Bar
 
     func makeUIViewController(context: Context) -> SessionContentController {
@@ -196,7 +208,6 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         context.coordinator.host = host
         let controller = SessionContentController(bar: InputBarView(content: host.view))
         controller.onRevert = onRevert
-        controller.onSelectMessage = onSelectMessage
         controller.messages = messages
         return controller
     }
@@ -204,7 +215,6 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: SessionContentController, context: Context) {
         context.coordinator.host?.rootView = bar()
         controller.onRevert = onRevert
-        controller.onSelectMessage = onSelectMessage
         controller.messages = messages
     }
 
