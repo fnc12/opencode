@@ -10,6 +10,8 @@
 //	TUNNEL_TOKEN      per-tunnel app-facing token (X-Tunnel-Token) (optional; generated+persisted)
 //	REGISTER_SECRET   secret the relay authorizes registration with; shared across
 //	                  connectors in multi-tenant setups (default: TUNNEL_TOKEN)
+//	CLAIM_CODE        one-time code (from the relay operator) redeemed on first run
+//	                  for a provisioned tunnel id+token — no shared secret needed
 //	OPENCODE_URL      local OpenCode server base URL (default http://127.0.0.1:4096)
 //	OPENCODE_PASSWORD optional; injected as Basic opencode:<pw> when the client sent no Authorization
 //
@@ -49,6 +51,10 @@ func loadConfig() (config, error) {
 	relayURL := os.Getenv("RELAY_URL")
 	if relayURL == "" {
 		return config{}, errors.New("RELAY_URL is required")
+	}
+	// Redeem a one-time claim code into a persisted identity on first run.
+	if err := maybeClaim(relayURL); err != nil {
+		return config{}, err
 	}
 	id, err := loadOrCreateIdentity(os.Getenv("TUNNEL_ID"), os.Getenv("TUNNEL_TOKEN"))
 	if err != nil {

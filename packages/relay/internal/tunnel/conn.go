@@ -74,6 +74,9 @@ func NewConn(tunnelID, token string, ws *websocket.Conn) *Conn {
 // Done returns a channel closed when the connection terminates.
 func (c *Conn) Done() <-chan struct{} { return c.closed }
 
+// Close terminates the connection (used to drop a revoked tunnel immediately).
+func (c *Conn) Close() { c.shutdown(nil) }
+
 func (c *Conn) shutdown(err error) {
 	c.once.Do(func() {
 		c.closeErr = err
