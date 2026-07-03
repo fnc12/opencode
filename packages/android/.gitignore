@@ -10,3 +10,7 @@ build/
 local.properties
 *.apk
 *.aab
+
+# FCM config (contains project API key) — provide locally, never commit
+app/google-services.json
+google-services.json

@@ -74,6 +74,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runCatching { server.health() }
                 .onSuccess { health ->
                     store.save(server.config)
+                    registerForPush()
                     _state.update {
                         it.copy(loading = false, connected = true, version = health.version)
                     }
@@ -88,5 +89,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnect() {
         _state.update { it.copy(connected = false, version = "") }
+    }
+
+    /** Registers this device's FCM token with the relay so it can push on idle. */
+    private fun registerForPush() {
+        studio.eugenezakharov.opencode.push.PushRegistrar.onToken = { token ->
+            viewModelScope.launch { server.registerPushToken(token) }
+        }
+        studio.eugenezakharov.opencode.push.PushRegistrar.lastToken?.let { token ->
+            viewModelScope.launch { server.registerPushToken(token) }
+        }
+        // Fetch the current token (Firebase is only initialized when
+        // google-services.json is present, so tolerate its absence).
+        runCatching {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    studio.eugenezakharov.opencode.push.PushRegistrar.deliver(token)
+                }
+        }
     }
 }

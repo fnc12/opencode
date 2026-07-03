@@ -5,6 +5,13 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// FCM push needs the (secret) google-services.json, which is git-ignored. Apply
+// the plugin only when it's present so the repo still builds without it — the
+// app just runs without push.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "studio.eugenezakharov.opencode"
     compileSdk = 35
@@ -58,6 +65,8 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
     debugImplementation(libs.androidx.ui.tooling)
 
     testImplementation(libs.junit)

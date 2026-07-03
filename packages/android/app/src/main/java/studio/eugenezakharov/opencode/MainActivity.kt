@@ -1,11 +1,16 @@
 package studio.eugenezakharov.opencode
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
@@ -31,6 +36,7 @@ class MainActivity : ComponentActivity() {
         UiTestFlags.injectQuestion = intent?.getBooleanExtra("UITEST_QUESTION", false) == true
         UiTestFlags.injectTodo = intent?.getBooleanExtra("UITEST_TODO", false) == true
         enableEdgeToEdge()
+        requestNotificationPermission()
         handlePairingIntent(intent)
         setContent {
             OpenCodeTheme {
@@ -38,6 +44,19 @@ class MainActivity : ComponentActivity() {
                     AppNav(appViewModel)
                 }
             }
+        }
+    }
+
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /** Ask for POST_NOTIFICATIONS on Android 13+ so idle pushes can be shown. */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
