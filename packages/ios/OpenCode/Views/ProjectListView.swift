@@ -11,6 +11,7 @@ struct ProjectListView: View {
     @AppStorage("openFolder.lastPath") private var folderPath = "/"
     @State private var creating = false
     @State private var createError: String?
+    @State private var showProviders = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -45,6 +46,9 @@ struct ProjectListView: View {
                         .accessibilityIdentifier("projects.openFolder")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button("Providers", systemImage: "key") { showProviders = true }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Disconnect", systemImage: "xmark.circle") { server.disconnect() }
                         .tint(.secondary)
                 }
@@ -61,6 +65,9 @@ struct ProjectListView: View {
                 OpenFolderSheet(server: server, path: $folderPath, creating: creating, error: createError) {
                     Task { await openFolder() }
                 }
+            }
+            .sheet(isPresented: $showProviders) {
+                ProvidersView(server: server)
             }
             .task { await load() }
         }
