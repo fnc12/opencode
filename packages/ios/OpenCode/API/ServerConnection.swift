@@ -47,6 +47,21 @@ final class ServerConnection {
         version = ""
     }
 
+    /// Registers this device's APNs token with the relay so it can push when a
+    /// session goes idle (`POST <relay>/api/devices`). Relay mode only.
+    func registerPushToken(_ hexToken: String) async {
+        guard config.mode == .relay, !config.tunnelID.isEmpty else { return }
+        let base = config.relayURL.trimmedSlashes
+        guard let url = URL(string: base + "/api/devices") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "tunnelId": config.tunnelID, "provider": "apns", "token": hexToken,
+        ])
+        _ = try? await URLSession.shared.data(for: request)
+    }
+
     /// Forgets the saved connection and resets state.
     func forget() {
         Keychain.clearConnection()

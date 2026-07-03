@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct OpenCodeApp: App {
     @State private var server = ServerConnection()
+    @UIApplicationDelegateAdaptor(PushManager.self) private var pushManager
 
     var body: some Scene {
         WindowGroup {
@@ -22,6 +23,10 @@ struct OpenCodeApp: App {
                 if !server.connected && server.config.isComplete {
                     await server.connect()
                 }
+                // Register this device for idle push once connected.
+                PushManager.onToken = { token in Task { await server.registerPushToken(token) } }
+                if let token = PushManager.lastToken { await server.registerPushToken(token) }
+                PushManager.requestAndRegister()
             }
             .onOpenURL { url in
                 // Handle opencode://pair?relay=…&tunnel=…&token=… deep links.
