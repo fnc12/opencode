@@ -10,6 +10,8 @@ struct SessionView: View {
     @State private var error: String?
     @State private var showDiff = false
     @State private var showShell = false
+    @State private var showTodos = false
+    @State private var detailMessage: MessageWithParts?
     @State private var showFilePicker = false
     @State private var fileAttachments: [FileAttachment] = []
     @State private var shareURL: String?
@@ -25,12 +27,22 @@ struct SessionView: View {
                 // keyboard is handled natively: the composer is the controller's
                 // inputAccessoryView. Ignore SwiftUI's keyboard avoidance here.
                 SessionContent(messages: store.messages, revision: store.revision,
-                               onRevert: { revertTarget = $0 }) {
+                               onRevert: { revertTarget = $0 },
+                               onSelectMessage: { id in detailMessage = store.messages.first { $0.id == id } }) {
                     bottomBar
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 if loading {
                     ProgressView("Loading messages...")
+                }
+                if showThinking {
+                    VStack {
+                        Spacer()
+                        HStack { TypingIndicator(); Spacer() }
+                    }
+                    .padding(.leading, 16)
+                    .padding(.bottom, 84)
+                    .allowsHitTesting(false)
                 }
             }
         }
@@ -79,6 +91,13 @@ struct SessionView: View {
         .sheet(isPresented: $showShell) {
             ShellView(server: server, session: session)
         }
+        .sheet(isPresented: $showTodos) {
+            TodoSheet(todos: store.todos)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $detailMessage) { message in
+            MessageDetailView(message: message)
+        }
         .sheet(isPresented: $showFilePicker) {
             FilePickerSheet(server: server, startPath: session.directory) { entry in
                 attachFile(entry)
@@ -115,12 +134,25 @@ struct SessionView: View {
         }
     }
 
+    /// The agent is generating but hasn't streamed any answer text yet — show the
+    /// typing cue. Once its text starts arriving, the text itself is the feedback.
+    private var showThinking: Bool {
+        guard store.isBusy else { return false }
+        guard let last = store.messages.last else { return true }
+        guard last.info.role == "assistant" else { return true }
+        let hasText = last.parts.contains { part in
+            guard part.isVisible, case .text(let t)? = part.content else { return false }
+            return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return !hasText
+    }
+
     /// Docks (permissions / questions) stacked above the composer — hosted inside
     /// the UIKit controller so it rides the keyboard with the list.
     @ViewBuilder private var bottomBar: some View {
         VStack(spacing: 0) {
             if !store.todos.isEmpty {
-                TodoDock(todos: store.todos)
+                TodoPill(todos: store.todos) { showTodos = true }
             }
             ForEach(store.pendingPermissions) { request in
                 PermissionDock(request: request) { reply in

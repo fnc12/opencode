@@ -61,6 +61,14 @@ struct MessageListView: UIViewRepresentable {
         var isPinnedToBottom: Bool { pinnedToBottom }
         /// Called when the user picks "Revert to here" on a message (its id).
         var onRevert: ((String) -> Void)?
+        /// Called when a message row is tapped — opens its detail screen.
+        var onSelectMessage: ((String) -> Void)?
+
+        func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+            tableView.deselectRow(at: indexPath, animated: false)
+            guard let id = dataSource?.itemIdentifier(for: indexPath) else { return }
+            onSelectMessage?(id)
+        }
 
         func makeDataSource(for table: UITableView) {
             dataSource = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, indexPath, id in
@@ -259,20 +267,15 @@ struct MessageListView: UIViewRepresentable {
 
         /// The model's reasoning: a small "THINKING" label followed by the thought
         /// in dimmed italic, so it reads as meta and recedes behind the real reply.
+        /// Reasoning is collapsed to a one-line "Thinking" marker on the small
+        /// phone screen — the full text is available by tapping into the message
+        /// detail. Keeps long chains of thought from burying the actual answer.
         private static func reasoningBlocks(_ text: String) -> [MessageBlock] {
-            let italic = UIFont.italicSystemFont(ofSize: bodyFont.pointSize - 1)
-            var out: [MessageBlock] = [.text(NSAttributedString(string: "THINKING", attributes: [
-                .font: UIFont.systemFont(ofSize: 10, weight: .semibold),
-                .foregroundColor: UIColor.tertiaryLabel,
-                .kern: 0.6]))]
-            for paragraph in text.components(separatedBy: "\n\n") {
-                let trimmed = paragraph.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { continue }
-                for chunk in boundedChunks(trimmed, maxChars: 1500) {
-                    out.append(.text(MarkdownRenderer.inlineAttributed(chunk, font: italic, color: .tertiaryLabel)))
-                }
-            }
-            return out
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return [] }
+            return [.text(NSAttributedString(string: "💭 Thinking", attributes: [
+                .font: UIFont.systemFont(ofSize: bodyFont.pointSize - 1, weight: .medium),
+                .foregroundColor: UIColor.tertiaryLabel]))]
         }
 
         /// Splits a text part into blocks: bounded markdown paragraphs (so no

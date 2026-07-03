@@ -78,6 +78,16 @@ struct OpenFolderSheet: View {
                 }
             }
             .task { await load(path.isEmpty ? "/" : path) }
+            // Swipe left→right anywhere to go up a folder (the phone "back" gesture).
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 24)
+                    .onEnded { value in
+                        guard value.translation.width > 70,
+                              abs(value.translation.height) < value.translation.width * 0.6,
+                              path != "/", !path.isEmpty else { return }
+                        Task { await load(parent(of: path)) }
+                    }
+            )
         }
     }
 
