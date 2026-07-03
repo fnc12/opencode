@@ -44,14 +44,22 @@ data class RenderedMessage(
  */
 class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() {
 
-    private val items = mutableListOf<RenderedMessage>()
+    /** A row holds the raw message + a cheap signature; the heavy Spanned body is
+     *  rendered lazily in onBind (only for visible rows), so loading a 600-message
+     *  session doesn't build 600 Spannables on the main thread (that ANR'd). */
+    private data class Row(val id: String, val message: MessageWithParts, val signature: Int)
+
+    private val items = mutableListOf<Row>()
+    // Bounded cache of rendered bodies keyed by "id:signature" — a re-bind of an
+    // unchanged row reuses its Spanned instead of re-rendering markdown.
+    private val renderCache = object : android.util.LruCache<String, RenderedMessage>(300) {}
 
     /** Invoked with a message id when the user picks "Revert to here". */
     var onRevert: ((String) -> Unit)? = null
 
     /** Replaces the list, issuing minimal notifications. Returns true if anything changed. */
     fun submit(messages: List<MessageWithParts>): Boolean {
-        val next = messages.map { render(it) }
+        val next = messages.map { Row(it.id, it, signature(it)) }
         val oldIds = items.map { it.id }
         val newIds = next.map { it.id }
 
@@ -73,6 +81,11 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         items.addAll(next)
         notifyDataSetChanged()
         return true
+    }
+
+    private fun rendered(row: Row): RenderedMessage {
+        val key = "${row.id}:${row.signature}"
+        return renderCache.get(key) ?: render(row.message).also { renderCache.put(key, it) }
     }
 
     override fun getItemCount(): Int = items.size
@@ -137,7 +150,7 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        holder.bind(items[position])
+        holder.bind(rendered(items[position]))
     }
 
     class MessageViewHolder(
