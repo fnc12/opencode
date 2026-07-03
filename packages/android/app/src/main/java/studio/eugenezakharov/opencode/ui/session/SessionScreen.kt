@@ -918,8 +918,8 @@ private fun MessageList(
             val lm = recycler.layoutManager as LinearLayoutManager
             val atBottom = lm.findLastVisibleItemPosition() >= adapter.itemCount - 2 || adapter.itemCount == 0
             val changed = adapter.submit(state.messages)
-            if (changed && atBottom && state.messages.isNotEmpty()) {
-                recycler.post { recycler.scrollToPosition(state.messages.size - 1) }
+            if (changed && atBottom && adapter.itemCount > 0) {
+                recycler.post { recycler.scrollToPosition(adapter.itemCount - 1) }
             }
         },
         onReset = {},

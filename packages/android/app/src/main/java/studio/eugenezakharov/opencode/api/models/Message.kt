@@ -23,6 +23,21 @@ data class MessageWithParts(
     val parts: MutableList<MessagePart> = mutableListOf(),
 ) {
     val id: String get() = info.id
+
+    /** Whether the message renders anything. A message whose only parts are
+     *  synthetic/ignored (e.g. `/shell`'s "The following tool was executed by the
+     *  user" filler) or empty produces an empty bubble — skip it. */
+    val hasRenderableContent: Boolean
+        get() = parts.any { part ->
+            if (!part.isVisible) return@any false
+            when (val c = part.content) {
+                is PartContent.Text -> c.text.isNotBlank()
+                is PartContent.Reasoning -> c.text.isNotBlank()
+                is PartContent.Tool, is PartContent.Patch,
+                is PartContent.FileRef, is PartContent.Compaction -> true
+                else -> false
+            }
+        }
 }
 
 /** A message's metadata. Tagged by `role` (user / assistant). */
