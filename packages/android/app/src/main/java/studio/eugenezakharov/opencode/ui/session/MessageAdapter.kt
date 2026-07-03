@@ -234,6 +234,9 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
             fun spacer() { if (body.isNotEmpty()) body.append("\n\n") }
 
             for (part in message.parts) {
+                // Hidden parts (synthetic tool-call narration, server-ignored) —
+                // matches the web client's `!synthetic && !ignored` filter.
+                if (!part.isVisible) continue
                 when (val c = part.content) {
                     is PartContent.Text -> if (c.text.isNotEmpty()) {
                         spacer(); body.append(MarkdownRenderer.render(c.text, baseSizePx, Color.TRANSPARENT))
