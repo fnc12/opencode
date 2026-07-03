@@ -56,6 +56,8 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
     /** Invoked with a message id when the user picks "Revert to here". */
     var onRevert: ((String) -> Unit)? = null
+    /** Invoked with the full message when a row is tapped (opens its detail). */
+    var onSelect: ((MessageWithParts) -> Unit)? = null
 
     /** Replaces the list, issuing minimal notifications. Returns true if anything changed. */
     fun submit(messages: List<MessageWithParts>): Boolean {
@@ -146,7 +148,11 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         bubble.addView(header)
         bubble.addView(body)
         outer.addView(bubble)
-        return MessageViewHolder(outer, bubble, role, meta, body) { onRevert }
+        return MessageViewHolder(
+            outer, bubble, role, meta, body,
+            revertProvider = { onRevert },
+            selectProvider = { { pos -> items.getOrNull(pos)?.let { onSelect?.invoke(it.message) } } },
+        )
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
@@ -160,10 +166,16 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         private val meta: TextView,
         private val body: TextView,
         private val revertProvider: () -> ((String) -> Unit)?,
+        private val selectProvider: () -> ((Int) -> Unit)?,
     ) : RecyclerView.ViewHolder(itemView) {
         private var current: RenderedMessage? = null
 
         init {
+            // Tap a message → open its detail screen.
+            itemView.setOnClickListener {
+                val pos = bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) selectProvider()?.invoke(pos)
+            }
             // Long-press a message → Copy / Revert to here.
             itemView.setOnLongClickListener { v ->
                 val msg = current ?: return@setOnLongClickListener false
@@ -304,17 +316,14 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
 
         /** Reasoning: a small dimmed "THINKING" label, then the thought in dimmed
          *  italic (inline code still monospaced) so it reads as meta. Matches iOS. */
+        /** Reasoning is collapsed to a one-line "💭 Thinking" marker on the phone —
+         *  the full chain of thought is on the message detail screen. */
         private fun appendReasoning(body: SpannableStringBuilder, text: String, baseSizePx: Int) {
             val dim = 0xFF9A9A9A.toInt()
             val flag = Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-            val labelStart = body.length
-            body.append("THINKING\n")
-            body.setSpan(RelativeSizeSpan(0.7f), labelStart, body.length - 1, flag)
-            body.setSpan(ForegroundColorSpan(dim), labelStart, body.length - 1, flag)
-            val textStart = body.length
-            body.append(MarkdownRenderer.render(text, baseSizePx, Color.TRANSPARENT))
-            body.setSpan(StyleSpan(Typeface.ITALIC), textStart, body.length, flag)
-            body.setSpan(ForegroundColorSpan(dim), textStart, body.length, flag)
+            val start = body.length
+            body.append("💭 Thinking")
+            body.setSpan(ForegroundColorSpan(dim), start, body.length, flag)
         }
 
         private fun toolLine(tool: PartContent.Tool): CharSequence {

@@ -1,7 +1,10 @@
 package studio.eugenezakharov.opencode.ui.session
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.Close
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -105,6 +108,8 @@ fun SessionScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showDiff by remember { mutableStateOf(false) }
     var showShell by remember { mutableStateOf(false) }
+    var showTodos by remember { mutableStateOf(false) }
+    var detailMessage by remember { mutableStateOf<studio.eugenezakharov.opencode.api.models.MessageWithParts?>(null) }
     var showShareMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -185,7 +190,7 @@ fun SessionScreen(
             if (!state.loading && state.error == null) {
                 Column {
                     if (state.todos.isNotEmpty()) {
-                        TodoDock(state.todos)
+                        TodoPill(state.todos) { showTodos = true }
                     }
                     // Permission docks sit above the composer; the agent is blocked
                     // until each is answered (#27).
@@ -214,7 +219,11 @@ fun SessionScreen(
                 state.loading -> CircularProgressIndicator()
                 state.error != null -> CenteredMessage("Error", state.error!!)
                 state.messages.isEmpty() -> CenteredMessage("No Messages", "This session has no messages yet")
-                else -> MessageList(state, onRevert = { viewModel.revert(it) })
+                else -> MessageList(
+                    state,
+                    onRevert = { viewModel.revert(it) },
+                    onSelect = { detailMessage = it },
+                )
             }
         }
     }
@@ -228,12 +237,21 @@ fun SessionScreen(
         }
     }
 
+    if (showTodos) {
+        TodoDialog(state.todos, onDismiss = { showTodos = false })
+    }
+
+    detailMessage?.let { msg ->
+        MessageDetailScreen(msg, onDismiss = { detailMessage = null })
+    }
+
     if (showShell) {
         ShellScreen(server = viewModel.server, session = session, onDismiss = { showShell = false })
     }
 }
 
-/** A session's aggregate changes: one card per file with a colored unified diff. */
+/** A session's changes: a list of files with ± counts; tap a file for its full
+ *  colored diff on its own screen (don't inline every diff on a phone). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DiffScreen(
@@ -242,6 +260,7 @@ private fun DiffScreen(
 ) {
     var diffs by remember { mutableStateOf<List<SessionFileDiff>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf<SessionFileDiff?>(null) }
     LaunchedEffect(Unit) {
         runCatching { load() }
             .onSuccess { list -> diffs = list.filter { !it.patch.isNullOrEmpty() || it.additions > 0 || it.deletions > 0 } }
@@ -265,58 +284,78 @@ private fun DiffScreen(
                     error != null -> CenteredMessage("Error", error!!)
                     diffs == null -> CircularProgressIndicator()
                     diffs!!.isEmpty() -> CenteredMessage("No changes", "This session hasn't touched any files.")
-                    else -> LazyColumn(Modifier.fillMaxSize().padding(12.dp)) {
+                    else -> LazyColumn(Modifier.fillMaxSize()) {
                         items(diffs!!, key = { it.file ?: it.hashCode().toString() }) { file ->
-                            DiffFileCard(file)
-                            Spacer(Modifier.height(14.dp))
+                            DiffFileRow(file) { selected = file }
+                            HorizontalDivider()
                         }
                     }
                 }
             }
         }
     }
+    selected?.let { file -> DiffFileDetail(file, onDismiss = { selected = null }) }
 }
 
 @Composable
-private fun DiffFileCard(file: SessionFileDiff) {
+private fun DiffFileRow(file: SessionFileDiff, onClick: () -> Unit) {
     val add = Color(0xFF1F9550)
     val del = Color(0xFFCC3333)
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                when (file.status) { "added" -> "＋"; "deleted" -> "－"; else -> "✎" },
-                color = when (file.status) { "added" -> add; "deleted" -> del; else -> Color(0xFFE8951F) },
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                file.file ?: "?",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-                modifier = Modifier.weight(1f),
-            )
-            if (file.additions > 0) {
-                Text("+${file.additions}", color = add, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
-            }
-            if (file.deletions > 0) {
-                Spacer(Modifier.width(6.dp))
-                Text("−${file.deletions}", color = del, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        file.patch?.takeIf { it.isNotEmpty() }?.let { patch ->
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        RoundedCornerShape(8.dp),
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            when (file.status) { "added" -> "＋"; "deleted" -> "－"; else -> "✎" },
+            color = when (file.status) { "added" -> add; "deleted" -> del; else -> Color(0xFFE8951F) },
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            file.file ?: "?",
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        if (file.additions > 0) Text("+${file.additions}", color = add, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall)
+        if (file.deletions > 0) { Spacer(Modifier.width(6.dp)); Text("−${file.deletions}", color = del, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.labelSmall) }
+    }
+}
+
+/** One file's full colored diff on its own screen, selectable + copyable. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiffFileDetail(file: SessionFileDiff, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxSize()) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text((file.file ?: "Diff").substringAfterLast('/'), maxLines = 1) },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close") }
+                        },
+                        actions = {
+                            IconButton(onClick = {
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("diff", file.patch ?: ""))
+                                android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                            }) { Text("Copy") }
+                        },
                     )
-                    .horizontalScroll(rememberScrollState())
-                    .padding(8.dp),
-            ) {
-                Text(coloredDiff(patch), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                },
+            ) { pad ->
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Box(
+                        Modifier.padding(pad).fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .horizontalScroll(rememberScrollState())
+                            .padding(12.dp),
+                    ) {
+                        Text(coloredDiff(file.patch ?: "", maxLines = 4000), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    }
+                }
             }
         }
     }
@@ -505,58 +544,61 @@ private fun QuestionDock(
 }
 
 /** The agent's task list above the composer — a collapsible checklist with progress. */
+/** A compact one-line "Tasks n/m" pill above the composer; tapping it opens the
+ *  full checklist in a dialog (mobile: don't inline the whole list). */
 @Composable
-private fun TodoDock(todos: List<TodoItem>) {
-    var expanded by remember { mutableStateOf(true) }
+private fun TodoPill(todos: List<TodoItem>, onTap: () -> Unit) {
     val done = todos.count { it.done }
-    Column(
+    Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                RoundedCornerShape(12.dp),
-            )
-            .padding(10.dp),
+            .clickable(onClick = onTap)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.fillMaxWidth().clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "Tasks $done/${todos.size}",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(if (expanded) "▲" else "▼", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (expanded) {
-            Spacer(Modifier.size(4.dp))
-            todos.forEach { todo ->
-                Row(verticalAlignment = Alignment.Top) {
-                    val (glyph, color) = when (todo.status) {
-                        "completed" -> "✓" to androidx.compose.ui.graphics.Color(0xFF1F9550)
-                        "in_progress" -> "◐" to androidx.compose.ui.graphics.Color(0xFF2D7FF9)
-                        "cancelled" -> "✕" to MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> "○" to MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                    Text(glyph, color = color, style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        todo.content,
-                        style = MaterialTheme.typography.bodySmall,
-                        textDecoration = if (todo.done) TextDecoration.LineThrough else null,
-                        color = if (todo.done) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Spacer(Modifier.size(2.dp))
-            }
-        }
+        Text(
+            "☑ Tasks $done/${todos.size}",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.weight(1f))
+        Text("▲", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
     }
+}
+
+@Composable
+private fun TodoDialog(todos: List<TodoItem>, onDismiss: () -> Unit) {
+    val done = todos.count { it.done }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Tasks $done/${todos.size}") },
+        text = {
+            LazyColumn {
+                items(todos, key = { it.content }) { todo ->
+                    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                        val (glyph, color) = when (todo.status) {
+                            "completed" -> "✓" to androidx.compose.ui.graphics.Color(0xFF1F9550)
+                            "in_progress" -> "◐" to androidx.compose.ui.graphics.Color(0xFF2D7FF9)
+                            "cancelled" -> "✕" to MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> "○" to MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                        Text(glyph, color = color, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            todo.content,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textDecoration = if (todo.done) TextDecoration.LineThrough else null,
+                            color = if (todo.done) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
 }
 
 @Composable
@@ -846,13 +888,17 @@ private fun ModelPickerDialog(
  * single row. Auto-scrolls to the bottom while pinned there.
  */
 @Composable
-private fun MessageList(state: SessionUiState, onRevert: (String) -> Unit) {
+private fun MessageList(
+    state: SessionUiState,
+    onRevert: (String) -> Unit,
+    onSelect: (studio.eugenezakharov.opencode.api.models.MessageWithParts) -> Unit,
+) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             RecyclerView(context).apply {
                 layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
-                adapter = MessageAdapter().apply { this.onRevert = onRevert }
+                adapter = MessageAdapter().apply { this.onRevert = onRevert; this.onSelect = onSelect }
                 clipToPadding = false
                 setPadding(0, 8, 0, 8)
             }
@@ -860,6 +906,7 @@ private fun MessageList(state: SessionUiState, onRevert: (String) -> Unit) {
         update = { recycler ->
             val adapter = recycler.adapter as MessageAdapter
             adapter.onRevert = onRevert
+            adapter.onSelect = onSelect
             val lm = recycler.layoutManager as LinearLayoutManager
             val atBottom = lm.findLastVisibleItemPosition() >= adapter.itemCount - 2 || adapter.itemCount == 0
             val changed = adapter.submit(state.messages)
