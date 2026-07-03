@@ -45,6 +45,7 @@ data class SessionUiState(
     val pendingQuestions: List<QuestionRequest> = emptyList(),
     val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem> = emptyList(),
     val commands: List<studio.eugenezakharov.opencode.api.models.CommandInfo> = emptyList(),
+    val revertMessageID: String? = null,
 )
 
 /**
@@ -90,6 +91,7 @@ class SessionViewModel(
                     pendingPermissions = store.pendingPermissions,
                     pendingQuestions = store.pendingQuestions,
                     todos = store.todos,
+                    revertMessageID = store.revertMessageID,
                 )
             }
         }
@@ -106,6 +108,7 @@ class SessionViewModel(
                 return@launch
             }
             store.setInitial(seeded.getOrThrow())
+            store.setRevert(session.revert?.messageID)
             _state.update { it.copy(loading = false, error = null) }
 
             // 1b) Seed any permission requests / questions already pending for this session.
@@ -204,10 +207,18 @@ class SessionViewModel(
         _state.update { it.copy(agentName = name) }
     }
 
-    /** Reverts the session to before [messageID]; the removed messages arrive over SSE. */
+    /** Reverts the session to before [messageID]; the boundary arrives over SSE. */
     fun revert(messageID: String) {
         viewModelScope.launch {
             runCatching { server.revertSession(session.directory, session.id, messageID) }
+        }
+    }
+
+    /** Restores all reverted messages. */
+    fun restore() {
+        viewModelScope.launch {
+            runCatching { server.unrevertSession(session.directory, session.id) }
+                .onSuccess { store.setRevert(null) }
         }
     }
 

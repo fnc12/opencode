@@ -47,6 +47,14 @@ class SessionStore {
     /** Pending questions the agent is asking for this session (it is blocked on them). */
     val pendingQuestions: List<QuestionRequest> get() = _pendingQuestions.toList()
 
+    private var _revertMessageID: String? = null
+    /** If set, the session is reverted to before this message. */
+    val revertMessageID: String? get() = _revertMessageID
+    fun setRevert(messageID: String?) {
+        _revertMessageID = messageID
+        onChange?.invoke()
+    }
+
     private var _todos = listOf<studio.eugenezakharov.opencode.api.models.TodoItem>()
     /** The agent's current task list (shown as a checklist above the composer). */
     val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem> get() = _todos
@@ -148,6 +156,10 @@ class SessionStore {
 
             is ServerEvent.QuestionResolved -> if (event.sessionID == sessionID) {
                 _pendingQuestions.removeAll { it.id == event.requestID }; true
+            } else false
+
+            is ServerEvent.SessionUpdated -> if (event.sessionID == sessionID) {
+                _revertMessageID = event.revertMessageID; true
             } else false
 
             is ServerEvent.TodoUpdated -> if (event.sessionID == sessionID) {

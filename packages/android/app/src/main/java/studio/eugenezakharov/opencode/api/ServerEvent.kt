@@ -41,8 +41,8 @@ sealed interface ServerEvent {
     /** A message was removed (`message.removed`). */
     data class MessageRemoved(val sessionID: String, val messageID: String) : ServerEvent
 
-    /** Session metadata changed (`session.updated`). */
-    data class SessionUpdated(val sessionID: String) : ServerEvent
+    /** Session metadata changed (`session.updated`) — carries the revert boundary. */
+    data class SessionUpdated(val sessionID: String, val revertMessageID: String? = null) : ServerEvent
 
     /** The agent is asking permission to act (`permission.v2.asked`). */
     data class PermissionAsked(val request: PermissionRequest) : ServerEvent
@@ -109,7 +109,14 @@ sealed interface ServerEvent {
                     sessionID = str("sessionID") ?: return Other(type),
                     messageID = str("messageID") ?: return Other(type),
                 )
-                "session.updated" -> SessionUpdated(str("sessionID") ?: return Other(type))
+                "session.updated" -> {
+                    val info = props["info"] as? kotlinx.serialization.json.JsonObject
+                    val sid = (info?.get("id") as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+                        ?: str("sessionID") ?: return Other(type)
+                    val revertID = ((info?.get("revert") as? kotlinx.serialization.json.JsonObject)
+                        ?.get("messageID") as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+                    SessionUpdated(sid, revertID)
+                }
                 "permission.v2.asked" -> {
                     // The event properties ARE the permission request (id, sessionID, action, resources…).
                     val request = PermissionRequest.from(props) ?: return Other(type)

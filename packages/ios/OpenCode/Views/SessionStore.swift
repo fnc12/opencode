@@ -23,6 +23,9 @@ final class SessionStore {
     private(set) var pendingQuestions: [QuestionRequest] = []
     /// The agent's current task list (shown as a checklist above the composer).
     private(set) var todos: [TodoItem] = []
+    /// If set, the session is reverted to before this message — messages from it
+    /// onward are undone (hidden, with a Restore banner).
+    private(set) var revertMessageID: String?
     /// Bumped on every applied change so the view can react (e.g. auto-scroll)
     /// even when text grows inside an existing message.
     private(set) var revision = 0
@@ -43,6 +46,10 @@ final class SessionStore {
 
     func setInitialTodos(_ todos: [TodoItem]) {
         self.todos = todos
+    }
+
+    func setRevert(_ messageID: String?) {
+        revertMessageID = messageID
     }
 
     func setInitialQuestions(_ questions: [QuestionRequest]) {
@@ -88,6 +95,8 @@ final class SessionStore {
             dismissQuestion(id: requestID)
         case .todoUpdated(let sid, let t) where sid == sessionID:
             todos = t
+        case .sessionUpdated(let sid, let revertID) where sid == sessionID:
+            revertMessageID = revertID
         default:
             return // not ours / unmodeled: no revision bump
         }
