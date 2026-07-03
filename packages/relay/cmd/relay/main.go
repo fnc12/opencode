@@ -43,6 +43,12 @@ func main() {
 		cfg.Provision, cfg.AdminSecret = pstore, admin
 		logger.Info("provisioning enabled")
 	}
+	// One-command installer: serve connector binaries + install.sh from ASSET_DIR.
+	if dir := os.Getenv("ASSET_DIR"); dir != "" {
+		cfg.AssetDir = dir
+		cfg.PublicURL = os.Getenv("RELAY_PUBLIC_URL")
+		logger.Info("installer enabled", "assetDir", dir)
+	}
 	if store, disp, err := buildPush(logger); err != nil {
 		logger.Error("push config", "err", err)
 		os.Exit(1)

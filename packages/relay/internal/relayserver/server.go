@@ -6,8 +6,12 @@ package relayserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -36,6 +40,13 @@ type Config struct {
 	// stored token, so no shared register secret is needed.
 	Provision   provision.Store
 	AdminSecret string
+
+	// AssetDir, when set, holds the connector binaries + install.sh; the relay
+	// then serves `GET /dl/{name}` and the one-line installer `GET /i/{code}`.
+	// PublicURL is the relay's externally-reachable base (e.g.
+	// https://relay.shubat.org) baked into the installer.
+	AssetDir  string
+	PublicURL string
 }
 
 // Server is the relay. The zero value is not usable; call New.
@@ -47,6 +58,8 @@ type Server struct {
 	dispatcher  *push.Dispatcher
 	provision   provision.Store
 	adminSecret string
+	assetDir    string
+	publicURL   string
 }
 
 // New constructs a Server.
@@ -63,6 +76,8 @@ func New(cfg Config) *Server {
 		dispatcher:  cfg.Dispatcher,
 		provision:   cfg.Provision,
 		adminSecret: cfg.AdminSecret,
+		assetDir:    cfg.AssetDir,
+		publicURL:   cfg.PublicURL,
 	}
 }
 
@@ -78,6 +93,10 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /admin/tunnels", s.adminListTunnels)
 		mux.HandleFunc("DELETE /admin/tunnels/{id}", s.adminDeleteTunnel)
 		mux.HandleFunc("POST /connector/claim", s.claimTunnel)
+	}
+	if s.assetDir != "" {
+		mux.HandleFunc("GET /dl/{name}", s.serveBinary)
+		mux.HandleFunc("GET /i/{code}", s.serveInstaller)
 	}
 	mux.HandleFunc("/t/{id}/", s.proxy)
 	return mux
@@ -296,6 +315,43 @@ func writeAck(ws *websocket.Conn, ack tunnel.RegisterAck) error {
 	payload, _ := json.Marshal(ack)
 	_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	return ws.WriteMessage(websocket.BinaryMessage, tunnel.Encode(tunnel.Frame{Type: tunnel.TypeRegisterAck, Payload: payload}))
+}
+
+var (
+	binaryNameRe = regexp.MustCompile(`^connector-(darwin|linux)-(amd64|arm64)$`)
+	claimCodeRe  = regexp.MustCompile(`^[A-Za-z0-9-]{4,40}$`)
+)
+
+// serveBinary serves a connector binary from the asset dir (name is strictly
+// whitelisted, so no path traversal).
+func (s *Server) serveBinary(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !binaryNameRe.MatchString(name) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, filepath.Join(s.assetDir, name))
+}
+
+// serveInstaller returns install.sh with the relay base + claim code injected,
+// so `curl -fsSL <relay>/i/<code> | sh` fully onboards a tester.
+func (s *Server) serveInstaller(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if !claimCodeRe.MatchString(code) {
+		http.Error(w, "bad code", http.StatusBadRequest)
+		return
+	}
+	script, err := os.ReadFile(filepath.Join(s.assetDir, "install.sh"))
+	if err != nil {
+		http.Error(w, "installer unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	base := s.publicURL
+	if base == "" {
+		base = "https://" + r.Host
+	}
+	w.Header().Set("Content-Type", "text/x-shellscript")
+	fmt.Fprintf(w, "#!/bin/sh\nRELAY_BASE=%q\nCLAIM_CODE=%q\nexport RELAY_BASE CLAIM_CODE\n%s", base, code, script)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
