@@ -24,6 +24,19 @@ final class InputBarView: UIView {
 
     // Height comes from the SwiftUI content's own Auto Layout + flexibleHeight.
     override var intrinsicContentSize: CGSize { .zero }
+
+    /// Fired when the bar's height changes (a dock/pill appearing or resizing) so
+    /// the list's bottom inset can be re-synced — otherwise the composer floats
+    /// mid-screen with content leaking below it.
+    var onHeightChange: (() -> Void)?
+    private var lastHeight: CGFloat = 0
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if abs(bounds.height - lastHeight) > 0.5 {
+            lastHeight = bounds.height
+            onHeightChange?()
+        }
+    }
 }
 
 /// UIKit host for a session's message list + composer. The composer is the view
@@ -48,6 +61,11 @@ final class SessionContentController: UIViewController {
         didSet { coordinator.onRevert = onRevert }
     }
 
+    /// Wired from SwiftUI: called with a message id when a row is tapped.
+    var onSelectMessage: ((String) -> Void)? {
+        didSet { coordinator.onSelectMessage = onSelectMessage }
+    }
+
     init(bar: InputBarView) {
         self.bar = bar
         super.init(nibName: nil, bundle: nil)
@@ -65,7 +83,7 @@ final class SessionContentController: UIViewController {
 
         table.separatorStyle = .none
         table.backgroundColor = .clear
-        table.allowsSelection = false
+        table.allowsSelection = true
         table.keyboardDismissMode = .interactive
         table.estimatedRowHeight = 120
         table.register(MessageCell.self, forCellReuseIdentifier: MessageCell.reuseID)
@@ -86,6 +104,29 @@ final class SessionContentController: UIViewController {
                                                name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardChange(_:)),
                                                name: UIResponder.keyboardWillHideNotification, object: nil)
+
+        // When the bar's own height changes (a dock appears, the tasks pill shows),
+        // re-sync the list inset so the composer stays glued to the bottom.
+        bar.onHeightChange = { [weak self] in self?.syncBottomInset() }
+    }
+
+    /// Bottom inset the list needs to clear the accessory bar, given the current
+    /// keyboard overlap. Called on keyboard changes and whenever the bar resizes.
+    /// Keyboard height excluding the accessory bar (0 when the keyboard is down),
+    /// so the inset can be recomputed against the *current* bar height.
+    private var lastKeyboardOnly: CGFloat = 0
+    private func syncBottomInset() {
+        let cover = lastKeyboardOnly + bar.bounds.height
+        let delta = cover - table.contentInset.bottom
+        guard abs(delta) > 0.5 else { return }
+        let pinned = coordinator.isPinnedToBottom
+        table.contentInset.bottom = cover
+        table.verticalScrollIndicatorInsets.bottom = cover
+        if pinned {
+            let maxY = max(-table.adjustedContentInset.top,
+                           table.contentSize.height - table.bounds.height + cover)
+            table.contentOffset.y = maxY
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -112,6 +153,7 @@ final class SessionContentController: UIViewController {
             log.notice("ignored bogus keyboard frame: overlap=\(Int(kbOverlap)) endY=\(Int(endInView.minY)) viewH=\(Int(self.view.bounds.height))")
             return
         }
+        lastKeyboardOnly = max(0, kbOverlap - bar.bounds.height)
         let cover = max(bar.bounds.height, kbOverlap)
         let delta = cover - table.contentInset.bottom
         guard abs(delta) > 0.5 else { return }
@@ -142,6 +184,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     let messages: [MessageWithParts]
     let revision: Int
     var onRevert: ((String) -> Void)? = nil
+    var onSelectMessage: ((String) -> Void)? = nil
     @ViewBuilder var bar: () -> Bar
 
     func makeUIViewController(context: Context) -> SessionContentController {
@@ -153,6 +196,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         context.coordinator.host = host
         let controller = SessionContentController(bar: InputBarView(content: host.view))
         controller.onRevert = onRevert
+        controller.onSelectMessage = onSelectMessage
         controller.messages = messages
         return controller
     }
@@ -160,6 +204,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: SessionContentController, context: Context) {
         context.coordinator.host?.rootView = bar()
         controller.onRevert = onRevert
+        controller.onSelectMessage = onSelectMessage
         controller.messages = messages
     }
 

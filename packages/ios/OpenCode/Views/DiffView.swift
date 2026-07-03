@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A session's aggregate changes — one card per file with its unified diff
-/// colored (green additions / red deletions), long lines scrolling sideways.
+/// A session's aggregate changes — a list of files with ± counts. Tapping a file
+/// opens its full colored diff on its own screen (inlining every diff on a phone
+/// is unreadable). Mirrors a desktop "Changes" panel but paged for mobile.
 struct DiffView: View {
     let session: Session
     var server: ServerConnection
@@ -19,14 +20,22 @@ struct DiffView: View {
             } else if diffs.isEmpty {
                 ContentUnavailableView("No changes", systemImage: "checkmark.circle")
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(diffs) { file in
-                            DiffFileCard(file: file)
+                List(diffs) { file in
+                    NavigationLink {
+                        DiffFileDetail(file: file)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: statusIcon(file.status)).foregroundStyle(statusColor(file.status))
+                            Text(file.file ?? "?")
+                                .font(.footnote.monospaced()).fontWeight(.medium)
+                                .lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 8)
+                            if file.additions > 0 { Text("+\(file.additions)").foregroundStyle(.green).font(.caption.monospaced()) }
+                            if file.deletions > 0 { Text("−\(file.deletions)").foregroundStyle(.red).font(.caption.monospaced()) }
                         }
                     }
-                    .padding(12)
                 }
+                .listStyle(.plain)
             }
         }
         .navigationTitle("Changes")
@@ -45,52 +54,47 @@ struct DiffView: View {
     }
 }
 
-/// One file: a header (path + status + ± counts) and its colored diff.
-private struct DiffFileCard: View {
+private func statusIcon(_ status: String?) -> String {
+    switch status {
+    case "added": return "plus.circle.fill"
+    case "deleted": return "minus.circle.fill"
+    default: return "pencil.circle.fill"
+    }
+}
+private func statusColor(_ status: String?) -> Color {
+    switch status {
+    case "added": return .green
+    case "deleted": return .red
+    default: return .orange
+    }
+}
+
+/// One file's full colored diff on its own screen — selectable, with a copy button.
+struct DiffFileDetail: View {
     let file: SessionFileDiff
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: statusIcon).foregroundStyle(statusColor).font(.caption)
-                Text(file.file ?? "?")
-                    .font(.footnote.monospaced()).fontWeight(.medium)
-                    .lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 8)
-                if file.additions > 0 { Text("+\(file.additions)").foregroundStyle(.green).font(.caption.monospaced()) }
-                if file.deletions > 0 { Text("−\(file.deletions)").foregroundStyle(.red).font(.caption.monospaced()) }
-            }
-            if let patch = file.patch, !patch.isEmpty {
-                ScrollView(.horizontal, showsIndicators: true) {
-                    Text(DiffFileCard.colored(patch))
-                        .font(.system(size: 12, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(8)
+        ScrollView([.horizontal, .vertical]) {
+            Text(DiffFileDetail.colored(file.patch ?? ""))
+                .font(.system(size: 12, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .navigationTitle((file.file as NSString?)?.lastPathComponent ?? "Diff")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { UIPasteboard.general.string = file.patch } label: {
+                    Image(systemName: "doc.on.doc")
                 }
-                .background(Color(.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityLabel("Copy diff")
             }
         }
     }
 
-    private var statusIcon: String {
-        switch file.status {
-        case "added": return "plus.circle.fill"
-        case "deleted": return "minus.circle.fill"
-        default: return "pencil.circle.fill"
-        }
-    }
-    private var statusColor: Color {
-        switch file.status {
-        case "added": return .green
-        case "deleted": return .red
-        default: return .orange
-        }
-    }
-
-    /// Colors a unified diff: green added lines, red removed, dimmed hunk/file
-    /// headers. Bounded so a huge patch never builds an unbounded string.
-    static func colored(_ patch: String, maxLines: Int = 1200) -> AttributedString {
+    /// Colors a unified diff: green added lines, red removed, dimmed headers.
+    static func colored(_ patch: String, maxLines: Int = 4000) -> AttributedString {
         var out = AttributedString()
         let lines = patch.split(separator: "\n", omittingEmptySubsequences: false)
         for line in lines.prefix(maxLines) {
