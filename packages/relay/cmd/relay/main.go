@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/relayserver"
 )
@@ -30,6 +31,17 @@ func main() {
 	cfg := relayserver.Config{
 		Secret: os.Getenv("RELAY_SHARED_SECRET"),
 		Log:    logger,
+	}
+	// Claim-code onboarding: when an admin secret is set, mint/claim tunnels so
+	// testers self-provision without a shared register secret.
+	if admin := os.Getenv("ADMIN_SECRET"); admin != "" {
+		pstore, err := provision.NewFileStore(envOr("PROVISION_STORE_PATH", "tunnels.json"))
+		if err != nil {
+			logger.Error("provision store", "err", err)
+			os.Exit(1)
+		}
+		cfg.Provision, cfg.AdminSecret = pstore, admin
+		logger.Info("provisioning enabled")
 	}
 	if store, disp, err := buildPush(logger); err != nil {
 		logger.Error("push config", "err", err)

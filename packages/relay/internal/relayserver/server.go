@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/tunnel"
 	"github.com/gorilla/websocket"
@@ -28,15 +29,24 @@ type Config struct {
 	// /api/devices endpoints accept registrations. When nil, push is disabled.
 	Store      push.Store
 	Dispatcher *push.Dispatcher
+
+	// Provision, when set, enables claim-code onboarding: /admin/tunnels mints
+	// tunnels (guarded by AdminSecret) and /connector/claim redeems codes.
+	// A connector registering a provisioned tunnel self-authenticates with its
+	// stored token, so no shared register secret is needed.
+	Provision   provision.Store
+	AdminSecret string
 }
 
 // Server is the relay. The zero value is not usable; call New.
 type Server struct {
-	reg        *tunnel.Registry
-	secret     string
-	log        *slog.Logger
-	store      push.Store
-	dispatcher *push.Dispatcher
+	reg         *tunnel.Registry
+	secret      string
+	log         *slog.Logger
+	store       push.Store
+	dispatcher  *push.Dispatcher
+	provision   provision.Store
+	adminSecret string
 }
 
 // New constructs a Server.
@@ -46,11 +56,13 @@ func New(cfg Config) *Server {
 		log = slog.Default()
 	}
 	return &Server{
-		reg:        tunnel.NewRegistry(),
-		secret:     cfg.Secret,
-		log:        log,
-		store:      cfg.Store,
-		dispatcher: cfg.Dispatcher,
+		reg:         tunnel.NewRegistry(),
+		secret:      cfg.Secret,
+		log:         log,
+		store:       cfg.Store,
+		dispatcher:  cfg.Dispatcher,
+		provision:   cfg.Provision,
+		adminSecret: cfg.AdminSecret,
 	}
 }
 
@@ -61,6 +73,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /connector", s.connector)
 	mux.HandleFunc("POST /api/devices", s.registerDevice)
 	mux.HandleFunc("DELETE /api/devices", s.unregisterDevice)
+	if s.provision != nil {
+		mux.HandleFunc("POST /admin/tunnels", s.adminMintTunnel)
+		mux.HandleFunc("GET /admin/tunnels", s.adminListTunnels)
+		mux.HandleFunc("DELETE /admin/tunnels/{id}", s.adminDeleteTunnel)
+		mux.HandleFunc("POST /connector/claim", s.claimTunnel)
+	}
 	mux.HandleFunc("/t/{id}/", s.proxy)
 	return mux
 }
@@ -111,7 +129,7 @@ func (s *Server) connector(w http.ResponseWriter, r *http.Request) {
 		_ = ws.Close()
 		return
 	}
-	if reg.TunnelID == "" || !s.authorize(reg.Token) {
+	if reg.TunnelID == "" || !s.authorizeRegister(reg) {
 		writeAck(ws, tunnel.RegisterAck{Error: "unauthorized"})
 		_ = ws.Close()
 		return
@@ -143,11 +161,20 @@ func (s *Server) connector(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("connector gone", "tunnel", reg.TunnelID, "tunnels", s.reg.Count())
 }
 
-func (s *Server) authorize(token string) bool {
-	if s.secret != "" {
-		return token == s.secret
+// authorizeRegister decides whether a connector may register a tunnel. A
+// provisioned tunnel self-authenticates with its stored token (no shared
+// secret). Otherwise it falls back to the shared register secret (the owner's
+// tunnel / legacy single-tenant); an empty secret accepts any token (dev only).
+func (s *Server) authorizeRegister(reg tunnel.Register) bool {
+	if s.provision != nil {
+		if t, ok := s.provision.Get(reg.TunnelID); ok {
+			return reg.TunnelToken != "" && reg.TunnelToken == t.Token
+		}
 	}
-	return token != ""
+	if s.secret != "" {
+		return reg.Token == s.secret
+	}
+	return reg.Token != ""
 }
 
 // proxy forwards /t/{id}/... to the connector for tunnel {id}.
@@ -269,4 +296,90 @@ func writeAck(ws *websocket.Conn, ack tunnel.RegisterAck) error {
 	payload, _ := json.Marshal(ack)
 	_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	return ws.WriteMessage(websocket.BinaryMessage, tunnel.Encode(tunnel.Frame{Type: tunnel.TypeRegisterAck, Payload: payload}))
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// requireAdmin gates the /admin routes on the X-Admin-Secret header.
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.adminSecret == "" || r.Header.Get("X-Admin-Secret") != s.adminSecret {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+// adminMintTunnel mints a tunnel + one-time claim code.
+// POST /admin/tunnels {label?} -> 201 {id, claimCode}
+func (s *Server) adminMintTunnel(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var body struct {
+		Label string `json:"label"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body)
+	t, err := s.provision.Mint(body.Label, time.Now().Unix())
+	if err != nil {
+		http.Error(w, "mint failed", http.StatusInternalServerError)
+		return
+	}
+	s.log.Info("tunnel minted", "tunnel", t.ID, "label", t.Label)
+	writeJSON(w, http.StatusCreated, map[string]any{"id": t.ID, "claimCode": t.ClaimCode})
+}
+
+// adminListTunnels lists provisioned tunnels (tokens redacted).
+func (s *Server) adminListTunnels(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	list := s.provision.List()
+	out := make([]map[string]any, 0, len(list))
+	for _, t := range list {
+		out = append(out, map[string]any{
+			"id": t.ID, "label": t.Label, "claimed": t.Claimed,
+			"createdAt": t.CreatedAt, "online": s.reg.Get(t.ID) != nil,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// adminDeleteTunnel revokes a tunnel and drops any live connection.
+func (s *Server) adminDeleteTunnel(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	if err := s.provision.Delete(id); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if conn := s.reg.Get(id); conn != nil {
+		conn.Close()
+	}
+	s.log.Info("tunnel revoked", "tunnel", id)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// claimTunnel redeems a one-time claim code for a tunnel id + token.
+// POST /connector/claim {code} -> {tunnelId, tunnelToken}
+func (s *Server) claimTunnel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	t, err := s.provision.Claim(body.Code)
+	if err != nil {
+		http.Error(w, "invalid or already-used code", http.StatusForbidden)
+		return
+	}
+	s.log.Info("tunnel claimed", "tunnel", t.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"tunnelId": t.ID, "tunnelToken": t.Token})
 }
