@@ -134,6 +134,16 @@ class ServerConnection(
             mapOf("directory" to directory),
         )
 
+    /** Reads a file's text content (`GET /file/content`) to attach as prompt context. */
+    suspend fun readFile(directory: String, path: String): String = withContext(Dispatchers.IO) {
+        val obj = get(
+            "/file/content",
+            kotlinx.serialization.json.JsonObject.serializer(),
+            mapOf("directory" to directory, "path" to path),
+        )
+        obj["content"]?.jsonPrimitive?.contentOrNull ?: ""
+    }
+
     /** Slash commands available for this server (`GET /command`). Mirrors iOS. */
     suspend fun commands(directory: String): List<studio.eugenezakharov.opencode.api.models.CommandInfo> =
         get(
@@ -301,6 +311,17 @@ class ServerConnection(
                         put("mime", att.mime)
                         put("filename", att.filename)
                         put("url", att.url)
+                        if (att.sourcePath != null && att.sourceContent != null) {
+                            putJsonObject("source") {
+                                put("type", "file")
+                                put("path", att.sourcePath)
+                                putJsonObject("text") {
+                                    put("value", att.sourceContent)
+                                    put("start", 0)
+                                    put("end", att.sourceContent.length)
+                                }
+                            }
+                        }
                     }
                 }
                 addJsonObject {
