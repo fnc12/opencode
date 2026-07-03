@@ -2,6 +2,7 @@ package studio.eugenezakharov.opencode.api
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -142,6 +143,33 @@ class ServerConnection(
             mapOf("directory" to directory, "path" to path),
         )
         obj["content"]?.jsonPrimitive?.contentOrNull ?: ""
+    }
+
+    /** Auth methods available per provider (`GET /provider/auth`). Mirrors iOS. */
+    suspend fun providerAuthMethods(): Map<String, List<studio.eugenezakharov.opencode.api.models.ProviderAuthMethod>> =
+        get(
+            "/provider/auth",
+            kotlinx.serialization.builtins.MapSerializer(
+                String.serializer(),
+                kotlinx.serialization.builtins.ListSerializer(
+                    studio.eugenezakharov.opencode.api.models.ProviderAuthMethod.serializer(),
+                ),
+            ),
+            emptyMap(),
+        )
+
+    /** Set an API key for a provider (`PUT /auth/:id`). */
+    suspend fun setProviderKey(providerID: String, key: String) = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("type", "api")
+            put("key", key)
+        }
+        sendRaw("PUT", "/auth/$providerID", emptyMap(), body.toString())
+    }
+
+    /** Remove a provider's stored credentials (`DELETE /auth/:id`). */
+    suspend fun removeProviderAuth(providerID: String) = withContext(Dispatchers.IO) {
+        sendRaw("DELETE", "/auth/$providerID", emptyMap(), null)
     }
 
     /** Slash commands available for this server (`GET /command`). Mirrors iOS. */

@@ -66,6 +66,7 @@ fun ProjectListScreen(
     var error by remember { mutableStateOf<String?>(null) }
 
     var showOpenFolder by remember { mutableStateOf(false) }
+    var showProviders by remember { mutableStateOf(false) }
     var creating by remember { mutableStateOf(false) }
     var createError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -108,6 +109,12 @@ fun ProjectListScreen(
             TopAppBar(
                 title = { Text("Projects") },
                 actions = {
+                    IconButton(
+                        onClick = { showProviders = true },
+                        modifier = Modifier.testTag("projects.providers"),
+                    ) {
+                        Text("🔑")
+                    }
                     IconButton(
                         onClick = { showOpenFolder = true },
                         modifier = Modifier.testTag("projects.openFolder"),
@@ -159,6 +166,10 @@ fun ProjectListScreen(
                 }
             },
         )
+    }
+
+    if (showProviders) {
+        ProvidersScreen(server = server, onDismiss = { showProviders = false })
     }
 }
 
