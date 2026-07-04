@@ -17,7 +17,11 @@ final class InputBarView: UIView {
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.topAnchor.constraint(equalTo: topAnchor),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // Pin to the SAFE-AREA bottom, not the raw bottom: it's the home
+            // indicator inset (34pt) when docked and 0 when riding the keyboard,
+            // so the composer clears the home indicator without leaving a gap
+            // above the keyboard.
+            content.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
         ])
     }
 
