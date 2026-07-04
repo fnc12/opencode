@@ -28,13 +28,14 @@ final class InputBarView: UIView {
     /// Fired when the bar's height changes (a dock/pill appearing or resizing) so
     /// the list's bottom inset can be re-synced — otherwise the composer floats
     /// mid-screen with content leaking below it.
-    var onHeightChange: (() -> Void)?
+    var onHeightChange: ((CGFloat) -> Void)?
     private var lastHeight: CGFloat = 0
     override func layoutSubviews() {
         super.layoutSubviews()
-        if abs(bounds.height - lastHeight) > 0.5 {
+        let delta = bounds.height - lastHeight
+        if abs(delta) > 0.5 {
             lastHeight = bounds.height
-            onHeightChange?()
+            onHeightChange?(delta)
         }
     }
 }
@@ -119,7 +120,13 @@ final class SessionContentController: UIViewController {
 
         // When the bar's own height changes (a dock appears, the tasks pill shows),
         // re-sync the list inset so the composer stays glued to the bottom.
-        bar.onHeightChange = { [weak self] in self?.syncBottomInset() }
+        bar.onHeightChange = { [weak self] delta in
+            self?.syncBottomInset()
+            // A big jump — the attachment preview or a dock appearing/disappearing,
+            // not per-line text growth — can leave UIKit showing a ghost of the
+            // accessory's old frame. Force it to re-lay-out the input accessory.
+            if abs(delta) > 40 { self?.reloadInputViews() }
+        }
         coordinator.onSelectMessageAt = { [weak self] id, frame in self?.presentDetail(id: id, from: frame) }
     }
 

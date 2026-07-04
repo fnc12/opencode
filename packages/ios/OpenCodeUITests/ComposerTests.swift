@@ -65,6 +65,29 @@ final class ComposerTests: XCTestCase {
                       "composer must remain after dismissing the photo picker")
     }
 
+    func testRemovingFileAttachmentKeepsComposer() throws {
+        let app = XCUIApplication()
+        try openSession(app)
+
+        let field = app.textViews["composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "composer should be present")
+        field.tap()
+
+        app.buttons["composer.file"].tap()
+        let file = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'file.'")).firstMatch
+        guard file.waitForExistence(timeout: 10) else { throw XCTSkip("no files to attach") }
+        file.tap()
+
+        let remove = app.buttons["composer.removeFile"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 5), "attachment chip should appear")
+        remove.tap()
+
+        // The attachment preview toggling the composer height must not drop it.
+        XCTAssertTrue(field.waitForExistence(timeout: 5),
+                      "composer must remain after removing a file attachment")
+        XCTAssertTrue(app.buttons["composer.send"].exists, "send button must remain")
+    }
+
     func testModelSheetDismissalKeepsComposer() throws {
         let app = XCUIApplication()
         try openSession(app)
