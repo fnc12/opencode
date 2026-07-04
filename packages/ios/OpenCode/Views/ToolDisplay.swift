@@ -81,21 +81,23 @@ enum ToolDisplay {
     static func cleanOutput(_ tool: ToolContent) -> String? {
         guard let output = tool.state.output?.trimmingCharacters(in: .whitespacesAndNewlines),
               !output.isEmpty else { return nil }
-        // read wraps a file as <content>…</content> and a directory as
-        // <entries>…</entries> (both after <path>/<type>). Show the inner payload.
-        for tag in ["content", "entries"] {
-            if let inner = between(output, open: "<\(tag)>", close: "</\(tag)>") {
-                return inner.trimmingCharacters(in: .newlines)
-            }
-        }
-        return output
+        return unwrapEnvelope(output) ?? output
     }
 
-    /// Text strictly between the first `open` and the following `close` marker.
-    private static func between(_ s: String, open: String, close: String) -> String? {
-        guard let o = s.range(of: open),
-              let c = s.range(of: close, range: o.upperBound..<s.endIndex) else { return nil }
-        return String(s[o.upperBound..<c.lowerBound])
+    /// OpenCode's `read` tool wraps its result (for the LLM) as
+    /// `<path>…</path>\n<type>…</type>\n<WRAPPER>\n…payload…\n</WRAPPER>` — a file's
+    /// `<content>`, a directory's `<entries>`, etc. Return the inner payload of
+    /// whatever wrapper follows `<type>`, so any current/future wrapper is handled
+    /// without per-tag special cases (`server: packages/opencode/src/tool/read.ts`).
+    private static func unwrapEnvelope(_ s: String) -> String? {
+        guard s.hasPrefix("<path>"), let afterType = s.range(of: "</type>") else { return nil }
+        let rest = s[afterType.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rest.hasPrefix("<"), let gt = rest.firstIndex(of: ">") else { return nil }
+        let name = rest[rest.index(after: rest.startIndex)..<gt]
+        guard !name.isEmpty, !name.contains(" "), !name.contains("/"),
+              let close = rest.range(of: "</\(name)>", options: .backwards) else { return nil }
+        return String(rest[rest.index(after: gt)..<close.lowerBound])
+            .trimmingCharacters(in: .newlines)
     }
 
     /// "+N −M" badge from an edit/write file diff, or nil when both are zero.
