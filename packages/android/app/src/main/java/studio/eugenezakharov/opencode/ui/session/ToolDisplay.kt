@@ -66,23 +66,30 @@ object ToolDisplay {
     /**
      * A tool's output stripped of OpenCode's LLM-facing XML wrapper, so the
      * detail screen shows the real content (code, listing, …) instead of raw
-     * `<path>…</path><type>…</type><content>…</content>` tags — matching the web
-     * client and the iOS twin.
+     * `<path>/<type>/<content>` tags — matching the web client and the iOS twin.
      */
     fun cleanOutput(tool: PartContent.Tool): String? {
         val output = tool.output?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        // read wraps a file as <content>…</content> and a directory as
-        // <entries>…</entries> (both after <path>/<type>). Show the inner payload.
-        for (tag in listOf("content", "entries")) {
-            val open = output.indexOf("<$tag>")
-            if (open >= 0) {
-                val close = output.indexOf("</$tag>", open + 1)
-                if (close > open) {
-                    return output.substring(open + "<$tag>".length, close).trim('\n')
-                }
-            }
-        }
-        return output
+        return unwrapEnvelope(output) ?: output
+    }
+
+    /**
+     * OpenCode's `read` tool wraps its result (for the LLM) as
+     * `<path>…</path>\n<type>…</type>\n<WRAPPER>\n…payload…\n</WRAPPER>` — a file's
+     * `<content>`, a directory's `<entries>`, etc. Return the inner payload of
+     * whatever wrapper follows `<type>`, so any current/future wrapper is handled
+     * without per-tag special cases (server: packages/opencode/src/tool/read.ts).
+     */
+    private fun unwrapEnvelope(s: String): String? {
+        if (!s.startsWith("<path>")) return null
+        val afterType = s.indexOf("</type>").takeIf { it >= 0 } ?: return null
+        val rest = s.substring(afterType + "</type>".length).trim()
+        if (!rest.startsWith("<")) return null
+        val gt = rest.indexOf('>').takeIf { it > 1 } ?: return null
+        val name = rest.substring(1, gt)
+        if (name.isEmpty() || name.contains(' ') || name.contains('/')) return null
+        val close = rest.lastIndexOf("</$name>").takeIf { it > gt } ?: return null
+        return rest.substring(gt + 1, close).trim('\n')
     }
 
     /** "+N −M" badge from an edit/write file diff, or null when both are zero. U+2212 minus. */
