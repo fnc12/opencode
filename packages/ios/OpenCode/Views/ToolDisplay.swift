@@ -74,6 +74,26 @@ enum ToolDisplay {
         return (label, detail)
     }
 
+    /// A tool's output stripped of OpenCode's LLM-facing XML wrapper, so the
+    /// detail screen shows the real content (code, listing, …) instead of raw
+    /// `<path>…</path><type>…</type><content>…</content>` tags — matching the web
+    /// client, which renders the inner content, not the envelope.
+    static func cleanOutput(_ tool: ToolContent) -> String? {
+        guard let output = tool.state.output?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !output.isEmpty else { return nil }
+        if let content = between(output, open: "<content>", close: "</content>") {
+            return content.trimmingCharacters(in: .newlines)
+        }
+        return output
+    }
+
+    /// Text strictly between the first `open` and the following `close` marker.
+    private static func between(_ s: String, open: String, close: String) -> String? {
+        guard let o = s.range(of: open),
+              let c = s.range(of: close, range: o.upperBound..<s.endIndex) else { return nil }
+        return String(s[o.upperBound..<c.lowerBound])
+    }
+
     /// "+N −M" badge from an edit/write file diff, or nil when both are zero.
     /// Uses a real minus sign (U+2212), matching the web client's DiffChanges.
     static func diffBadge(_ diff: FileDiff?) -> String? {
