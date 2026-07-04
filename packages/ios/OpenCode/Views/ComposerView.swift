@@ -107,6 +107,7 @@ struct ComposerView: View {
                                 Button { fileAttachments.removeAll { $0.id == file.id } } label: {
                                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                                 }
+                                .accessibilityIdentifier("composer.removeFile")
                             }
                             .font(.caption)
                             .padding(.horizontal, 10)
