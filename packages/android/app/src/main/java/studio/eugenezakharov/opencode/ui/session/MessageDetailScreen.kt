@@ -145,7 +145,7 @@ private fun detailBlocks(message: MessageWithParts): List<DetailBlock> {
             is PartContent.Tool -> {
                 val (label, detail) = ToolDisplay.describe(c)
                 val title = if (!detail.isNullOrEmpty()) "$label  $detail" else label
-                out.add(DetailBlock.ToolBlock(title, c.output))
+                out.add(DetailBlock.ToolBlock(title, ToolDisplay.cleanOutput(c)))
             }
             is PartContent.Patch -> out.add(DetailBlock.Note("⌥ Patch — ${c.files.size} file(s)"))
             is PartContent.FileRef -> out.add(DetailBlock.Note("📎 ${c.filename ?: c.url ?: ""}"))

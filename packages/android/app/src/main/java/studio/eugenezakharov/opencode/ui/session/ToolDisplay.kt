@@ -63,6 +63,24 @@ object ToolDisplay {
         return label to detail
     }
 
+    /**
+     * A tool's output stripped of OpenCode's LLM-facing XML wrapper, so the
+     * detail screen shows the real content (code, listing, …) instead of raw
+     * `<path>…</path><type>…</type><content>…</content>` tags — matching the web
+     * client and the iOS twin.
+     */
+    fun cleanOutput(tool: PartContent.Tool): String? {
+        val output = tool.output?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val open = output.indexOf("<content>")
+        if (open >= 0) {
+            val close = output.indexOf("</content>", open + 1)
+            if (close > open) {
+                return output.substring(open + "<content>".length, close).trim('\n')
+            }
+        }
+        return output
+    }
+
     /** "+N −M" badge from an edit/write file diff, or null when both are zero. U+2212 minus. */
     fun diffBadge(meta: studio.eugenezakharov.opencode.api.models.ToolMeta?): String? {
         val a = meta?.additions ?: 0
