@@ -147,6 +147,30 @@ struct SessionView: View {
             shareURL = session.share?.url
             await run()
         }
+        .task { await loadComposerData() }
+    }
+
+    /// Loads the model + command lists here (not in the composer) so their
+    /// pickers — presented from this view — actually see the data.
+    private func loadComposerData() async {
+        if providers.isEmpty { providers = (try? await server.providers()) ?? [] }
+        if commands.isEmpty {
+            commands = (try? await server.commands(directory: session.directory)) ?? []
+        }
+        if modelID.isEmpty { autoSelectDefault() }
+    }
+
+    /// Pick a sensible default model if none chosen — prefer a free `opencode` one.
+    private func autoSelectDefault() {
+        if let opencode = providers.first(where: { $0.id == "opencode" }) {
+            let keys = opencode.models.keys.sorted()
+            if let model = keys.first(where: { $0.contains("free") }) ?? keys.first {
+                providerID = "opencode"; modelID = model; return
+            }
+        }
+        if let provider = providers.first, let model = provider.models.keys.sorted().first {
+            providerID = provider.id; modelID = model
+        }
     }
 
     /// The agent is generating but hasn't streamed any answer text yet — show the
