@@ -69,6 +69,20 @@ class ToolDisplayGoldenTest {
         assertEquals("hello world", ToolDisplay.cleanOutput(t))
     }
 
+    // read on a directory wraps the listing in <entries> instead of <content>.
+    @Test fun cleanOutputStripsDirectoryEntries() {
+        val t = PartContent.Tool(
+            tool = "read", callID = "c", status = "completed",
+            output = "<path>/mnt/x</path>\n<type>directory</type>\n<entries>\n.git/\nsrc/\nREADME.md\n</entries>",
+        )
+        val clean = ToolDisplay.cleanOutput(t)!!
+        assertFalse(clean.contains("<path>"))
+        assertFalse(clean.contains("<entries>"))
+        assertFalse(clean.contains("<type>"))
+        assertTrue(clean.contains("src/"))
+        assertTrue(clean.contains("README.md"))
+    }
+
     @Test fun editShowsFilenameAndDiffBadge() {
         val (label, detail) = ToolDisplay.describe(tool("edit"))
         assertEquals("Edit", label)
