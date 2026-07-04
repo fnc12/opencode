@@ -78,6 +78,21 @@ final class ToolDisplayGoldenTests: XCTestCase {
         XCTAssertTrue(clean.contains("745: code line"), "must keep the real content")
     }
 
+    // read on a directory wraps the listing in <entries> instead of <content>.
+    func testCleanOutputStripsDirectoryEntries() throws {
+        let json = """
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"read","state":{"status":"completed","output":"<path>/mnt/x</path>\\n<type>directory</type>\\n<entries>\\n.git/\\nsrc/\\nREADME.md\\n</entries>"}}]}
+        """
+        let msg = try JSONDecoder().decode(MessageWithParts.self, from: Data(json.utf8))
+        guard case .tool(let tool)? = msg.parts.first?.content else { return XCTFail("no tool part") }
+        let clean = try XCTUnwrap(ToolDisplay.cleanOutput(tool))
+        XCTAssertFalse(clean.contains("<path>"))
+        XCTAssertFalse(clean.contains("<entries>"))
+        XCTAssertFalse(clean.contains("<type>"))
+        XCTAssertTrue(clean.contains("src/"))
+        XCTAssertTrue(clean.contains("README.md"))
+    }
+
     func testCleanOutputPassesThroughPlainOutput() throws {
         let json = """
         {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed","output":"hello world"}}]}

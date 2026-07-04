@@ -81,8 +81,12 @@ enum ToolDisplay {
     static func cleanOutput(_ tool: ToolContent) -> String? {
         guard let output = tool.state.output?.trimmingCharacters(in: .whitespacesAndNewlines),
               !output.isEmpty else { return nil }
-        if let content = between(output, open: "<content>", close: "</content>") {
-            return content.trimmingCharacters(in: .newlines)
+        // read wraps a file as <content>…</content> and a directory as
+        // <entries>…</entries> (both after <path>/<type>). Show the inner payload.
+        for tag in ["content", "entries"] {
+            if let inner = between(output, open: "<\(tag)>", close: "</\(tag)>") {
+                return inner.trimmingCharacters(in: .newlines)
+            }
         }
         return output
     }

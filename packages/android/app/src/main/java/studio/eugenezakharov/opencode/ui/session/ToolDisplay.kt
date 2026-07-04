@@ -71,11 +71,15 @@ object ToolDisplay {
      */
     fun cleanOutput(tool: PartContent.Tool): String? {
         val output = tool.output?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val open = output.indexOf("<content>")
-        if (open >= 0) {
-            val close = output.indexOf("</content>", open + 1)
-            if (close > open) {
-                return output.substring(open + "<content>".length, close).trim('\n')
+        // read wraps a file as <content>…</content> and a directory as
+        // <entries>…</entries> (both after <path>/<type>). Show the inner payload.
+        for (tag in listOf("content", "entries")) {
+            val open = output.indexOf("<$tag>")
+            if (open >= 0) {
+                val close = output.indexOf("</$tag>", open + 1)
+                if (close > open) {
+                    return output.substring(open + "<$tag>".length, close).trim('\n')
+                }
             }
         }
         return output
