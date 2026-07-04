@@ -37,6 +37,10 @@ final class ComposerTests: XCTestCase {
         commands.tap()
         let cancel = app.buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 5), "command sheet")
+        // The list must actually be populated (a picker presented from the main
+        // window must still see data loaded for the composer — regression guard).
+        XCTAssertTrue(app.staticTexts["/init"].waitForExistence(timeout: 5),
+                      "command list must not be empty")
         cancel.tap()
 
         // The regression: the composer must survive the sheet dismissal.

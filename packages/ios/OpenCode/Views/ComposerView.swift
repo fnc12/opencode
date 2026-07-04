@@ -161,7 +161,7 @@ struct ComposerView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
-        .task { await loadProviders() }
+        .task { await loadAgents() }
         .onChange(of: pickerItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await loadAttachments(items) }
@@ -212,24 +212,11 @@ struct ComposerView: View {
         }
     }
 
-    private func loadProviders() async {
-        if providers.isEmpty { providers = (try? await server.providers()) ?? [] }
+    // Only agents load here (an inline menu). Providers + commands are loaded by
+    // SessionView so their pickers — presented from the main window — see the
+    // data (a write from this accessory-hosted view doesn't reach those sheets).
+    private func loadAgents() async {
         if agents.isEmpty { agents = (try? await server.agents()) ?? [] }
-        if commands.isEmpty { commands = (try? await server.commands(directory: session.directory)) ?? [] }
-        if modelID.isEmpty { autoSelectDefault() }
-    }
-
-    /// Pick a sensible default if none chosen — prefer a free `opencode` model.
-    private func autoSelectDefault() {
-        if let opencode = providers.first(where: { $0.id == "opencode" }) {
-            let keys = opencode.models.keys.sorted()
-            if let model = keys.first(where: { $0.contains("free") }) ?? keys.first {
-                providerID = "opencode"; modelID = model; return
-            }
-        }
-        if let provider = providers.first, let model = provider.models.keys.sorted().first {
-            providerID = provider.id; modelID = model
-        }
     }
 
     private func send() {
