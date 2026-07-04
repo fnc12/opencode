@@ -6,7 +6,9 @@ import os
 /// controller's `inputAccessoryView` — docking at the bottom and riding the
 /// keyboard (including interactive dismiss) natively, no manual tracking.
 final class InputBarView: UIView {
+    private let content: UIView
     init(content: UIView) {
+        self.content = content
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
         autoresizingMask = .flexibleHeight
         content.translatesAutoresizingMaskIntoConstraints = false
@@ -22,16 +24,31 @@ final class InputBarView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    // Height comes from the SwiftUI content's own Auto Layout + flexibleHeight.
-    override var intrinsicContentSize: CGSize { .zero }
+    /// The height the content actually wants. `flexibleHeight` alone only ever
+    /// *grows* the accessory, so removing an attachment chip left it too tall
+    /// with a phantom gap. The SwiftUI host reports its content height as its
+    /// `intrinsicContentSize` (it's created with `sizingOptions = .intrinsicContentSize`),
+    /// so forwarding that lets the accessory shrink too.
+    private func fittingHeight() -> CGFloat {
+        let h = content.intrinsicContentSize.height
+        return h > 0 ? h : bounds.height
+    }
 
-    /// Fired when the bar's height changes (a dock/pill appearing or resizing) so
-    /// the list's bottom inset can be re-synced — otherwise the composer floats
-    /// mid-screen with content leaking below it.
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: fittingHeight())
+    }
+
+    /// Fired when the bar's height changes (a dock/pill/attachment appearing or
+    /// disappearing) so the list's bottom inset can be re-synced.
     var onHeightChange: ((CGFloat) -> Void)?
     private var lastHeight: CGFloat = 0
     override func layoutSubviews() {
         super.layoutSubviews()
+        // Ask UIKit to re-size the accessory when the content wants a different
+        // height than we currently have — this is what makes it *shrink*.
+        if abs(fittingHeight() - bounds.height) > 0.5 {
+            invalidateIntrinsicContentSize()
+        }
         let delta = bounds.height - lastHeight
         if abs(delta) > 0.5 {
             lastHeight = bounds.height
@@ -120,13 +137,7 @@ final class SessionContentController: UIViewController {
 
         // When the bar's own height changes (a dock appears, the tasks pill shows),
         // re-sync the list inset so the composer stays glued to the bottom.
-        bar.onHeightChange = { [weak self] delta in
-            self?.syncBottomInset()
-            // A big jump — the attachment preview or a dock appearing/disappearing,
-            // not per-line text growth — can leave UIKit showing a ghost of the
-            // accessory's old frame. Force it to re-lay-out the input accessory.
-            if abs(delta) > 40 { self?.reloadInputViews() }
-        }
+        bar.onHeightChange = { [weak self] _ in self?.syncBottomInset() }
         coordinator.onSelectMessageAt = { [weak self] id, frame in self?.presentDetail(id: id, from: frame) }
     }
 
@@ -209,6 +220,10 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> SessionContentController {
         let host = UIHostingController(rootView: bar())
         host.view.backgroundColor = .clear
+        // Report the SwiftUI content's height as the view's intrinsicContentSize
+        // so the input accessory can shrink (not just grow) as the composer's
+        // attachment preview / docks appear and disappear.
+        host.sizingOptions = .intrinsicContentSize
         // NOTE: do NOT addChild(host) — the accessory view lives in a separate
         // input window, and a child VC's view being moved there crashes UIKit's
         // appearance forwarding. The coordinator retains `host` instead.
