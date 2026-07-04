@@ -9,15 +9,12 @@ struct ShellView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var command = ""
-    @State private var log: [ShellEntry] = []
     @State private var running = false
     @FocusState private var fieldFocused: Bool
 
-    struct ShellEntry: Identifiable {
-        let id = UUID()
-        let command: String
-        let output: String
-    }
+    // Persisted across open/close so Done no longer discards the history.
+    private var store: ShellStore { .shared }
+    private var log: [ShellEntry] { store.history(session.id) }
 
     var body: some View {
         NavigationStack {
@@ -73,7 +70,14 @@ struct ShellView: View {
             }
             .navigationTitle("Shell")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Clear") { store.clear(session.id) }
+                        .disabled(log.isEmpty)
+                        .accessibilityIdentifier("shell.clear")
+                }
+                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
             .onAppear { fieldFocused = true }
         }
     }
@@ -90,7 +94,7 @@ struct ShellView: View {
             } catch {
                 output = "error: \(error.localizedDescription)"
             }
-            log.append(ShellEntry(command: cmd, output: output))
+            store.append(ShellEntry(command: cmd, output: output), to: session.id)
             running = false
             fieldFocused = true
         }
