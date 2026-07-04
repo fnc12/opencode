@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,7 +51,8 @@ import studio.eugenezakharov.opencode.api.models.Session
 @Composable
 fun ShellScreen(server: ServerConnection, session: Session, onDismiss: () -> Unit) {
     var command by remember { mutableStateOf("") }
-    var log by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    // Persisted across open/close so Close no longer discards the history.
+    val log = ShellStore.history(session.id)
     var running by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -63,7 +65,7 @@ fun ShellScreen(server: ServerConnection, session: Session, onDismiss: () -> Uni
         scope.launch {
             val out = runCatching { server.runShell(session.directory, session.id, cmd) }
                 .getOrElse { "error: ${it.message}" }
-            log = log + (cmd to out)
+            log.add(cmd to out)
             running = false
         }
     }
@@ -81,6 +83,11 @@ fun ShellScreen(server: ServerConnection, session: Session, onDismiss: () -> Uni
                         title = { Text("Shell") },
                         navigationIcon = {
                             IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Close") }
+                        },
+                        actions = {
+                            TextButton(onClick = { ShellStore.clear(session.id) }, enabled = log.isNotEmpty()) {
+                                Text("Clear")
+                            }
                         },
                     )
                 },
