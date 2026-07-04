@@ -38,21 +38,13 @@ struct SessionView: View {
                 // inputAccessoryView. Ignore SwiftUI's keyboard avoidance here.
                 SessionContent(messages: visibleMessages,
                                revision: store.revision,
-                               onRevert: { revertTarget = $0 }) {
+                               onRevert: { revertTarget = $0 },
+                               showTyping: showThinking) {
                     bottomBar
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
                 if loading {
                     ProgressView("Loading messages...")
-                }
-                if showThinking {
-                    VStack {
-                        Spacer()
-                        HStack { TypingIndicator(); Spacer() }
-                    }
-                    .padding(.leading, 16)
-                    .padding(.bottom, 84)
-                    .allowsHitTesting(false)
                 }
             }
         }
@@ -176,6 +168,7 @@ struct SessionView: View {
     /// The agent is generating but hasn't streamed any answer text yet — show the
     /// typing cue. Once its text starts arriving, the text itself is the feedback.
     private var showThinking: Bool {
+        if ProcessInfo.processInfo.environment["UITEST_TYPING"] != nil { return true }
         guard store.isBusy else { return false }
         guard let last = store.messages.last else { return true }
         guard last.info.role == "assistant" else { return true }
