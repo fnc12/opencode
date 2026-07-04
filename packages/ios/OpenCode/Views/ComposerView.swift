@@ -133,9 +133,14 @@ struct ComposerView: View {
                     .accessibilityIdentifier("composer.commands")
                 }
 
-                TextField("Message", text: $text, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...5)
+                // SwiftUI's TextField(axis: .vertical) renders its text clipped
+                // above the field inside the inputAccessoryView, so use a
+                // UITextView-backed growing field.
+                GrowingTextView(text: $text, placeholder: "Message")
+                    .background(Color(uiColor: .secondarySystemBackground),
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color(uiColor: .separator), lineWidth: 0.5))
                     .accessibilityIdentifier("composer.field")
 
                 Button { send() } label: {
