@@ -78,6 +78,41 @@ final class SessionContentController: UIViewController {
         didSet { coordinator.receive(messages, table: table) }
     }
 
+    /// Thinking indicator shown as the table's footer — i.e. right after the last
+    /// message, where the reply will stream in — not a fixed overlay that lands on
+    /// top of an existing message.
+    var showTyping: Bool = false {
+        didSet { if showTyping != oldValue { updateTypingFooter() } }
+    }
+    private var typingFooterHost: UIViewController?
+    private func updateTypingFooter() {
+        guard showTyping else { table.tableFooterView = nil; typingFooterHost = nil; return }
+        let host = UIHostingController(rootView:
+            HStack { TypingIndicator(); Spacer() }
+                .padding(.horizontal, 16).padding(.vertical, 10))
+        host.view.backgroundColor = .clear
+        let width = table.bounds.width > 0 ? table.bounds.width : UIScreen.main.bounds.width
+        let height = host.view.systemLayoutSizeFitting(
+            CGSize(width: width, height: 0),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel).height
+        host.view.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        host.view.isAccessibilityElement = true
+        host.view.accessibilityIdentifier = "typing.indicator"
+        table.tableFooterView = host.view
+        typingFooterHost = host
+        // Keep the fresh indicator on screen when the user is at the bottom.
+        if coordinator.isPinnedToBottom {
+            DispatchQueue.main.async { [weak self] in self?.scrollToBottom() }
+        }
+    }
+    private func scrollToBottom() {
+        let cover = table.contentInset.bottom
+        let maxY = max(-table.adjustedContentInset.top,
+                       table.contentSize.height - table.bounds.height + cover)
+        table.setContentOffset(CGPoint(x: 0, y: maxY), animated: true)
+    }
+
     /// Wired from SwiftUI: called with a message id when the user picks "Revert to here".
     var onRevert: ((String) -> Void)? {
         didSet { coordinator.onRevert = onRevert }
@@ -223,6 +258,9 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     let messages: [MessageWithParts]
     let revision: Int
     var onRevert: ((String) -> Void)? = nil
+    /// Shows a "thinking" indicator as the last row (in the message flow, where
+    /// the reply will appear) while the agent works but hasn't streamed text yet.
+    var showTyping: Bool = false
     @ViewBuilder var bar: () -> Bar
 
     func makeUIViewController(context: Context) -> SessionContentController {
@@ -239,6 +277,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         let controller = SessionContentController(bar: InputBarView(content: host.view))
         controller.onRevert = onRevert
         controller.messages = messages
+        controller.showTyping = showTyping
         return controller
     }
 
@@ -246,6 +285,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         context.coordinator.host?.rootView = bar()
         controller.onRevert = onRevert
         controller.messages = messages
+        controller.showTyping = showTyping
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
