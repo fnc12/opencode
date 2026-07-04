@@ -19,11 +19,12 @@ struct ComposerView: View {
     @Binding var commands: [CommandInfo]
     @Binding var showModelPicker: Bool
     @Binding var showCommands: Bool
+    @Binding var pickerItems: [PhotosPickerItem]
+    @Binding var showPhotoPicker: Bool
 
     @State private var text = ""
     @State private var sendError: String?
     @State private var agents: [AgentInfo] = []
-    @State private var pickerItems: [PhotosPickerItem] = []
     @State private var attachments: [Attachment] = []
 
     /// A picked image staged for the next prompt (thumbnail + its data URL).
@@ -119,7 +120,9 @@ struct ComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                PhotosPicker(selection: $pickerItems, maxSelectionCount: 4, matching: .images) {
+                // The photo picker is presented from SessionView (see below) —
+                // presenting it here would tear the composer down on dismiss.
+                Button { showPhotoPicker = true } label: {
                     Image(systemName: "photo").font(.title3)
                 }
                 .accessibilityIdentifier("composer.attach")
