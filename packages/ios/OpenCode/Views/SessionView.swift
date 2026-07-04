@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 struct SessionView: View {
     let session: Session
@@ -22,6 +23,8 @@ struct SessionView: View {
     @State private var commands: [CommandInfo] = []
     @State private var showModelPicker = false
     @State private var showCommands = false
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var showPhotoPicker = false
     @AppStorage("composer.providerID") private var providerID = ""
     @AppStorage("composer.modelID") private var modelID = ""
 
@@ -102,6 +105,8 @@ struct SessionView: View {
             TodoSheet(todos: store.todos)
                 .presentationDetents([.medium, .large])
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems,
+                      maxSelectionCount: 4, matching: .images)
         .sheet(isPresented: $showModelPicker) {
             ModelPickerView(providers: providers, providerID: $providerID, modelID: $modelID)
         }
@@ -211,7 +216,8 @@ struct SessionView: View {
             ComposerView(server: server, session: session,
                          fileAttachments: $fileAttachments, showFilePicker: $showFilePicker,
                          providers: $providers, commands: $commands,
-                         showModelPicker: $showModelPicker, showCommands: $showCommands)
+                         showModelPicker: $showModelPicker, showCommands: $showCommands,
+                         pickerItems: $pickerItems, showPhotoPicker: $showPhotoPicker)
         }
     }
 

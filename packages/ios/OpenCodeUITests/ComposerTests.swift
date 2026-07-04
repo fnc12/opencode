@@ -45,6 +45,22 @@ final class ComposerTests: XCTestCase {
         XCTAssertTrue(app.buttons["composer.send"].exists, "send button must remain")
     }
 
+    func testPhotoPickerDismissalKeepsComposer() throws {
+        let app = XCUIApplication()
+        try openSession(app)
+
+        let field = app.textViews["composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "composer should be present")
+        field.tap()
+
+        app.buttons["composer.attach"].tap()
+        let cancel = app.buttons["Cancel"]
+        if cancel.waitForExistence(timeout: 6) { cancel.tap() } else { app.swipeDown() }
+
+        XCTAssertTrue(field.waitForExistence(timeout: 5),
+                      "composer must remain after dismissing the photo picker")
+    }
+
     func testModelSheetDismissalKeepsComposer() throws {
         let app = XCUIApplication()
         try openSession(app)
