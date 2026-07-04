@@ -19,6 +19,13 @@ struct OpenCodeApp: App {
                 if ProcessInfo.processInfo.arguments.contains("UITEST_RESET") {
                     server.forget()
                 }
+                // UI tests inject a pairing link to reach a live session; inert in
+                // production (the env var is never set there).
+                if !server.connected,
+                   let link = ProcessInfo.processInfo.environment["PAIR_LINK"],
+                   server.applyPairing(link) {
+                    await server.connect()
+                }
                 // Auto-connect if a complete config was restored from the Keychain.
                 if !server.connected && server.config.isComplete {
                     await server.connect()
