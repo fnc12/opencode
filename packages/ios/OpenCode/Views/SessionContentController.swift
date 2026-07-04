@@ -93,7 +93,11 @@ final class SessionContentController: UIViewController {
             rootView: MessageDetailView(message: message, onClose: { [weak self] in
                 self?.dismiss(animated: true)
             }))
-        host.modalPresentationStyle = .fullScreen
+        // .overFullScreen (not .fullScreen) keeps the message list rendered
+        // behind the detail, so dismissing zooms back onto it instead of flashing
+        // a blank screen while the list re-loads.
+        host.modalPresentationStyle = .overFullScreen
+        host.view.backgroundColor = .systemBackground // opaque over the list
         let transition = ZoomTransition(sourceFrame: frame)
         zoomTransition = transition          // transitioningDelegate is weak
         host.transitioningDelegate = transition

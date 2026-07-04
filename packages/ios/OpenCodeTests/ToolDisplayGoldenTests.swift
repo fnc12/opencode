@@ -63,6 +63,30 @@ final class ToolDisplayGoldenTests: XCTestCase {
         }
     }
 
+    // The detail screen shows the tool's *content*, not OpenCode's LLM-facing
+    // <path>/<type>/<content> envelope (which the user was seeing raw).
+    func testCleanOutputStripsXMLWrapper() throws {
+        let json = """
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"read","state":{"status":"completed","output":"<path>/x/y.cpp</path>\\n<type>file</type>\\n<content>\\n745: code line\\n746: more\\n</content>"}}]}
+        """
+        let msg = try JSONDecoder().decode(MessageWithParts.self, from: Data(json.utf8))
+        guard case .tool(let tool)? = msg.parts.first?.content else { return XCTFail("no tool part") }
+        let clean = try XCTUnwrap(ToolDisplay.cleanOutput(tool))
+        XCTAssertFalse(clean.contains("<path>"), "must strip <path>")
+        XCTAssertFalse(clean.contains("<type>"), "must strip <type>")
+        XCTAssertFalse(clean.contains("<content>"), "must strip <content>")
+        XCTAssertTrue(clean.contains("745: code line"), "must keep the real content")
+    }
+
+    func testCleanOutputPassesThroughPlainOutput() throws {
+        let json = """
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed","output":"hello world"}}]}
+        """
+        let msg = try JSONDecoder().decode(MessageWithParts.self, from: Data(json.utf8))
+        guard case .tool(let tool)? = msg.parts.first?.content else { return XCTFail("no tool part") }
+        XCTAssertEqual(ToolDisplay.cleanOutput(tool), "hello world")
+    }
+
     func testEditShowsFilenameAndDiffBadge() {
         let (label, detail) = ToolDisplay.describe(firstTool("edit"))
         XCTAssertEqual(label, "Edit")

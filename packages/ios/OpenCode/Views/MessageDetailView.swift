@@ -94,7 +94,7 @@ struct MessageDetailView: View {
             case .tool(let tool):
                 let (label, detail) = ToolDisplay.describe(tool)
                 let title = detail.map { "\(label)  \($0)" } ?? label
-                out.append(.tool(title: title, output: tool.state.output))
+                out.append(.tool(title: title, output: ToolDisplay.cleanOutput(tool)))
             case .patch(let patch):
                 out.append(.note("⌥ Patch — \(PatchDisplay.summary(patch))"))
             case .file(let file):

@@ -252,6 +252,12 @@ struct SessionView: View {
             let initial = try await server.messages(directory: session.directory, sessionID: session.id)
             store.setInitial(initial)
             store.setRevert(session.revert?.messageID)
+        } catch is CancellationError {
+            loading = false // the .task was cancelled (e.g. a screen presented over us) — not an error
+            return
+        } catch let e as URLError where e.code == .cancelled {
+            loading = false
+            return
         } catch {
             self.error = error.localizedDescription
             loading = false
