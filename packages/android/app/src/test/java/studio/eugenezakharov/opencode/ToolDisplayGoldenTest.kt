@@ -50,6 +50,25 @@ class ToolDisplayGoldenTest {
         }
     }
 
+    // The detail screen shows the tool's content, not OpenCode's LLM-facing
+    // <path>/<type>/<content> envelope (which was showing up raw).
+    @Test fun cleanOutputStripsXmlWrapper() {
+        val t = PartContent.Tool(
+            tool = "read", callID = "c", status = "completed",
+            output = "<path>/x/y.cpp</path>\n<type>file</type>\n<content>\n745: code line\n746: more\n</content>",
+        )
+        val clean = ToolDisplay.cleanOutput(t)!!
+        assertFalse(clean.contains("<path>"))
+        assertFalse(clean.contains("<type>"))
+        assertFalse(clean.contains("<content>"))
+        assertTrue(clean.contains("745: code line"))
+    }
+
+    @Test fun cleanOutputPassesThroughPlain() {
+        val t = PartContent.Tool(tool = "bash", callID = "c", status = "completed", output = "hello world")
+        assertEquals("hello world", ToolDisplay.cleanOutput(t))
+    }
+
     @Test fun editShowsFilenameAndDiffBadge() {
         val (label, detail) = ToolDisplay.describe(tool("edit"))
         assertEquals("Edit", label)
