@@ -22,6 +22,30 @@ final class ComposerTests: XCTestCase {
         cell.tap()
     }
 
+    /// The composer clears the home indicator when docked, but must sit flush on
+    /// the keyboard when it's up — no retained safe-area gap between them.
+    func testComposerSitsFlushOnKeyboard() throws {
+        let app = XCUIApplication()
+        try openSession(app)
+
+        let field = app.textViews["composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "composer should be present")
+        field.tap()
+
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "keyboard should appear")
+        let send = app.buttons["composer.send"]
+        XCTAssertTrue(send.exists, "send button")
+
+        // Gap from the send button to the keyboard's key area (which excludes the
+        // predictive bar, so a flush composer still reads ~50pt on the simulator).
+        // The bug retained the home-indicator inset (~34pt), pushing the composer
+        // up and the gap to ~86 — this threshold sits between the two.
+        let gap = keyboard.frame.minY - send.frame.maxY
+        XCTAssertLessThan(gap, 70, "composer must sit flush on the keyboard, not pushed up by a stale safe-area inset (gap=\(gap))")
+        XCTAssertGreaterThan(gap, -40, "composer must not be hidden under the keyboard (gap=\(gap))")
+    }
+
     func testCommandSheetDismissalKeepsComposer() throws {
         let app = XCUIApplication()
         try openSession(app)
