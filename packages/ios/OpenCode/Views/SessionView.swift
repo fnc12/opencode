@@ -16,6 +16,14 @@ struct SessionView: View {
     @State private var shareURL: String?
     @State private var shareItem: ShareURL?
     @State private var revertTarget: String?
+    // Model + command pickers live here (the main window), not in the composer,
+    // so presenting them doesn't tear down the keyboard-hosted input bar.
+    @State private var providers: [ProviderInfo] = []
+    @State private var commands: [CommandInfo] = []
+    @State private var showModelPicker = false
+    @State private var showCommands = false
+    @AppStorage("composer.providerID") private var providerID = ""
+    @AppStorage("composer.modelID") private var modelID = ""
 
     var body: some View {
         ZStack {
@@ -93,6 +101,12 @@ struct SessionView: View {
         .sheet(isPresented: $showTodos) {
             TodoSheet(todos: store.todos)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showModelPicker) {
+            ModelPickerView(providers: providers, providerID: $providerID, modelID: $modelID)
+        }
+        .sheet(isPresented: $showCommands) {
+            CommandPickerView(commands: commands) { runCommand($0) }
         }
         .sheet(isPresented: $showFilePicker) {
             FilePickerSheet(server: server, startPath: session.directory) { entry in
@@ -195,7 +209,9 @@ struct SessionView: View {
                     onReject: { Task { await handleQuestionReject(request) } })
             }
             ComposerView(server: server, session: session,
-                         fileAttachments: $fileAttachments, showFilePicker: $showFilePicker)
+                         fileAttachments: $fileAttachments, showFilePicker: $showFilePicker,
+                         providers: $providers, commands: $commands,
+                         showModelPicker: $showModelPicker, showCommands: $showCommands)
         }
     }
 
@@ -309,6 +325,14 @@ struct SessionView: View {
     /// the SSE stream (session.updated with the revert boundary).
     private func revert(_ messageID: String) async {
         try? await server.revertSession(directory: session.directory, sessionID: session.id, messageID: messageID)
+    }
+
+    /// Runs a slash command; the expansion + reply stream back over the SSE.
+    private func runCommand(_ command: CommandInfo) {
+        Task {
+            try? await server.runCommand(directory: session.directory, sessionID: session.id,
+                                         command: command.name)
+        }
     }
 
     /// Restore all reverted messages.

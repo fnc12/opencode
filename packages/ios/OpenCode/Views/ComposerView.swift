@@ -12,16 +12,19 @@ struct ComposerView: View {
     /// tears down the accessory. The composer just renders + toggles them.
     @Binding var fileAttachments: [FileAttachment]
     @Binding var showFilePicker: Bool
+    /// Model + command pickers are presented from `SessionView` too — a sheet
+    /// presented from this accessory-hosted view tears down the composer. The
+    /// composer loads the data into these bindings and toggles the flags.
+    @Binding var providers: [ProviderInfo]
+    @Binding var commands: [CommandInfo]
+    @Binding var showModelPicker: Bool
+    @Binding var showCommands: Bool
 
     @State private var text = ""
     @State private var sendError: String?
-    @State private var providers: [ProviderInfo] = []
     @State private var agents: [AgentInfo] = []
-    @State private var showModelPicker = false
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var attachments: [Attachment] = []
-    @State private var commands: [CommandInfo] = []
-    @State private var showCommands = false
 
     /// A picked image staged for the next prompt (thumbnail + its data URL).
     struct Attachment: Identifiable {
@@ -156,12 +159,6 @@ struct ComposerView: View {
         .padding(.vertical, 8)
         .background(.bar)
         .task { await loadProviders() }
-        .sheet(isPresented: $showModelPicker) {
-            ModelPickerView(providers: providers, providerID: $providerID, modelID: $modelID)
-        }
-        .sheet(isPresented: $showCommands) {
-            CommandPickerView(commands: commands) { runCommand($0) }
-        }
         .onChange(of: pickerItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await loadAttachments(items) }
@@ -217,21 +214,6 @@ struct ComposerView: View {
         if agents.isEmpty { agents = (try? await server.agents()) ?? [] }
         if commands.isEmpty { commands = (try? await server.commands(directory: session.directory)) ?? [] }
         if modelID.isEmpty { autoSelectDefault() }
-    }
-
-    /// Runs a slash command; the expansion + reply stream back over the SSE.
-    private func runCommand(_ command: CommandInfo) {
-        let dir = session.directory, sid = session.id
-        sendError = nil
-        Task {
-            do {
-                try await server.runCommand(directory: dir, sessionID: sid, command: command.name)
-            } catch let e as URLError where [.timedOut, .cancelled, .networkConnectionLost].contains(e.code) {
-                // in flight — the reply comes over the stream
-            } catch {
-                sendError = error.localizedDescription
-            }
-        }
     }
 
     /// Pick a sensible default if none chosen — prefer a free `opencode` model.
