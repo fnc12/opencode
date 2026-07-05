@@ -247,21 +247,33 @@ data class ToolMeta(
     val exit: Int? = null,
     val todoTotal: Int? = null,
     val todoCompleted: Int? = null,
+    /** Unified diff from an edit/write, rendered as a colored diff. */
+    val diff: String? = null,
+    val todos: List<TodoItem> = emptyList(),
 ) {
     companion object {
         fun from(element: JsonElement?): ToolMeta? {
             val obj = element as? JsonObject ?: return null
             val filediff = obj["filediff"]?.jsonObject
-            val todos = obj["todos"] as? JsonArray
+            val todosArr = obj["todos"] as? JsonArray
+            val todoItems = todosArr?.mapNotNull { el ->
+                (el as? JsonObject)?.let {
+                    TodoItem(
+                        content = it["content"]?.jsonPrimitive?.contentOrNull ?: "",
+                        status = it["status"]?.jsonPrimitive?.contentOrNull ?: "",
+                        priority = it["priority"]?.jsonPrimitive?.contentOrNull,
+                    )
+                }
+            } ?: emptyList()
             return ToolMeta(
                 additions = filediff?.get("additions")?.jsonPrimitive?.intOrNull,
                 deletions = filediff?.get("deletions")?.jsonPrimitive?.intOrNull,
                 matches = obj["matches"]?.jsonPrimitive?.intOrNull,
                 exit = obj["exit"]?.jsonPrimitive?.intOrNull,
-                todoTotal = todos?.size,
-                todoCompleted = todos?.count {
-                    (it as? JsonObject)?.get("status")?.jsonPrimitive?.contentOrNull == "completed"
-                },
+                todoTotal = todoItems.size,
+                todoCompleted = todoItems.count { it.status == "completed" },
+                diff = obj["diff"]?.jsonPrimitive?.contentOrNull,
+                todos = todoItems,
             )
         }
     }

@@ -41,7 +41,7 @@ import studio.eugenezakharov.opencode.api.models.PartContent
 private sealed interface DetailBlock {
     data class Thinking(val text: String) : DetailBlock
     data class Body(val text: String) : DetailBlock
-    data class ToolBlock(val title: String, val output: String?) : DetailBlock
+    data class ToolBlock(val title: String, val tool: PartContent.Tool) : DetailBlock
     data class Note(val text: String) : DetailBlock
 }
 
@@ -113,12 +113,8 @@ fun MessageDetailScreen(message: MessageWithParts, onDismiss: () -> Unit) {
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.primary,
                                 )
-                                if (!block.output.isNullOrEmpty()) {
-                                    Spacer(Modifier.size(4.dp))
-                                    SelectionContainer {
-                                        Text(block.output, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
+                                Spacer(Modifier.size(4.dp))
+                                ToolOutput(block.tool)
                             }
 
                             is DetailBlock.Note -> Text(
@@ -145,7 +141,7 @@ private fun detailBlocks(message: MessageWithParts): List<DetailBlock> {
             is PartContent.Tool -> {
                 val (label, detail) = ToolDisplay.describe(c)
                 val title = if (!detail.isNullOrEmpty()) "$label  $detail" else label
-                out.add(DetailBlock.ToolBlock(title, ToolDisplay.cleanOutput(c)))
+                out.add(DetailBlock.ToolBlock(title, c))
             }
             is PartContent.Patch -> out.add(DetailBlock.Note("⌥ Patch — ${c.files.size} file(s)"))
             is PartContent.FileRef -> out.add(DetailBlock.Note("📎 ${c.filename ?: c.url ?: ""}"))
@@ -159,7 +155,11 @@ private fun plainText(blocks: List<DetailBlock>): String = blocks.joinToString("
     when (block) {
         is DetailBlock.Thinking -> "💭 Thinking\n\n${block.text}"
         is DetailBlock.Body -> block.text
-        is DetailBlock.ToolBlock -> if (block.output.isNullOrEmpty()) "→ ${block.title}" else "→ ${block.title}\n\n${block.output}"
+        is DetailBlock.ToolBlock -> {
+            val isEdit = block.tool.tool.lowercase() in setOf("edit", "write", "patch", "apply_patch")
+            val body = (if (isEdit) block.tool.metadata?.diff else null) ?: ToolDisplay.cleanOutput(block.tool)
+            if (body.isNullOrEmpty()) "→ ${block.title}" else "→ ${block.title}\n\n$body"
+        }
         is DetailBlock.Note -> block.text
     }
 }
