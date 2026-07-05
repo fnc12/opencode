@@ -33,7 +33,8 @@ struct MessageDetailView: View {
                                 Label("Thinking", systemImage: "brain")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                SelectableText(text: text, color: .secondaryLabel)
+                                SelectableText(attributed: MarkdownRenderer.attributed(
+                                    text, font: .preferredFont(forTextStyle: .callout), color: .secondaryLabel))
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -41,7 +42,8 @@ struct MessageDetailView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                         case .text(let text):
-                            SelectableText(text: text)
+                            SelectableText(attributed: MarkdownRenderer.attributed(
+                                text, font: .preferredFont(forTextStyle: .callout), color: .label))
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                         case .tool(let title, let output):

@@ -5,7 +5,10 @@ import UIKit
 /// selection + the copy menu (SwiftUI `Text` selection is all-or-nothing and
 /// flaky inside scroll views). Used on the message detail screen.
 struct SelectableText: UIViewRepresentable {
-    let text: String
+    var text: String = ""
+    /// When set, rendered instead of `text` — used to show markdown-rendered body
+    /// (bold, lists, code) while keeping character-level selection.
+    var attributed: NSAttributedString? = nil
     var monospaced = false
     var color: UIColor = .label
 
@@ -24,11 +27,15 @@ struct SelectableText: UIViewRepresentable {
     }
 
     func updateUIView(_ view: UITextView, context: Context) {
-        view.text = text
-        view.font = monospaced
-            ? .monospacedSystemFont(ofSize: 13, weight: .regular)
-            : .preferredFont(forTextStyle: .callout)
-        view.textColor = color
+        if let attributed {
+            view.attributedText = attributed
+        } else {
+            view.text = text
+            view.font = monospaced
+                ? .monospacedSystemFont(ofSize: 13, weight: .regular)
+                : .preferredFont(forTextStyle: .callout)
+            view.textColor = color
+        }
     }
 
     /// Wrap + self-size to the width SwiftUI proposes (otherwise the text view
