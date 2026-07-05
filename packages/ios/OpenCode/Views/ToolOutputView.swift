@@ -6,6 +6,7 @@ import SwiftUI
 /// selectable monospaced text.
 struct ToolOutputView: View {
     let tool: ToolContent
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         switch tool.tool.lowercased() {
@@ -15,12 +16,24 @@ struct ToolOutputView: View {
             } else {
                 plainOutput
             }
+        case "read" where isFileRead:
+            if let content = ToolDisplay.cleanOutput(tool), !content.isEmpty {
+                SelectableText(attributed: SyntaxHighlighter.readContent(
+                    content, filename: filePath, dark: colorScheme == .dark))
+            }
         case "todowrite", "todo":
             let todos = tool.state.metadata?.todos ?? []
             if todos.isEmpty { plainOutput } else { TodoChecklist(todos: todos) }
         default:
             plainOutput
         }
+    }
+
+    /// A file read (vs a directory listing) — only files get syntax highlighting.
+    private var isFileRead: Bool { tool.state.output?.contains("<type>file") == true }
+    private var filePath: String? {
+        guard let v = tool.state.input?["filePath"]?.value else { return nil }
+        return "\(v)"
     }
 
     @ViewBuilder private var plainOutput: some View {

@@ -7,12 +7,18 @@ options:
   generateEmptyDirectories: true
 settings:
   SWIFT_VERSION: "6.0"
+packages:
+  Highlightr:
+    url: https://github.com/raspu/Highlightr
+    from: "2.2.0"
 targets:
   OpenCode:
     type: application
     platform: iOS
     sources:
       - OpenCode
+    dependencies:
+      - package: Highlightr
     info:
       path: OpenCode/Info.plist
       properties:
