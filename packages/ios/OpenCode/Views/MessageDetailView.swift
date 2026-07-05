@@ -10,13 +10,13 @@ struct MessageDetailView: View {
     private enum Block: Identifiable {
         case thinking(String)
         case text(String)
-        case tool(title: String, output: String?)
+        case tool(title: String, tool: ToolContent)
         case note(String)
         var id: String {
             switch self {
             case .thinking(let t): return "think:\(t.hashValue)"
             case .text(let t): return "text:\(t.hashValue)"
-            case .tool(let title, let o): return "tool:\(title.hashValue):\(o?.hashValue ?? 0)"
+            case .tool(let title, let t): return "tool:\(title.hashValue):\(t.callID.hashValue)"
             case .note(let n): return "note:\(n.hashValue)"
             }
         }
@@ -46,14 +46,12 @@ struct MessageDetailView: View {
                                 text, font: .preferredFont(forTextStyle: .callout), color: .label))
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                        case .tool(let title, let output):
+                        case .tool(let title, let tool):
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(title)
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.tint)
-                                if let output, !output.isEmpty {
-                                    SelectableText(text: output, monospaced: true)
-                                }
+                                ToolOutputView(tool: tool)
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -96,7 +94,7 @@ struct MessageDetailView: View {
             case .tool(let tool):
                 let (label, detail) = ToolDisplay.describe(tool)
                 let title = detail.map { "\(label)  \($0)" } ?? label
-                out.append(.tool(title: title, output: ToolDisplay.cleanOutput(tool)))
+                out.append(.tool(title: title, tool: tool))
             case .patch(let patch):
                 out.append(.note("⌥ Patch — \(PatchDisplay.summary(patch))"))
             case .file(let file):
@@ -114,7 +112,10 @@ struct MessageDetailView: View {
             switch block {
             case .thinking(let t): return "💭 Thinking\n\n\(t)"
             case .text(let t): return t
-            case .tool(let title, let o): return o.map { "→ \(title)\n\n\($0)" } ?? "→ \(title)"
+            case .tool(let title, let tool):
+                let isEdit = ["edit", "write", "patch", "apply_patch"].contains(tool.tool.lowercased())
+                let body = (isEdit ? tool.state.metadata?.diff : nil) ?? ToolDisplay.cleanOutput(tool)
+                return body.map { "→ \(title)\n\n\($0)" } ?? "→ \(title)"
             case .note(let n): return n
             }
         }.joined(separator: "\n\n")
