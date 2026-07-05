@@ -1,5 +1,6 @@
 package studio.eugenezakharov.opencode.ui.session
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +10,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -34,6 +36,10 @@ fun ToolOutput(tool: PartContent.Tool) {
     val todos = tool.metadata?.todos ?: emptyList()
     when {
         kind in EDIT_TOOLS && !diff.isNullOrEmpty() -> DiffText(diff)
+        kind == "read" && tool.output?.contains("<type>file") == true -> {
+            val content = ToolDisplay.cleanOutput(tool)
+            if (!content.isNullOrEmpty()) CodeText(content, filePath(tool))
+        }
         kind in TODO_TOOLS && todos.isNotEmpty() -> TodoChecklist(todos)
         else -> {
             val out = ToolDisplay.cleanOutput(tool)
@@ -48,6 +54,21 @@ fun ToolOutput(tool: PartContent.Tool) {
 
 private val EDIT_TOOLS = setOf("edit", "write", "patch", "apply_patch")
 private val TODO_TOOLS = setOf("todowrite", "todo")
+
+private fun filePath(tool: PartContent.Tool): String? = tool.input["filePath"]
+
+/** Syntax-highlighted read content with a dimmed line-number gutter. */
+@Composable
+fun CodeText(content: String, filename: String?) {
+    val dark = isSystemInDarkTheme()
+    val gutter = MaterialTheme.colorScheme.onSurfaceVariant
+    val annotated = remember(content, filename, dark) {
+        CodeHighlighter.readContent(content, filename, dark, gutter)
+    }
+    SelectionContainer {
+        Text(annotated, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+    }
+}
 
 /** A unified diff colored like the web's ContentDiff: additions green, deletions
  *  red, hunk headers blue, file headers dimmed. Exposed for tests. */
