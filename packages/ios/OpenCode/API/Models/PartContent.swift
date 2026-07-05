@@ -72,12 +72,17 @@ struct ToolMetadata: Decodable {
     let matches: Int?
     let exit: Int?
     let todos: [MetaTodo]?
+    /// Unified diff produced by an `edit`/`write`, rendered as a colored diff.
+    let diff: String?
+    /// A `read`'s clean content preview (server-stripped of the XML envelope).
+    let preview: String?
 }
 
-/// One todo entry from a `todowrite` tool's metadata (we only need its status
-/// to show the completed/total ratio).
+/// One todo entry from a `todowrite` tool's metadata (status + content, so we can
+/// both show the completed/total ratio and render the checklist).
 struct MetaTodo: Decodable {
     let status: String?
+    let content: String?
 }
 
 /// Line-change counts for an `edit`/`write` tool, used for the "+N −M" badge.

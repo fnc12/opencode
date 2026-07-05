@@ -162,8 +162,8 @@ final class ToolDisplayGoldenTests: XCTestCase {
     }
 
     func testTodoRatio() {
-        XCTAssertEqual(ToolDisplay.todoRatio([MetaTodo(status: "completed"),
-                                              MetaTodo(status: "pending")]), "1/2")
+        XCTAssertEqual(ToolDisplay.todoRatio([MetaTodo(status: "completed", content: nil),
+                                              MetaTodo(status: "pending", content: nil)]), "1/2")
         XCTAssertNil(ToolDisplay.todoRatio(nil))
         XCTAssertNil(ToolDisplay.todoRatio([]))
     }
