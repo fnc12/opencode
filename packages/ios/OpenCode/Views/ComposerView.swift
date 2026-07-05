@@ -21,6 +21,8 @@ struct ComposerView: View {
     @Binding var showCommands: Bool
     @Binding var pickerItems: [PhotosPickerItem]
     @Binding var showPhotoPicker: Bool
+    /// The agent is streaming — turns the send button into a stop/abort button.
+    var isBusy: Bool = false
 
     @State private var text = ""
     @State private var sendError: String?
@@ -150,13 +152,16 @@ struct ComposerView: View {
                         .stroke(Color(uiColor: .separator), lineWidth: 0.5))
                     .accessibilityIdentifier("composer.field")
 
-                Button { send() } label: {
-                    Image(systemName: "arrow.up.circle.fill")
+                // Send ↔ Stop: while the agent is streaming this same button
+                // becomes a stop (■) that aborts — matching the web client, which
+                // toggles its composer submit button rather than a separate control.
+                Button { isBusy ? stop() : send() } label: {
+                    Image(systemName: isBusy ? "stop.circle.fill" : "arrow.up.circle.fill")
                         .font(.title2)
                 }
-                .disabled(!canSend)
+                .disabled(isBusy ? false : !canSend)
                 .accessibilityIdentifier("composer.send")
-                .accessibilityLabel("Send")
+                .accessibilityLabel(isBusy ? "Stop" : "Send")
             }
         }
         .padding(.horizontal, 12)
@@ -218,6 +223,11 @@ struct ComposerView: View {
     // data (a write from this accessory-hosted view doesn't reach those sheets).
     private func loadAgents() async {
         if agents.isEmpty { agents = (try? await server.agents()) ?? [] }
+    }
+
+    /// Abort the in-flight generation for this session.
+    private func stop() {
+        Task { try? await server.abort(directory: session.directory, sessionID: session.id) }
     }
 
     private func send() {

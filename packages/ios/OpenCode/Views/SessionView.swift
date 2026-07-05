@@ -53,16 +53,7 @@ struct SessionView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 10) {
-                    if store.isBusy {
-                        Button(role: .destructive) {
-                            Task { try? await server.abort(directory: session.directory, sessionID: session.id) }
-                        } label: {
-                            Image(systemName: "stop.circle.fill")
-                        }
-                        .tint(.red)
-                        .accessibilityIdentifier("session.stop")
-                        .accessibilityLabel("Stop")
-                    }
+                    // Stop lives in the composer (send ↔ stop), like the web — not here.
                     Button { showShell = true } label: {
                         Image(systemName: "terminal")
                     }
@@ -167,6 +158,12 @@ struct SessionView: View {
 
     /// The agent is generating but hasn't streamed any answer text yet — show the
     /// typing cue. Once its text starts arriving, the text itself is the feedback.
+    /// The agent is generating for this session (drives the composer send↔stop
+    /// toggle). UITEST_TYPING forces it so the stop state is testable.
+    private var isStreaming: Bool {
+        store.isBusy || ProcessInfo.processInfo.environment["UITEST_TYPING"] != nil
+    }
+
     private var showThinking: Bool {
         if ProcessInfo.processInfo.environment["UITEST_TYPING"] != nil { return true }
         guard store.isBusy else { return false }
@@ -234,7 +231,8 @@ struct SessionView: View {
                          fileAttachments: $fileAttachments, showFilePicker: $showFilePicker,
                          providers: $providers, commands: $commands,
                          showModelPicker: $showModelPicker, showCommands: $showCommands,
-                         pickerItems: $pickerItems, showPhotoPicker: $showPhotoPicker)
+                         pickerItems: $pickerItems, showPhotoPicker: $showPhotoPicker,
+                         isBusy: isStreaming)
         }
     }
 
