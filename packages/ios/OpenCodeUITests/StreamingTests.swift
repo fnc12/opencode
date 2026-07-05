@@ -31,4 +31,27 @@ final class StreamingTests: XCTestCase {
         XCTAssertGreaterThan(indicator.frame.minY, lastCell.frame.minY,
                              "typing indicator must be below the last message, not on top of it")
     }
+
+    /// While streaming, the composer's send button becomes a Stop (abort) button —
+    /// like the web client, which toggles its submit button rather than showing a
+    /// separate control.
+    func testComposerSendBecomesStopWhileStreaming() throws {
+        guard let link = ProcessInfo.processInfo.environment["PAIR_LINK"], !link.isEmpty else {
+            throw XCTSkip("PAIR_LINK not set — live server required")
+        }
+        let app = XCUIApplication()
+        app.launchEnvironment["PAIR_LINK"] = link
+        app.launchEnvironment["UITEST_TYPING"] = "1"
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["sqlite2orm"].waitForExistence(timeout: 25))
+        app.staticTexts["sqlite2orm"].tap()
+        let session = app.cells.firstMatch
+        XCTAssertTrue(session.waitForExistence(timeout: 15)); session.tap()
+        XCTAssertTrue(app.textViews["composer.field"].waitForExistence(timeout: 25))
+
+        let button = app.buttons["composer.send"]
+        XCTAssertTrue(button.waitForExistence(timeout: 8))
+        XCTAssertEqual(button.label, "Stop", "the composer button must be a Stop button while streaming")
+    }
 }
