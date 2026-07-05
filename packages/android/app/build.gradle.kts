@@ -67,6 +67,8 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
+    // Syntax highlighting for read results (Kotlin-native, any language).
+    implementation("dev.snipme:highlights:1.0.0")
     debugImplementation(libs.androidx.ui.tooling)
 
     testImplementation(libs.junit)
