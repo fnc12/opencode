@@ -3,15 +3,21 @@ package studio.eugenezakharov.opencode.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import studio.eugenezakharov.opencode.api.ConnectionConfig
 import studio.eugenezakharov.opencode.api.ConnectionMode
 import studio.eugenezakharov.opencode.api.ConnectionStore
 import studio.eugenezakharov.opencode.api.ServerConnection
+import studio.eugenezakharov.opencode.api.ServerEvent
+import studio.eugenezakharov.opencode.api.models.MessageInfo
 
 data class AppUiState(
     val config: ConnectionConfig = ConnectionConfig(),
@@ -32,6 +38,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _state = MutableStateFlow(AppUiState(config = server.config))
     val state: StateFlow<AppUiState> = _state.asStateFlow()
+
+    /** Session ids currently generating a reply, tracked off the global event bus
+     *  so the session *list* can show a live "working" indicator even for sessions
+     *  that aren't open. Mirrors iOS `ServerConnection.busySessions`. */
+    private val _busySessions = MutableStateFlow<Set<String>>(emptySet())
+    val busySessions: StateFlow<Set<String>> = _busySessions.asStateFlow()
+    private val json = Json { ignoreUnknownKeys = true }
+    private var activityJob: Job? = null
 
     private fun setConfig(transform: (ConnectionConfig) -> ConnectionConfig) {
         val next = transform(_state.value.config)
@@ -75,6 +89,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 .onSuccess { health ->
                     store.save(server.config)
                     registerForPush()
+                    startActivityTracking()
                     _state.update {
                         it.copy(loading = false, connected = true, version = health.version)
                     }
@@ -88,7 +103,48 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun disconnect() {
+        activityJob?.cancel()
+        activityJob = null
+        _busySessions.value = emptySet()
         _state.update { it.copy(connected = false, version = "") }
+    }
+
+    /** Consumes the global event stream app-wide, maintaining [busySessions].
+     *  Reconnects with backoff like the session view; idempotent (one job). */
+    private fun startActivityTracking() {
+        if (activityJob?.isActive == true) return
+        activityJob = viewModelScope.launch {
+            var backoffMs = 500L
+            while (isActive) {
+                val stream = server.eventStream() ?: break
+                runCatching {
+                    stream.frames().collect { data ->
+                        backoffMs = 500L
+                        ServerEvent.decode(json, data)?.let { applyActivity(it) }
+                    }
+                }
+                if (!isActive) break
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2).coerceAtMost(10_000L)
+            }
+        }
+    }
+
+    private fun applyActivity(event: ServerEvent) {
+        when (event) {
+            is ServerEvent.MessageUpdated -> {
+                val info = event.info
+                if (info is MessageInfo.Assistant) {
+                    _busySessions.update {
+                        if (info.completed == null) it + event.sessionID else it - event.sessionID
+                    }
+                }
+            }
+            // A live delta means the turn is still running — covers a session that
+            // was already generating before we subscribed.
+            is ServerEvent.PartDelta -> _busySessions.update { it + event.sessionID }
+            else -> {}
+        }
     }
 
     /** Registers this device's FCM token with the relay so it can push on idle. */

@@ -25,6 +25,8 @@ struct SessionView: View {
     @State private var showCommands = false
     @State private var pickerItems: [PhotosPickerItem] = []
     @State private var showPhotoPicker = false
+    /// Bumped on a 30s timer while busy so `isStuck` re-evaluates without events.
+    @State private var stuckCheck = Date()
     @AppStorage("composer.providerID") private var providerID = ""
     @AppStorage("composer.modelID") private var modelID = ""
 
@@ -39,10 +41,18 @@ struct SessionView: View {
                 SessionContent(messages: visibleMessages,
                                revision: store.revision,
                                onRevert: { revertTarget = $0 },
-                               showTyping: showThinking) {
+                               showTyping: showThinking && !isStuck) {
                     bottomBar
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
+                // Re-evaluate "stuck" every 30s while busy — a parked turn emits
+                // no events, so nothing else would trigger the check.
+                .task(id: store.isBusy) {
+                    while store.isBusy && !Task.isCancelled {
+                        try? await Task.sleep(nanoseconds: 30_000_000_000)
+                        stuckCheck = Date()
+                    }
+                }
                 if loading {
                     ProgressView("Loading messages...")
                 }
@@ -176,6 +186,25 @@ struct SessionView: View {
         return !hasText
     }
 
+    /// A "busy" turn is likely *stuck* — not thinking — when it has produced no
+    /// text for a while (e.g. an unanswered permission on an old server that
+    /// never surfaced the prompt). We then stop the endless typing dots and show
+    /// a cancel hint instead; the red stop button already aborts. `stuckCheck`
+    /// (a 30s tick, below) makes this re-evaluate even while no events arrive.
+    private var isStuck: Bool {
+        _ = stuckCheck
+        guard store.isBusy, ProcessInfo.processInfo.environment["UITEST_TYPING"] == nil else { return false }
+        guard let last = store.messages.last, case .assistant(let info) = last.info,
+              info.time.completed == nil else { return false }
+        let hasText = last.parts.contains { part in
+            guard part.isVisible, case .text(let t)? = part.content else { return false }
+            return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let ageMS = Date().timeIntervalSince1970 * 1000 - info.time.created
+        return !hasText && ageMS > Self.stuckAfterMS
+    }
+    private static let stuckAfterMS: Double = 180_000 // 3 min with no output → treat as stuck
+
     /// Docks (permissions / questions) stacked above the composer — hosted inside
     /// the UIKit controller so it rides the keyboard with the list.
     /// Messages actually shown: renderable, and (if the session is reverted) only
@@ -226,6 +255,19 @@ struct SessionView: View {
                     request: request,
                     onReply: { answers in Task { await handleQuestionReply(request, answers) } },
                     onReject: { Task { await handleQuestionReject(request) } })
+            }
+            if isStuck {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text("This turn looks stuck — tap ■ to cancel it.")
+                    Spacer()
+                }
+                .font(.caption)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Color.orange.opacity(0.18))
+                .foregroundStyle(.orange)
+                .accessibilityIdentifier("session.stuck")
             }
             ComposerView(server: server, session: session,
                          fileAttachments: $fileAttachments, showFilePicker: $showFilePicker,

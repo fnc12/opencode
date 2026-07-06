@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.setPadding
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
@@ -62,26 +63,29 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
     /** Replaces the list, issuing minimal notifications. Returns true if anything changed. */
     fun submit(messages: List<MessageWithParts>): Boolean {
         val next = messages.filter { it.hasRenderableContent }.map { Row(it.id, it, signature(it)) }
-        val oldIds = items.map { it.id }
-        val newIds = next.map { it.id }
+        val old = items.toList()
 
-        if (oldIds == newIds) {
-            // Same set + order: only rebind rows whose signature changed.
-            var any = false
-            for (i in next.indices) {
-                if (items[i].signature != next[i].signature) {
-                    items[i] = next[i]
-                    notifyItemChanged(i)
-                    any = true
-                }
-            }
-            return any
+        // Nothing changed at all — skip the diff.
+        if (old.size == next.size &&
+            old.indices.all { old[it].id == next[it].id && old[it].signature == next[it].signature }
+        ) {
+            return false
         }
 
-        // Structure changed (insert/remove/reorder): replace and full-notify.
+        // Diff by id (same row) + signature (same content), then dispatch granular
+        // updates. Unlike the old notifyDataSetChanged() for structure changes,
+        // this lets the RecyclerView's item animator slide/fade a newly-arrived
+        // row (a Shell/Tool step) in instead of snapping the whole list. A row
+        // whose content changed (streaming text) still rebinds just itself.
+        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = old.size
+            override fun getNewListSize() = next.size
+            override fun areItemsTheSame(o: Int, n: Int) = old[o].id == next[n].id
+            override fun areContentsTheSame(o: Int, n: Int) = old[o].signature == next[n].signature
+        }, /* detectMoves = */ false)
         items.clear()
         items.addAll(next)
-        notifyDataSetChanged()
+        diff.dispatchUpdatesTo(this)
         return true
     }
 

@@ -25,6 +25,7 @@ import studio.eugenezakharov.opencode.ui.session.SessionViewModel
 @Composable
 fun AppNav(appViewModel: AppViewModel = viewModel()) {
     val state by appViewModel.state.collectAsStateWithLifecycle()
+    val busySessions by appViewModel.busySessions.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { appViewModel.autoConnectIfPossible() }
 
@@ -50,6 +51,7 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
             SessionListScreen(
                 server = appViewModel.server,
                 project = selectedProject!!,
+                busySessions = busySessions,
                 onSessionClick = { selectedSession = it },
                 onBack = { selectedProject = null },
             )

@@ -45,6 +45,57 @@ final class ServerConnection {
     func disconnect() {
         connected = false
         version = ""
+        busySessions = []
+    }
+
+    // MARK: - Session activity (for the session list)
+
+    /// Session ids currently generating a reply, tracked off the global event bus
+    /// so the session *list* can show a live "working" indicator even for sessions
+    /// that aren't open. A session is busy while its latest assistant message has
+    /// no completion time (same signal as the open session's `isBusy`); streaming
+    /// part deltas also count, so a turn already under way when we connect still
+    /// lights up.
+    var busySessions: Set<String> = []
+
+    /// Consumes the global event stream for as long as the caller's task lives,
+    /// maintaining `busySessions`. Reconnects with backoff like the session view.
+    /// Runs app-wide (started from the project list) so the state survives
+    /// navigating between the list and an open session.
+    func trackSessionActivity() async {
+        let decoder = JSONDecoder()
+        var backoff: UInt64 = 500_000_000 // 0.5s
+        while !Task.isCancelled {
+            guard let stream = eventStream(directory: "") else { break }
+            do {
+                for try await data in stream.frames() {
+                    if Task.isCancelled { break }
+                    backoff = 500_000_000
+                    guard let event = try? decoder.decode(ServerEvent.self, from: data) else { continue }
+                    applyActivity(event)
+                }
+            } catch {
+                if Task.isCancelled { break }
+            }
+            if Task.isCancelled { break }
+            try? await Task.sleep(nanoseconds: backoff)
+            backoff = min(backoff * 2, 10_000_000_000) // cap at 10s
+        }
+    }
+
+    private func applyActivity(_ event: ServerEvent) {
+        switch event {
+        case .messageUpdated(let sessionID, let info):
+            guard case .assistant(let assistant) = info else { return }
+            if assistant.time.completed == nil { busySessions.insert(sessionID) }
+            else { busySessions.remove(sessionID) }
+        case .partDelta(let delta):
+            // A live text/tool delta means the turn is still running — covers a
+            // session that was already generating before we subscribed.
+            busySessions.insert(delta.sessionID)
+        default:
+            break
+        }
     }
 
     /// Registers this device's APNs token with the relay so it can push when a

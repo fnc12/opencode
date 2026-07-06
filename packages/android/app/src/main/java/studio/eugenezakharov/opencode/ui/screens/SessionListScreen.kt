@@ -59,6 +59,7 @@ import studio.eugenezakharov.opencode.api.models.Session
 fun SessionListScreen(
     server: ServerConnection,
     project: Project,
+    busySessions: Set<String> = emptySet(),
     onSessionClick: (Session) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -161,7 +162,16 @@ fun SessionListScreen(
                                 )
                             }
                         },
-                        update = { rv -> (rv.adapter as SessionListAdapter).submit(sessions) },
+                        update = { rv ->
+                            // Only spin for sessions updated recently — a stuck turn
+                            // (e.g. an unanswered permission) stops updating, so we
+                            // drop its "Working…" instead of spinning forever.
+                            val nowMs = System.currentTimeMillis()
+                            val freshBusy = busySessions.filterTo(HashSet()) { id ->
+                                sessions.find { it.id == id }?.let { nowMs - it.time.updated < 180_000 } == true
+                            }
+                            (rv.adapter as SessionListAdapter).submit(sessions, freshBusy)
+                        },
                     )
                 }
             }

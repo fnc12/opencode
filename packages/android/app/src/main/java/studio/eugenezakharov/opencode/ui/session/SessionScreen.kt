@@ -250,8 +250,33 @@ fun SessionScreen(
                 last.parts.any { p ->
                     p.isVisible && (p.content as? studio.eugenezakharov.opencode.api.models.PartContent.Text)?.text?.isNotBlank() == true
                 }
+            // A "busy" turn is likely *stuck* (e.g. an unanswered permission on an
+            // old server) when it's produced no text for a while. Re-evaluate on a
+            // 30s tick since a parked turn emits no events. Then show a cancel hint
+            // instead of endless dots — the Stop button already aborts.
+            var stuckTick by remember { mutableStateOf(0L) }
+            LaunchedEffect(state.isBusy) {
+                while (state.isBusy) { kotlinx.coroutines.delay(30_000); stuckTick = System.currentTimeMillis() }
+            }
+            val stuck = remember(stuckTick, state.isBusy, last) {
+                val a = last?.info as? studio.eugenezakharov.opencode.api.models.MessageInfo.Assistant
+                state.isBusy && a != null && a.completed == null &&
+                    System.currentTimeMillis() - a.created > 180_000
+            }
             if (state.isBusy && !streaming) {
-                TypingDots(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 10.dp))
+                if (stuck) {
+                    Text(
+                        "⚠ This turn looks stuck — tap ■ to cancel",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 16.dp, bottom = 12.dp)
+                            .testTag("session.stuck"),
+                    )
+                } else {
+                    TypingDots(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 10.dp))
+                }
             }
         }
     }
@@ -740,28 +765,42 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                 Spacer(Modifier.size(6.dp))
             }
             Row(verticalAlignment = Alignment.Bottom) {
-                IconButton(
-                    onClick = {
-                        photoPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    modifier = Modifier.testTag("composer.attach"),
-                ) {
-                    Text("📷")
-                }
-                IconButton(
-                    onClick = { showFilePicker = true },
-                    modifier = Modifier.testTag("composer.file"),
-                ) {
-                    Text("📎")
-                }
-                if (state.commands.isNotEmpty()) {
+                // Attach / command actions collapse into one "+" menu so the row
+                // isn't crowded (and stays roomy when the field grows). Matches iOS.
+                var showAttachMenu by remember { mutableStateOf(false) }
+                Box {
                     IconButton(
-                        onClick = { showCommands = true },
-                        modifier = Modifier.testTag("composer.commands"),
+                        onClick = { showAttachMenu = true },
+                        modifier = Modifier.testTag("composer.plus"),
                     ) {
-                        Text("/", style = MaterialTheme.typography.titleLarge)
+                        Text("+", style = MaterialTheme.typography.headlineSmall)
+                    }
+                    DropdownMenu(
+                        expanded = showAttachMenu,
+                        onDismissRequest = { showAttachMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("📷  Photo") },
+                            onClick = {
+                                showAttachMenu = false
+                                photoPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            modifier = Modifier.testTag("composer.attach"),
+                        )
+                        DropdownMenuItem(
+                            text = { Text("📎  File") },
+                            onClick = { showAttachMenu = false; showFilePicker = true },
+                            modifier = Modifier.testTag("composer.file"),
+                        )
+                        if (state.commands.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("/  Command") },
+                                onClick = { showAttachMenu = false; showCommands = true },
+                                modifier = Modifier.testTag("composer.commands"),
+                            )
+                        }
                     }
                 }
                 OutlinedTextField(
@@ -929,6 +968,11 @@ private fun MessageList(
                 adapter = MessageAdapter().apply { this.onRevert = onRevert; this.onSelect = onSelect }
                 clipToPadding = false
                 setPadding(0, 8, 0, 8)
+                // Keep insert/remove animations (a new step slides in) but drop the
+                // change cross-fade, so a streaming text delta rebinding a row
+                // doesn't flicker on every token.
+                (itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)
+                    ?.supportsChangeAnimations = false
             }
         },
         update = { recycler ->

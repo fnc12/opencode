@@ -70,6 +70,9 @@ struct ProjectListView: View {
                 ProvidersView(server: server)
             }
             .task { await load() }
+            // Watch the global event bus app-wide so the session list can show
+            // which sessions are currently generating (survives list↔session nav).
+            .task { await server.trackSessionActivity() }
         }
     }
 

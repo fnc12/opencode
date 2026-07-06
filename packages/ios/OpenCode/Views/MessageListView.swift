@@ -51,6 +51,11 @@ struct MessageListView: UIViewRepresentable {
         private var rendered: [String: (signature: Int, message: RenderedMessage)] = [:]
         private var heightCache: [String: CGFloat] = [:]
         var hasApplied = false
+        /// Message ids ever seen — so a genuinely new row (a step/tool line
+        /// arriving mid-turn) can be told apart from the initial history fill.
+        private var seenIDs: Set<String> = []
+        /// New ids awaiting their entrance animation the first time they display.
+        private var entranceIDs: Set<String> = []
         private weak var table: UITableView?
         /// Latest messages held back while the user is actively scrolling (#1).
         private var pending: [MessageWithParts]?
@@ -64,6 +69,23 @@ struct MessageListView: UIViewRepresentable {
         /// Called when a message row is tapped — opens its detail screen, zooming
         /// from the cell's frame (in window coordinates).
         var onSelectMessageAt: ((String, CGRect) -> Void)?
+
+        /// Fade + slide a freshly-arrived row in the first time it displays, so a
+        /// new step/tool line eases into the transcript instead of snapping in.
+        /// Bounded to ids flagged in `apply`, and each id fires once (`remove`),
+        /// so scrolling an old row back into view never re-animates it.
+        func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+            guard let id = dataSource?.itemIdentifier(for: indexPath),
+                  entranceIDs.remove(id) != nil else { return }
+            let content = cell.contentView
+            content.alpha = 0
+            content.transform = CGAffineTransform(translationX: 0, y: 12)
+            UIView.animate(withDuration: 0.28, delay: 0,
+                           options: [.curveEaseOut, .allowUserInteraction]) {
+                content.alpha = 1
+                content.transform = .identity
+            }
+        }
 
         func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: false)
@@ -98,6 +120,15 @@ struct MessageListView: UIViewRepresentable {
             let liveIDs = Set(messages.map(\.id))
             rendered = rendered.filter { liveIDs.contains($0.key) }
             heightCache = heightCache.filter { liveIDs.contains(String($0.key.prefix(while: { $0 != "|" }))) }
+
+            // Mark rows that appear *after* the first history fill for an entrance
+            // animation (played in `willDisplay`). The initial load isn't animated
+            // — only steps/tools streaming in during the turn should slide in.
+            if hasApplied {
+                for id in messages.map(\.id) where !seenIDs.contains(id) { entranceIDs.insert(id) }
+            }
+            seenIDs = liveIDs                       // track current set (a reverted-away row re-animates if it returns)
+            entranceIDs.formIntersection(liveIDs)
 
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
