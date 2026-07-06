@@ -41,7 +41,8 @@ struct SessionView: View {
                 SessionContent(messages: visibleMessages,
                                revision: store.revision,
                                onRevert: { revertTarget = $0 },
-                               showTyping: showThinking && !isStuck) {
+                               showTyping: showThinking && !isStuck,
+                               barRevision: barRevision) {
                     bottomBar
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
@@ -204,6 +205,30 @@ struct SessionView: View {
         return !hasText && ageMS > Self.stuckAfterMS
     }
     private static let stuckAfterMS: Double = 180_000 // 3 min with no output → treat as stuck
+
+    /// A fingerprint of everything the bottom bar (docks + composer) renders from.
+    /// Deliberately excludes the streamed message text/parts, so a fast stream
+    /// doesn't rebuild the accessory on every delta (which flickered its height
+    /// and shoved content under the composer). Changes only when a dock/picker
+    /// toggles or busy/stuck flips.
+    private var barRevision: Int {
+        var h = Hasher()
+        h.combine(isStreaming)
+        h.combine(isStuck)
+        h.combine(store.revertMessageID)
+        h.combine(store.todos.count)
+        h.combine(store.pendingPermissions.map(\.id))
+        h.combine(store.pendingQuestions.map(\.id))
+        h.combine(fileAttachments.count)
+        h.combine(providers.count)
+        h.combine(commands.count)
+        h.combine(showModelPicker)
+        h.combine(showCommands)
+        h.combine(showFilePicker)
+        h.combine(showPhotoPicker)
+        h.combine(pickerItems.count)
+        return h.finalize()
+    }
 
     /// Docks (permissions / questions) stacked above the composer — hosted inside
     /// the UIKit controller so it rides the keyboard with the list.

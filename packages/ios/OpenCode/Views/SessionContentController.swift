@@ -261,6 +261,13 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     /// Shows a "thinking" indicator as the last row (in the message flow, where
     /// the reply will appear) while the agent works but hasn't streamed text yet.
     var showTyping: Bool = false
+    /// Changes only when the bar's *inputs* change (busy state, docks, pickers) —
+    /// NOT on every streamed message delta. The hosted composer is only rebuilt
+    /// when this changes, so a fast stream doesn't churn the accessory (which was
+    /// making it flicker its safe-area height and shove content under the bar).
+    /// The composer's own typing state updates inside its hosting controller and
+    /// doesn't need a rootView reassign.
+    var barRevision: Int = 0
     @ViewBuilder var bar: () -> Bar
 
     func makeUIViewController(context: Context) -> SessionContentController {
@@ -274,6 +281,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         // input window, and a child VC's view being moved there crashes UIKit's
         // appearance forwarding. The coordinator retains `host` instead.
         context.coordinator.host = host
+        context.coordinator.lastBarRevision = barRevision
         let controller = SessionContentController(bar: InputBarView(content: host.view))
         controller.onRevert = onRevert
         controller.messages = messages
@@ -282,7 +290,13 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: SessionContentController, context: Context) {
-        context.coordinator.host?.rootView = bar()
+        // Only rebuild the hosted composer when its inputs actually changed — a
+        // streamed delta bumps `revision` (→ new messages/showTyping) but leaves
+        // `barRevision` alone, so the accessory stops flickering mid-stream.
+        if context.coordinator.lastBarRevision != barRevision {
+            context.coordinator.lastBarRevision = barRevision
+            context.coordinator.host?.rootView = bar()
+        }
         controller.onRevert = onRevert
         controller.messages = messages
         controller.showTyping = showTyping
@@ -290,5 +304,8 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    @MainActor final class Coordinator { var host: UIHostingController<Bar>? }
+    @MainActor final class Coordinator {
+        var host: UIHostingController<Bar>?
+        var lastBarRevision: Int = 0
+    }
 }
