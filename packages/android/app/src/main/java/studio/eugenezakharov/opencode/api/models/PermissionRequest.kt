@@ -7,10 +7,14 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * A pending permission request from the agent (`permission.v2.asked` event and
- * the `GET /permission` list). The agent wants to perform an action (run a
- * command, edit a file, fetch a URL…) and is blocked until the user replies
- * `once`, `always`, or `reject`. Mirrors iOS `PermissionRequest`.
+ * A pending permission request from the agent (the `permission[.v2].asked`
+ * event and the `GET /permission` list). The agent wants to perform an action
+ * (run a command, edit a file, fetch a URL…) and is blocked until the user
+ * replies `once`, `always`, or `reject`. Mirrors iOS `PermissionRequest`.
+ *
+ * Speaks BOTH the v2 shape (`action`/`resources`) and the older v1 shape
+ * (`permission`/`patterns`), so prompts surface against any server version —
+ * an old server that only emits v1 no longer silently hangs the session.
  */
 data class PermissionRequest(
     val id: String,
@@ -27,6 +31,8 @@ data class PermissionRequest(
                 "edit", "write" -> if (target.isEmpty()) "Modify a file" else "Modify file: $target"
                 "webfetch" -> if (target.isEmpty()) "Fetch a URL" else "Fetch: $target"
                 "websearch" -> "Search the web" + if (target.isEmpty()) "" else ": $target"
+                "external_directory" ->
+                    if (target.isEmpty()) "Access a directory outside the project" else "Access outside project: $target"
                 else -> {
                     val verb = action.replaceFirstChar { it.uppercaseChar() }
                     if (target.isEmpty()) verb else "$verb: $target"
@@ -38,11 +44,12 @@ data class PermissionRequest(
         /** Parses a permission request object (event `properties` or a `/permission` list item). */
         fun from(obj: JsonObject): PermissionRequest? {
             val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return null
-            val sessionID = obj["sessionID"]?.jsonPrimitive?.contentOrNull ?: return null
-            val action = obj["action"]?.jsonPrimitive?.contentOrNull ?: ""
-            val resources = (obj["resources"] as? kotlinx.serialization.json.JsonArray)
-                ?.mapNotNull { it.jsonPrimitive.contentOrNull }
-                ?: emptyList()
+            val sessionID = obj["sessionID"]?.jsonPrimitive?.contentOrNull ?: ""
+            // v2 `action` ?? v1 `permission`; v2 `resources` ?? v1 `patterns`.
+            val action = obj["action"]?.jsonPrimitive?.contentOrNull
+                ?: obj["permission"]?.jsonPrimitive?.contentOrNull ?: ""
+            val resourceArray = (obj["resources"] ?: obj["patterns"]) as? kotlinx.serialization.json.JsonArray
+            val resources = resourceArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
             return PermissionRequest(id, sessionID, action, resources)
         }
 

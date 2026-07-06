@@ -98,13 +98,16 @@ extension ServerEvent: Decodable {
             let info = try? p.decode(Session.self, forKey: .info)
             let sid = info?.id ?? (try? p.decode(String.self, forKey: .sessionID))
             self = .sessionUpdated(sessionID: sid ?? "", revertMessageID: info?.revert?.messageID)
-        case "permission.v2.asked":
-            // The event properties ARE the permission request (id, sessionID, action, resources…).
+        // Accept both the v2 event name and the older v1 (`permission.asked`)
+        // name, so permission prompts surface against any server version. The
+        // properties ARE the request; `PermissionRequest` decodes both field
+        // shapes (action/resources ↔ permission/patterns).
+        case "permission.v2.asked", "permission.asked":
             self = .permissionAsked(try c.decode(PermissionRequest.self, forKey: .properties))
-        case "permission.v2.replied":
+        case "permission.v2.replied", "permission.replied":
             let p = try c.nestedContainer(keyedBy: Prop.self, forKey: .properties)
             self = .permissionReplied(
-                sessionID: try p.decode(String.self, forKey: .sessionID),
+                sessionID: (try? p.decode(String.self, forKey: .sessionID)) ?? "",
                 requestID: try p.decode(String.self, forKey: .requestID))
         case "question.v2.asked":
             self = .questionAsked(try c.decode(QuestionRequest.self, forKey: .properties))

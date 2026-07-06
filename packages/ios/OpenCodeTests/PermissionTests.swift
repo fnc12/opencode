@@ -26,6 +26,27 @@ final class PermissionDecodeTests: XCTestCase {
         XCTAssertEqual(sid, "ses_1")
         XCTAssertEqual(requestID, "perm_1")
     }
+
+    /// Compat: an older server emits the v1 event name (`permission.asked`) with
+    /// v1 fields (`permission` + `patterns`). We must still surface it — the
+    /// regression that silently hung external-directory reads.
+    func testDecodesV1PermissionAsked() throws {
+        let json = """
+        {"payload":{"type":"permission.asked","properties":{"id":"perm_2","sessionID":"ses_1",
+        "permission":"external_directory","patterns":["/mnt/lib/*"],"metadata":{}}}}
+        """
+        guard case .permissionAsked(let req) = try decode(json) else { return XCTFail("expected .permissionAsked") }
+        XCTAssertEqual(req.id, "perm_2")
+        XCTAssertEqual(req.action, "external_directory")     // mapped from `permission`
+        XCTAssertEqual(req.resources, ["/mnt/lib/*"])        // mapped from `patterns`
+        XCTAssertEqual(req.summary, "Access outside project: /mnt/lib/*")
+    }
+
+    func testDecodesV1PermissionReplied() throws {
+        let json = #"{"payload":{"type":"permission.replied","properties":{"sessionID":"ses_1","requestID":"perm_2","reply":"reject"}}}"#
+        guard case .permissionReplied(_, let requestID) = try decode(json) else { return XCTFail("expected .permissionReplied") }
+        XCTAssertEqual(requestID, "perm_2")
+    }
 }
 
 @MainActor

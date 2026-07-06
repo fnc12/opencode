@@ -117,13 +117,14 @@ sealed interface ServerEvent {
                         ?.get("messageID") as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
                     SessionUpdated(sid, revertID)
                 }
-                "permission.v2.asked" -> {
-                    // The event properties ARE the permission request (id, sessionID, action, resources…).
+                // Accept both v2 and older v1 (`permission.asked`) names so prompts
+                // surface against any server; `from` decodes both field shapes.
+                "permission.v2.asked", "permission.asked" -> {
                     val request = PermissionRequest.from(props) ?: return Other(type)
                     PermissionAsked(request)
                 }
-                "permission.v2.replied" -> PermissionReplied(
-                    sessionID = str("sessionID") ?: return Other(type),
+                "permission.v2.replied", "permission.replied" -> PermissionReplied(
+                    sessionID = str("sessionID") ?: "",
                     requestID = str("requestID") ?: return Other(type),
                 )
                 "question.v2.asked" -> {
