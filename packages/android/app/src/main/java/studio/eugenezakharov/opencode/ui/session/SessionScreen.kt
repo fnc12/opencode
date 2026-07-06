@@ -1004,24 +1004,21 @@ private fun MessageList(
 private fun StreamStatusBadge(status: SessionStore.StreamStatus) {
     when (status) {
         SessionStore.StreamStatus.IDLE -> {}
+        // Just the dot — the "Live" label crowded the toolbar. The green dot alone
+        // reads as "connected".
         SessionStore.StreamStatus.LIVE -> Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "● Live",
+                "●",
                 color = androidx.compose.ui.graphics.Color(0xFF4CD964),
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.testTag("session.live"),
             )
             Spacer(Modifier.width(8.dp))
         }
+        // Spinner alone (no text) — transient anyway.
         SessionStore.StreamStatus.CONNECTING,
         SessionStore.StreamStatus.RECONNECTING -> Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                if (status == SessionStore.StreamStatus.CONNECTING) "Connecting" else "Reconnecting",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Spacer(Modifier.width(8.dp))
         }
     }

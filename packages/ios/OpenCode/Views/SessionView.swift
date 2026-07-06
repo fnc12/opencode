@@ -482,17 +482,16 @@ private struct StreamStatusBadge: View {
         case .idle:
             EmptyView()
         case .live:
-            HStack(spacing: 4) {
-                Circle().fill(.green).frame(width: 7, height: 7)
-                Text("Live").font(.caption2).foregroundStyle(.secondary)
-            }
+            // Just the dot — the "Live" label crowded the toolbar and truncated
+            // to "Li…" against the edge. The green dot alone reads as "connected".
+            Circle().fill(.green).frame(width: 8, height: 8)
+                .accessibilityLabel("Live")
+                .accessibilityIdentifier("session.live")
         case .connecting, .reconnecting:
-            HStack(spacing: 4) {
-                ProgressView().controlSize(.mini)
-                Text(status == .connecting ? "Connecting" : "Reconnecting")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            // A spinner alone (no text) for the same reason — transient anyway.
+            ProgressView().controlSize(.mini)
+                .accessibilityLabel(status == .connecting ? "Connecting" : "Reconnecting")
+                .accessibilityIdentifier("session.status")
         }
     }
 }
