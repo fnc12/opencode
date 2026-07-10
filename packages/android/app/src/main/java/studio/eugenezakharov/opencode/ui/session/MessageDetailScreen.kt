@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -27,12 +26,15 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import android.widget.TextView
 import android.widget.Toast
 import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
@@ -90,14 +92,10 @@ fun MessageDetailScreen(message: MessageWithParts, onDismiss: () -> Unit) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Spacer(Modifier.size(4.dp))
-                                SelectionContainer {
-                                    Text(block.text, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                                }
+                                MarkdownText(block.text, MaterialTheme.colorScheme.onSurfaceVariant)
                             }
 
-                            is DetailBlock.Body -> SelectionContainer {
-                                Text(block.text, style = MaterialTheme.typography.bodyMedium)
-                            }
+                            is DetailBlock.Body -> MarkdownText(block.text, MaterialTheme.colorScheme.onSurface)
 
                             is DetailBlock.ToolBlock -> Column(
                                 Modifier.fillMaxWidth()
@@ -129,6 +127,28 @@ fun MessageDetailScreen(message: MessageWithParts, onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+/** Renders a text block with the SAME Markdown renderer as the message list (a
+ *  native selectable TextView) — the detail screen previously showed raw text
+ *  with no formatting. */
+@Composable
+private fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
+    val argb = color.toArgb()
+    AndroidView(
+        modifier = modifier.fillMaxWidth(),
+        factory = { ctx ->
+            TextView(ctx).apply {
+                textSize = 15f
+                setTextIsSelectable(true)
+                setLineSpacing(0f, 1.1f)
+            }
+        },
+        update = { tv ->
+            tv.setTextColor(argb)
+            tv.text = MarkdownRenderer.render(text, 15, android.graphics.Color.TRANSPARENT)
+        },
+    )
 }
 
 private fun detailBlocks(message: MessageWithParts): List<DetailBlock> {
