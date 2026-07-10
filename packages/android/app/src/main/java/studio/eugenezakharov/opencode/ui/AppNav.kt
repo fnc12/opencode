@@ -1,5 +1,6 @@
 package studio.eugenezakharov.opencode.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +40,11 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
             ConnectScreen(state = state, viewModel = appViewModel)
         }
         selectedSession != null -> {
+            // The back *gesture* (not just the toolbar arrow) must walk the same
+            // path: chat → session list / projects. Without this it fell through
+            // to the Activity and exited the app, eventually cold-starting onto
+            // the Connect screen.
+            BackHandler { selectedSession = null }
             SessionDestination(
                 server = appViewModel.server,
                 session = selectedSession!!,
@@ -48,6 +54,7 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
             )
         }
         selectedProject != null -> {
+            BackHandler { selectedProject = null }
             SessionListScreen(
                 server = appViewModel.server,
                 project = selectedProject!!,
@@ -57,6 +64,8 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
             )
         }
         else -> {
+            // Project list is the app's home while connected — let the back gesture
+            // leave the app (default), NOT disconnect back to the Connect screen.
             ProjectListScreen(
                 server = appViewModel.server,
                 onProjectClick = { selectedProject = it },
