@@ -4,7 +4,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
-import android.text.style.AbsoluteSizeSpan
 import android.text.style.BackgroundColorSpan
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
@@ -42,8 +41,9 @@ object MarkdownRenderer {
             if (header != null) {
                 val start = out.length
                 appendInline(out, header.second, textColor)
-                val size = headerSize(header.first, baseSizePx)
-                out.setSpan(AbsoluteSizeSpan(size), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                // RelativeSizeSpan (scales with the TextView's sp size) — an
+                // AbsoluteSizeSpan in px made headers render tiny vs the body.
+                out.setSpan(RelativeSizeSpan(headerScale(header.first)), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 out.setSpan(StyleSpan(Typeface.BOLD), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             } else {
                 appendInline(out, lines[i], textColor)
@@ -119,11 +119,11 @@ object MarkdownRenderer {
         return level to trimmed.substring(i).trimStart(' ')
     }
 
-    private fun headerSize(level: Int, base: Int): Int = when (level) {
-        1 -> base + 14
-        2 -> base + 8
-        3 -> base + 4
-        else -> base + 2
+    private fun headerScale(level: Int): Float = when (level) {
+        1 -> 1.6f
+        2 -> 1.35f
+        3 -> 1.18f
+        else -> 1.08f
     }
 
     /**
