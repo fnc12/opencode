@@ -6,6 +6,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.AbsoluteSizeSpan
 import android.text.style.BackgroundColorSpan
+import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.text.style.TypefaceSpan
 
@@ -102,9 +103,11 @@ object MarkdownRenderer {
             }
             if (r < cells.size - 1) out.append("\n")
         }
-        // Monospace across the whole grid so the padding aligns; smaller so more fits.
+        // Monospace across the whole grid so the padding aligns. Slightly smaller
+        // than body (RelativeSizeSpan, so it scales with the TextView's sp size —
+        // an AbsoluteSizeSpan in px rendered it tiny) to help wide tables fit.
         out.setSpan(TypefaceSpan("monospace"), tableStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        out.setSpan(AbsoluteSizeSpan((baseSizePx * 0.85f).toInt()), tableStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        out.setSpan(RelativeSizeSpan(0.9f), tableStart, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
 
     private fun parseHeader(line: String): Pair<Int, String>? {
