@@ -204,12 +204,22 @@ struct MessageListView: UIViewRepresentable {
             applyNow(messages, table: table)
         }
 
-        /// Called from `MessageTableView.layoutSubviews` — re-pins to the bottom
-        /// when the frame changes (keyboard, rotation, first load), so the newest
-        /// message stays visible and moves in sync with the keyboard (#5, #6).
+        /// The table's frame *size* at the last re-pin. Re-pin only when the frame
+        /// size changes (rotation, first load) — NOT on `bounds.origin` (which is
+        /// the contentOffset and changes on every scroll) or on content growth.
+        private var lastLayoutSize: CGSize = .zero
+
+        /// Called from `MessageTableView.layoutSubviews`. Streaming growth is
+        /// followed by `applyNow`, and keyboard changes by `keyboardChange` +
+        /// `reassertBottomSoon`; re-pinning here on every layout pass snapped the
+        /// offset ~a line at a time, which read as a jerk while the reply streamed
+        /// or the user rested near the bottom. So only re-pin on a real frame
+        /// change (first load / rotation).
         func tableDidLayout() {
             guard let table, pinnedToBottom,
                   !table.isTracking, !table.isDragging, !table.isDecelerating else { return }
+            guard table.bounds.size != lastLayoutSize else { return }
+            lastLayoutSize = table.bounds.size
             scrollToBottom(table)
         }
 
