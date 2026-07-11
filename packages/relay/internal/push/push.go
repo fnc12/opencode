@@ -31,6 +31,10 @@ type Device struct {
 type Notification struct {
 	TunnelID  string
 	SessionID string
+	// Kind distinguishes what happened (session finished vs permission needed).
+	// It participates in dedupe so a permission prompt and an idle signal for
+	// the same session don't suppress each other.
+	Kind      Kind
 	Title     string
 	Body      string
 	// DeepLink is an app URL that opens the relevant session, e.g.
@@ -116,7 +120,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) int {
 func (d *Dispatcher) duplicate(n Notification) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	key := n.TunnelID + "/" + n.SessionID
+	key := n.TunnelID + "/" + n.SessionID + "/" + string(n.Kind)
 	now := d.now()
 	if last, ok := d.recent[key]; ok && now.Sub(last) < d.dedupe {
 		return true

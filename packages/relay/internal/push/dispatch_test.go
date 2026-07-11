@@ -76,3 +76,22 @@ func TestDispatcherDedupes(t *testing.T) {
 		t.Fatalf("expected 3 after window, got %d", apns.count())
 	}
 }
+
+// A permission prompt and an idle signal for the same session are different
+// events and must not suppress each other, even back-to-back.
+func TestDispatcherDedupeIsPerKind(t *testing.T) {
+	d, store, apns, _ := newTestDispatcher(t)
+	_ = store.Add("tun", Device{Provider: APNs, Token: "ios1"})
+
+	d.Notify(context.Background(), Notification{TunnelID: "tun", SessionID: "s1", Kind: KindPermission})
+	d.Notify(context.Background(), Notification{TunnelID: "tun", SessionID: "s1", Kind: KindIdle})
+	if apns.count() != 2 {
+		t.Fatalf("permission and idle should both fire, got %d", apns.count())
+	}
+
+	// But a repeat of the same kind within the window is still deduped.
+	d.Notify(context.Background(), Notification{TunnelID: "tun", SessionID: "s1", Kind: KindPermission})
+	if apns.count() != 2 {
+		t.Fatalf("repeat permission should dedupe, got %d", apns.count())
+	}
+}

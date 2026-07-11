@@ -242,16 +242,24 @@ func (s *Server) watchEvents(ctx context.Context, conn *tunnel.Conn) {
 			}
 			continue
 		}
-		scanner := &push.IdleScanner{}
+		scanner := &push.Scanner{}
 		for chunk := range ch {
-			for _, sid := range scanner.Feed(chunk) {
-				s.dispatcher.Notify(ctx, push.Notification{
+			for _, ev := range scanner.Feed(chunk) {
+				n := push.Notification{
 					TunnelID:  conn.TunnelID,
-					SessionID: sid,
-					Title:     "Session finished",
-					Body:      "Your OpenCode agent finished the task.",
-					DeepLink:  "opencode://session/" + sid,
-				})
+					SessionID: ev.SessionID,
+					Kind:      ev.Kind,
+					DeepLink:  "opencode://session/" + ev.SessionID,
+				}
+				switch ev.Kind {
+				case push.KindPermission:
+					n.Title = "Permission needed"
+					n.Body = "Your OpenCode agent is waiting for you to allow an action."
+				default:
+					n.Title = "Session finished"
+					n.Body = "Your OpenCode agent finished the task."
+				}
+				s.dispatcher.Notify(ctx, n)
 			}
 		}
 		// Stream ended; pause briefly before resubscribing.
