@@ -113,7 +113,7 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) int {
 		}
 		sent++
 	}
-	d.log.Info("push: dispatched", "tunnel", n.TunnelID, "session", n.SessionID, "devices", sent)
+	d.log.Info("push: dispatched", "tunnel", n.TunnelID, "session", n.SessionID, "kind", string(n.Kind), "devices", sent)
 	return sent
 }
 
