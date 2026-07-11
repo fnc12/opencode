@@ -103,14 +103,31 @@ final class SessionContentController: UIViewController {
         typingFooterHost = host
         // Keep the fresh indicator on screen when the user is at the bottom.
         if coordinator.isPinnedToBottom {
-            DispatchQueue.main.async { [weak self] in self?.scrollToBottom() }
+            DispatchQueue.main.async { [weak self] in self?.scrollToBottom(animated: false) }
+            reassertBottomSoon()
         }
     }
-    private func scrollToBottom() {
+    private func scrollToBottom(animated: Bool = true) {
         let cover = table.contentInset.bottom
         let maxY = max(-table.adjustedContentInset.top,
                        table.contentSize.height - table.bounds.height + cover)
-        table.setContentOffset(CGPoint(x: 0, y: maxY), animated: true)
+        table.setContentOffset(CGPoint(x: 0, y: maxY), animated: animated)
+    }
+
+    /// Re-assert the pinned-to-bottom position a moment after a keyboard/accessory
+    /// resize. On some devices the bottom inset + content size settle a frame or
+    /// two late after sending a multi-line message (the composer shrinks tall→one
+    /// line), which briefly left the newest message + typing dots ducked under the
+    /// composer. A delayed, no-op-if-already-there re-scroll cleans that up.
+    private func reassertBottomSoon() {
+        guard coordinator.isPinnedToBottom else { return }
+        for delay in [0.05, 0.35] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.coordinator.isPinnedToBottom,
+                      !self.table.isTracking, !self.table.isDragging else { return }
+                self.scrollToBottom(animated: false)
+            }
+        }
     }
 
     /// Wired from SwiftUI: called with a message id when the user picks "Revert to here".
@@ -200,6 +217,7 @@ final class SessionContentController: UIViewController {
             let maxY = max(-table.adjustedContentInset.top,
                            table.contentSize.height - table.bounds.height + cover)
             table.contentOffset.y = maxY
+            reassertBottomSoon()
         }
     }
 
@@ -249,6 +267,10 @@ final class SessionContentController: UIViewController {
             let base = interactive ? self.table.contentOffset.y : self.table.contentOffset.y + delta
             self.table.contentOffset.y = min(max(base, minY), maxY)
         }
+        // The composer (accessory) may still be settling its height after this
+        // frame (e.g. shrinking from multi-line to one line on send); re-assert
+        // the bottom so the newest content never stays ducked under it.
+        if !interactive { reassertBottomSoon() }
     }
 }
 
