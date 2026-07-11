@@ -7,6 +7,8 @@ import UIKit
 enum MessageBlock {
     case text(NSAttributedString)
     case table(MessageTable)
+    /// A fenced code block (```lang … ```), already syntax-highlighted.
+    case code(NSAttributedString)
 }
 
 /// A parsed markdown table: a header row plus data rows of raw cell strings.

@@ -19,6 +19,7 @@ struct RenderedMessage {
             switch block {
             case .text(let s): return s.string
             case .table(let t): return ([t.header] + t.rows).map { $0.joined(separator: "\t") }.joined(separator: "\n")
+            case .code(let s): return s.string
             }
         }.joined(separator: "\n\n")
     }
@@ -49,6 +50,8 @@ enum MessageMetrics {
             return ceil(bounds.height)
         case .table(let table):
             return TableBlockView.height(for: table, font: bodyFont)
+        case .code(let string):
+            return CodeBlockView.height(for: string)
         }
     }
 
@@ -122,6 +125,10 @@ final class MessageCell: UITableViewCell {
                 return label
             case .table(let table):
                 let view = TableBlockView(table: table, font: MessageMetrics.bodyFont)
+                bubble.addSubview(view)
+                return view
+            case .code(let string):
+                let view = CodeBlockView(code: string)
                 bubble.addSubview(view)
                 return view
             }

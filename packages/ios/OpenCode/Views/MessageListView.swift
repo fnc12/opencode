@@ -343,6 +343,21 @@ struct MessageListView: UIViewRepresentable {
             let lines = text.components(separatedBy: "\n")
             var i = 0
             while i < lines.count {
+                let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+                // Fenced code block: ```lang … ``` — checked before tables (code
+                // may contain `|`). Lift it out as a highlighted `.code` block.
+                if trimmed.hasPrefix("```") {
+                    flushText()
+                    let lang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    var codeLines: [String] = []
+                    i += 1
+                    while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                        codeLines.append(lines[i]); i += 1
+                    }
+                    if i < lines.count { i += 1 } // consume the closing ```
+                    out.append(.code(codeBlock(codeLines.joined(separator: "\n"), lang: lang)))
+                    continue
+                }
                 let next = i + 1 < lines.count ? lines[i + 1] : nil
                 if MarkdownTable.isStart(lines[i], next: next) {
                     flushText()
@@ -355,6 +370,17 @@ struct MessageListView: UIViewRepresentable {
             }
             flushText()
             return out
+        }
+
+        /// Syntax-highlights a fenced code block's contents; falls back to plain
+        /// monospace if the highlighter is unavailable.
+        private static func codeBlock(_ code: String, lang: String) -> NSAttributedString {
+            let dark = UITraitCollection.current.userInterfaceStyle == .dark
+            if let hl = SyntaxHighlighter.attributed(code, language: lang, dark: dark, fontSize: CodeBlockView.fontSize) {
+                return hl
+            }
+            return NSAttributedString(string: code,
+                                      attributes: [.font: CodeBlockView.font, .foregroundColor: UIColor.label])
         }
 
         /// Breaks a very long block on line boundaries so each piece stays under
