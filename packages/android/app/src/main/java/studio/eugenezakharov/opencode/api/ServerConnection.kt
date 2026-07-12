@@ -123,6 +123,14 @@ class ServerConnection(
         )
 
     /**
+     * Fetches one session by id (`GET /session/:id`). No directory needed — the
+     * server resolves the session's workspace from the id. Used to deep-link from
+     * a push notification, which only carries the session id. Mirrors iOS.
+     */
+    suspend fun getSession(id: String): Session =
+        get("/session/$id", Session.serializer())
+
+    /**
      * Creates a new session in a directory and returns it (`POST /session?directory=…`).
      * Works for any folder the server can see — including on a fresh server with no
      * projects yet — which is how you start work on a fresh server. An optional title

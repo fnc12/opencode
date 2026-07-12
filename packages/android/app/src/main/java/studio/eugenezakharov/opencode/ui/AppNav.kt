@@ -7,6 +7,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import studio.eugenezakharov.opencode.api.ServerConnection
@@ -32,6 +34,24 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
 
     var selectedProject by remember { mutableStateOf<Project?>(null) }
     var selectedSession by remember { mutableStateOf<Session?>(null) }
+
+    // Deep-link from a tapped push: resolve the session by id (the push carries
+    // only the id) and navigate to it, selecting its project so Back walks
+    // chat → session list → projects.
+    val pendingOpen by appViewModel.pendingOpenSessionId.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingOpen, state.connected) {
+        val sid = pendingOpen
+        if (sid == null || !state.connected) return@LaunchedEffect
+        val session = runCatching { appViewModel.server.getSession(sid) }.getOrNull()
+        if (session != null) {
+            selectedProject = runCatching { appViewModel.server.projects() }
+                .getOrNull()?.firstOrNull { it.id == session.projectID }
+            selectedSession = session
+        }
+        // Clear LAST: pendingOpen is an effect key, so clearing it cancels this
+        // coroutine — do it only after both network calls have finished.
+        appViewModel.clearPendingOpenSession()
+    }
 
     when {
         !state.connected -> {
@@ -94,5 +114,9 @@ private fun SessionDestination(
             injectTestTodo = UiTestFlags.injectTodo,
         )
     }
+    // Returning to the foreground re-syncs the snapshot (parity with iOS's
+    // foregroundNonce). Android's stream loop already self-reconnects; this just
+    // catches up any state missed during a background gap.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh() }
     SessionScreen(viewModel = vm, session = session, onBack = onBack)
 }

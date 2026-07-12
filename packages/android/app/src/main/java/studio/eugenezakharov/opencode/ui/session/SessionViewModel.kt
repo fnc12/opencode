@@ -190,6 +190,33 @@ class SessionViewModel(
         }
     }
 
+    /**
+     * Re-sync the snapshot from the server (messages + pending
+     * permissions/questions/todos) without disturbing the live stream, which
+     * self-heals via its own backoff loop. Called when the app returns to the
+     * foreground so a gap while backgrounded doesn't leave the screen stale.
+     */
+    fun refresh() {
+        // In UI-test mode the docks are driven by injected synthetic data — don't
+        // overwrite it with (empty) server truth.
+        if (injectTestPermission || injectTestQuestion || injectTestTodo) return
+        viewModelScope.launch {
+            runCatching { server.messages(session.directory, session.id) }.getOrNull()?.let {
+                store.setInitial(it)
+                store.setRevert(session.revert?.messageID)
+            }
+            runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
+                store.setInitialPermissions(pending.filter { it.sessionID == session.id })
+            }
+            runCatching { server.questions(session.directory) }.getOrNull()?.let { pending ->
+                store.setInitialQuestions(pending.filter { it.sessionID == session.id })
+            }
+            runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let {
+                store.setInitialTodos(it)
+            }
+        }
+    }
+
     private fun loadProviders() {
         viewModelScope.launch {
             val list = runCatching { server.providers() }.getOrDefault(emptyList())

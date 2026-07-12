@@ -25,10 +25,14 @@ class ShubatMessagingService : FirebaseMessagingService() {
         val title = n?.title ?: message.data["title"] ?: "Shubat"
         val body = n?.body ?: message.data["body"] ?: return
         ensureChannel()
+        val sessionId = message.data["sessionId"]
         val intent = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra("sessionId", sessionId)
+        // Distinct request code per session so a permission push and an idle push
+        // for different sessions don't overwrite each other's extras.
         val pending = android.app.PendingIntent.getActivity(
-            this, 0, intent,
+            this, sessionId?.hashCode() ?: 0, intent,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)

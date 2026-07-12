@@ -44,8 +44,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  that aren't open. Mirrors iOS `ServerConnection.busySessions`. */
     private val _busySessions = MutableStateFlow<Set<String>>(emptySet())
     val busySessions: StateFlow<Set<String>> = _busySessions.asStateFlow()
+
+    /** Set when the user taps a push notification: the id of the session it's
+     *  about. `AppNav` observes this, resolves the session and deep-links to it,
+     *  then clears it. Mirrors iOS `ServerConnection.pendingOpenSessionID`. */
+    private val _pendingOpenSessionId = MutableStateFlow<String?>(null)
+    val pendingOpenSessionId: StateFlow<String?> = _pendingOpenSessionId.asStateFlow()
+
     private val json = Json { ignoreUnknownKeys = true }
     private var activityJob: Job? = null
+
+    /** A tapped notification asks to open this session (by id). */
+    fun requestOpenSession(id: String?) {
+        if (!id.isNullOrEmpty()) _pendingOpenSessionId.value = id
+    }
+
+    fun clearPendingOpenSession() {
+        _pendingOpenSessionId.value = null
+    }
 
     private fun setConfig(transform: (ConnectionConfig) -> ConnectionConfig) {
         val next = transform(_state.value.config)
@@ -106,6 +122,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         activityJob?.cancel()
         activityJob = null
         _busySessions.value = emptySet()
+        _pendingOpenSessionId.value = null
         _state.update { it.copy(connected = false, version = "") }
     }
 
