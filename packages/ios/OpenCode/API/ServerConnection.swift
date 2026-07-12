@@ -11,6 +11,17 @@ final class ServerConnection {
     var error: String?
     var loading = false
 
+    /// Set when the user taps a push notification: the id of the session the
+    /// notification is about. `ProjectListView` observes this and deep-links to
+    /// that session, then clears it.
+    var pendingOpenSessionID: String?
+
+    /// Bumped whenever the app returns to the foreground. Views key their live
+    /// SSE-stream tasks on this so they re-fetch state and reconnect a fresh
+    /// stream — the socket a suspended app leaves behind is often a zombie that
+    /// delivers nothing (stale screen, stuck typing indicator).
+    var foregroundNonce = 0
+
     init() {
         if let saved = Keychain.loadConnection() {
             config = saved
@@ -46,6 +57,7 @@ final class ServerConnection {
         connected = false
         version = ""
         busySessions = []
+        pendingOpenSessionID = nil
     }
 
     // MARK: - Session activity (for the session list)
@@ -126,6 +138,13 @@ final class ServerConnection {
 
     func sessions(directory: String) async throws -> [Session] {
         try await get("/session", query: ["directory": directory])
+    }
+
+    /// Fetches one session by id (`GET /session/:id`). No directory needed — the
+    /// server resolves the session's workspace from the id. Used to deep-link
+    /// from a push notification, which only carries the session id.
+    func getSession(id: String) async throws -> Session {
+        try await get("/session/\(id)")
     }
 
     func messages(directory: String, sessionID: String) async throws -> [MessageWithParts] {

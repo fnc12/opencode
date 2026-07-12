@@ -137,7 +137,11 @@ struct SessionView: View {
         } message: {
             Text("Undoes this message and everything after it, including file changes.")
         }
-        .task {
+        // Keyed on foregroundNonce: when the app returns from the background this
+        // task is torn down and re-run, so we re-fetch messages/permissions
+        // (clearing any stale "typing" state) and reconnect a fresh SSE stream
+        // instead of waiting on the zombie socket the OS left suspended.
+        .task(id: server.foregroundNonce) {
             shareURL = session.share?.url
             await run()
         }
