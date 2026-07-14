@@ -140,8 +140,21 @@ struct MessageListView: UIViewRepresentable {
         // MARK: heights
 
         func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+            exactHeight(tableView, indexPath)
+        }
+
+        /// Return the SAME exact height as an *estimate* too, so `contentSize` is
+        /// accurate for off-screen rows — not the 120pt guess. With the guess,
+        /// `contentSize` swung by thousands of points mid-stream (measured: 17662→
+        /// 7566), so the pin-to-bottom target became a moving goalpost and the
+        /// viewport jerked / the newest content ducked under the composer.
+        func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+            exactHeight(tableView, indexPath)
+        }
+
+        private func exactHeight(_ tableView: UITableView, _ indexPath: IndexPath) -> CGFloat {
             guard let id = dataSource?.itemIdentifier(for: indexPath), let entry = rendered[id] else {
-                return UITableView.automaticDimension
+                return 120 // a plain number, never automaticDimension (invalid as an estimate)
             }
             let width = tableView.bounds.width
             let key = "\(id)|\(Int(width))|\(entry.signature)"
@@ -225,8 +238,13 @@ struct MessageListView: UIViewRepresentable {
 
         func isNearBottom(_ table: UITableView, threshold: CGFloat = 140) -> Bool {
             guard hasApplied else { return true } // first load: pin to bottom
-            let distance = table.contentSize.height - table.bounds.height - table.contentOffset.y
-            return distance <= threshold
+            // Distance from the TRUE bottom offset, which includes the bottom inset
+            // (composer + keyboard). The old formula omitted the inset, so when the
+            // composer/dock grew to 355–377pt a half-screen scroll-up still read as
+            // "near bottom" — pinnedToBottom stayed true and every stream delta
+            // yanked the user back down. Measured; this is the snap-back bug.
+            let maxOffset = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
+            return (maxOffset - table.contentOffset.y) <= threshold
         }
 
         /// Idempotent — only moves if not already at the bottom, so it is safe to
