@@ -57,6 +57,14 @@ const (
 	streamBuffer = 32
 )
 
+// streamStallTimeout bounds how long the shared read loop will wait to hand a
+// frame to one stream's consumer before giving up on that stream. The read loop
+// multiplexes *every* stream on this connector, so a single wedged consumer
+// (e.g. a backgrounded phone whose TCP receive stalled) must never block it —
+// that once pinned the relay's Recv-Q and dead-locked the whole tunnel. A var,
+// not a const, so tests can shrink it. See deliver.
+var streamStallTimeout = 5 * time.Second
+
 // NewConn wraps an established WebSocket connection and starts its read loop.
 func NewConn(tunnelID, token string, ws *websocket.Conn) *Conn {
 	c := &Conn{
@@ -123,14 +131,47 @@ func (c *Conn) readLoop() {
 		if s == nil {
 			continue // unknown/closed stream; drop
 		}
-		select {
-		case s.frames <- f:
-		case <-c.closed:
+		if !c.deliver(s, f) {
 			return
 		}
 		if f.Type == TypeEnd || f.Type == TypeError {
 			c.removeStream(f.StreamID)
 		}
+	}
+}
+
+// deliver hands one frame to a stream's consumer without letting a single
+// stalled consumer freeze the shared read loop (which serves every stream on
+// this connector). The common path is an immediate buffered send; if the buffer
+// is full it waits a bounded grace period, then sacrifices *that* stream —
+// telling the connector to stop the upstream request and dropping it locally —
+// so the rest of the tunnel keeps flowing. Returns false only when the whole
+// connection is closing (the caller then exits the read loop).
+func (c *Conn) deliver(s *stream, f Frame) bool {
+	// Fast path: room in the buffer, deliver and move on.
+	select {
+	case s.frames <- f:
+		return true
+	case <-c.closed:
+		return false
+	default:
+	}
+	// Buffer full — the consumer is behind. Give it a bounded grace period.
+	timer := time.NewTimer(streamStallTimeout)
+	defer timer.Stop()
+	select {
+	case s.frames <- f:
+		return true
+	case <-c.closed:
+		return false
+	case <-timer.C:
+		// Consumer wedged. Drop just this stream and tell the connector to abort
+		// its upstream request (off the read loop, so a slow connector write can't
+		// re-stall the very loop we're protecting). The stream's Proxy goroutine
+		// unblocks when its own write deadline fires.
+		c.removeStream(f.StreamID)
+		go func(id uint64) { _ = c.write(Frame{Type: TypeCancel, StreamID: id}) }(f.StreamID)
+		return true
 	}
 }
 
