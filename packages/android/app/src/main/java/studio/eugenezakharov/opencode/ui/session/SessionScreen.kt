@@ -24,8 +24,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -676,12 +678,23 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
 
     val agentChoices = state.agents.filter { it.selectable }.map { it.name }.ifEmpty { listOf("build", "plan") }
 
+    // Bottom inset = MAX(ime, navigationBars), NOT their sum. The IME inset already
+    // spans the nav-bar strip when the keyboard is up, so stacking
+    // .navigationBarsPadding().imePadding() double-counted it and jumped the
+    // composer (and the transcript) up. Reading WindowInsets.ime here keeps the
+    // padding animating in step with the keyboard. See [ComposerInsets].
+    val density = LocalDensity.current
+    val bottomInset = with(density) {
+        ComposerInsets.bottomInsetPx(
+            imeBottomPx = WindowInsets.ime.getBottom(this),
+            navBarBottomPx = WindowInsets.navigationBars.getBottom(this),
+        ).toDp()
+    }
     Surface(tonalElevation = 3.dp) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
+                .padding(bottom = bottomInset)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             state.sendError?.let {
