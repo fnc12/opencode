@@ -237,7 +237,10 @@ fun SessionScreen(
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             when {
                 state.loading -> CircularProgressIndicator()
-                state.error != null -> CenteredMessage("Error", state.error!!)
+                state.error != null -> CenteredMessage(
+                    "Error", state.error!!,
+                    actionLabel = "Retry", onAction = { viewModel.retry() },
+                )
                 state.messages.isEmpty() -> CenteredMessage("No Messages", "This session has no messages yet")
                 else -> MessageList(
                     state,

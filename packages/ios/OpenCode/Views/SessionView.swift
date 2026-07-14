@@ -33,7 +33,22 @@ struct SessionView: View {
     var body: some View {
         ZStack {
             if let error {
-                ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
+                // A dead-end on a flaky network is the worst place to strand the
+                // user — the initial fetch times out on 4G and there's no way back
+                // in except leaving the screen. Offer an in-place Retry.
+                ContentUnavailableView {
+                    Label("Error", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button {
+                        Task { await retry() }
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("session.retry")
+                }
             } else {
                 // The whole screen is UIKit (message list + bottom bar) so the
                 // keyboard is handled natively: the composer is the controller's
@@ -305,6 +320,14 @@ struct SessionView: View {
                          pickerItems: $pickerItems, showPhotoPicker: $showPhotoPicker,
                          isBusy: isStreaming)
         }
+    }
+
+    /// Clears the error screen and re-runs the load + stream. Wired to the Retry
+    /// button so a timed-out initial fetch isn't a dead end.
+    private func retry() async {
+        error = nil
+        loading = true
+        await run()
     }
 
     /// Loads the message history, then consumes the SSE stream, reconnecting

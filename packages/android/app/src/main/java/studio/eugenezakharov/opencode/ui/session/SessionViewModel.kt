@@ -217,6 +217,17 @@ class SessionViewModel(
         }
     }
 
+    /**
+     * Re-runs the initial load + stream after a failure (e.g. a seed that timed
+     * out on a flaky network). Wired to the Retry button so the error screen
+     * isn't a dead end. Safe because [start] returns before the stream loop on
+     * the error path, so no second stream is left running.
+     */
+    fun retry() {
+        _state.update { it.copy(loading = true, error = null) }
+        start()
+    }
+
     private fun loadProviders() {
         viewModelScope.launch {
             val list = runCatching { server.providers() }.getOrDefault(emptyList())
