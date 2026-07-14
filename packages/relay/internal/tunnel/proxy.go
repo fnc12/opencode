@@ -63,10 +63,12 @@ func (c *Conn) Proxy(w http.ResponseWriter, r *http.Request, path string) {
 				http.Error(w, "tunnel closed", http.StatusBadGateway)
 			}
 			return
-		case f, ok := <-s.frames:
-			if !ok {
-				return
-			}
+		case f := <-s.frames:
+			// Note: no select on s.done here. The read loop only sheds a stream
+			// whose buffer stayed full — i.e. this consumer was blocked in Write,
+			// not waiting here — and that path is unblocked by the write deadline
+			// below. Selecting on s.done would race the drain of a normally-ended
+			// stream's buffered TypeEnd/TypeData and could truncate the response.
 			switch f.Type {
 			case TypeResponseHead:
 				var rh ResponseHead

@@ -25,12 +25,20 @@ func Decode(b []byte) (Frame, error) {
 }
 
 // stream is the relay-side state for one in-flight request.
+//
+// close() signals the end of the stream by closing `done`, NOT `frames`. The
+// frames channel has multiple potential senders (the read loop's deliver) and
+// closers (the consumer on client disconnect, deliver on a stalled drop, the
+// read loop on TypeEnd, shutdown) — closing it while a send is in flight panics
+// with "send on closed channel". Leaving `frames` open and using `done` as the
+// termination signal makes every send safe; senders select on `done` to stop.
 type stream struct {
 	frames chan Frame
+	done   chan struct{}
 	once   sync.Once
 }
 
-func (s *stream) close() { s.once.Do(func() { close(s.frames) }) }
+func (s *stream) close() { s.once.Do(func() { close(s.done) }) }
 
 // Conn represents a single connector's multiplexed WebSocket connection as seen
 // from the relay. It owns the read loop and routes inbound frames to the
@@ -148,10 +156,14 @@ func (c *Conn) readLoop() {
 // so the rest of the tunnel keeps flowing. Returns false only when the whole
 // connection is closing (the caller then exits the read loop).
 func (c *Conn) deliver(s *stream, f Frame) bool {
-	// Fast path: room in the buffer, deliver and move on.
+	// Fast path: room in the buffer, deliver and move on. `s.done` guards against
+	// a stream that was removed concurrently (consumer disconnected) so we neither
+	// block on a channel no one reads nor send to it after it's abandoned.
 	select {
 	case s.frames <- f:
 		return true
+	case <-s.done:
+		return true // stream gone; drop the frame, keep the read loop alive
 	case <-c.closed:
 		return false
 	default:
@@ -161,6 +173,8 @@ func (c *Conn) deliver(s *stream, f Frame) bool {
 	defer timer.Stop()
 	select {
 	case s.frames <- f:
+		return true
+	case <-s.done:
 		return true
 	case <-c.closed:
 		return false
@@ -196,7 +210,7 @@ func (c *Conn) newStream() (uint64, *stream) {
 	defer c.mu.Unlock()
 	c.nextID++
 	id := c.nextID
-	s := &stream{frames: make(chan Frame, streamBuffer)}
+	s := &stream{frames: make(chan Frame, streamBuffer), done: make(chan struct{})}
 	c.streams[id] = s
 	return id, s
 }

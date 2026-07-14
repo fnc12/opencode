@@ -115,6 +115,43 @@ func TestReadLoopStalledStreamCancelsUpstream(t *testing.T) {
 	}
 }
 
+// Regression for a production panic: removeStream (consumer disconnects, or the
+// read loop sheds a stalled stream) running concurrently with the read loop
+// delivering a frame to the same stream must never panic with "send on closed
+// channel". The data channel is never closed; termination goes through done. A
+// panic here would crash the whole test process (it fires in the read loop
+// goroutine), so reaching the end is the assertion. Runs hot under -race.
+func TestDeliverRaceWithRemoveStreamNoPanic(t *testing.T) {
+	old := streamStallTimeout
+	streamStallTimeout = 20 * time.Millisecond
+	defer func() { streamStallTimeout = old }()
+
+	c, peer := newConnPair(t)
+
+	for round := 0; round < 50; round++ {
+		id, s := c.newStream()
+		// Consumer drains a couple frames, then drops the stream — maximising the
+		// overlap between the read loop's send and the close.
+		go func(id uint64, s *stream) {
+			for i := 0; i < 3; i++ {
+				select {
+				case <-s.frames:
+				case <-time.After(3 * time.Millisecond):
+				}
+			}
+			c.removeStream(id)
+		}(id, s)
+		// Flood well past the buffer so the read loop is actively delivering while
+		// the consumer closes.
+		for i := 0; i < streamBuffer*2; i++ {
+			writeFrame(t, peer, Frame{Type: TypeData, StreamID: id, Payload: []byte("x")})
+		}
+	}
+	// Let the read loop chew through the last frames; a panic would have already
+	// taken the process down.
+	time.Sleep(150 * time.Millisecond)
+}
+
 // deadlineWriter is an http.ResponseWriter whose Write blocks until its
 // write deadline, then fails — a stand-in for a phone that stopped reading.
 type deadlineWriter struct {
