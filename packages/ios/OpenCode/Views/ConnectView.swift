@@ -24,6 +24,10 @@ struct ConnectView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 32)
+                // Lock the mode switch, every field, the QR scan button and the
+                // paste box while a connect attempt is in flight — the config
+                // being validated must not change under it.
+                .disabled(server.loading)
 
                 Group {
                     switch server.config.mode {
@@ -32,8 +36,17 @@ struct ConnectView: View {
                     }
                 }
                 .padding(.horizontal, 32)
+                .disabled(server.loading)
 
                 connectButton
+
+                if server.loading {
+                    // Escape hatch: cancel the request cleanly instead of waiting
+                    // out the timeout (or force-killing the app).
+                    Button("Cancel") { server.cancelConnect() }
+                        .padding(.horizontal, 32)
+                        .accessibilityIdentifier("connect.cancel")
+                }
 
                 if let error = server.error {
                     Text(error)
@@ -121,7 +134,10 @@ struct ConnectView: View {
             // to type, and the fields shouldn't sit behind the keyboard.
             UIApplication.shared.sendAction(
                 #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            Task { await server.connect() }
+            // Go through startConnect() so the request is owned by connectTask —
+            // otherwise the Cancel button has nothing to cancel and a hung connect
+            // (e.g. a stalled tunnel) can only be escaped by killing the app.
+            server.startConnect()
         } label: {
             if server.loading {
                 ProgressView().tint(.white).frame(maxWidth: .infinity)

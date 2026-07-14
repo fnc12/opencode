@@ -11,6 +11,10 @@ final class ServerConnection {
     var error: String?
     var loading = false
 
+    /// Backs an in-flight `connect()` so the UI can cancel it — e.g. the user
+    /// bails on a slow relay instead of waiting out the timeout. Not UI state.
+    @ObservationIgnored private var connectTask: Task<Void, Never>?
+
     /// Set when the user taps a push notification: the id of the session the
     /// notification is about. `ProjectListView` observes this and deep-links to
     /// that session, then clears it.
@@ -28,6 +32,24 @@ final class ServerConnection {
         }
     }
 
+    /// Starts a connect attempt, replacing any in-flight one. The UI calls this
+    /// (rather than awaiting `connect()` directly) so `cancelConnect()` has a
+    /// handle on the task.
+    func startConnect() {
+        guard !loading else { return }
+        connectTask = Task { await connect() }
+    }
+
+    /// Cancels an in-flight `startConnect()` — clears the spinner right away and
+    /// leaves the config untouched so the user can edit and retry.
+    func cancelConnect() {
+        guard loading else { return }
+        connectTask?.cancel()
+        connectTask = nil
+        loading = false
+        error = nil
+    }
+
     /// Attempts to connect using the current config and, on success, persists it.
     func connect() async {
         loading = true
@@ -40,6 +62,9 @@ final class ServerConnection {
             connected = true
             Keychain.saveConnection(config)
         } catch {
+            // User-initiated cancel: `cancelConnect()` already reset the state —
+            // don't surface the cancellation as a connection error.
+            if Task.isCancelled { connected = false; return }
             self.error = error.localizedDescription
             connected = false
         }

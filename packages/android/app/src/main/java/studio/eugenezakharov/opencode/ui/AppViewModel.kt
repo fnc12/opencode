@@ -3,6 +3,7 @@ package studio.eugenezakharov.opencode.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +54,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val json = Json { ignoreUnknownKeys = true }
     private var activityJob: Job? = null
+    private var connectJob: Job? = null
 
     /** A tapped notification asks to open this session (by id). */
     fun requestOpenSession(id: String?) {
@@ -100,7 +102,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun connect() {
         if (_state.value.loading) return
         _state.update { it.copy(loading = true, error = null) }
-        viewModelScope.launch {
+        connectJob = viewModelScope.launch {
             runCatching { server.health() }
                 .onSuccess { health ->
                     store.save(server.config)
@@ -111,11 +113,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 .onFailure { e ->
+                    // User-initiated cancel: `cancelConnect()` already cleared the
+                    // loading state — rethrow so structured concurrency stays intact
+                    // and we don't surface a spurious error.
+                    if (e is CancellationException) throw e
                     _state.update {
                         it.copy(loading = false, connected = false, error = e.message ?: "Connection failed")
                     }
                 }
         }
+    }
+
+    /** Cancels an in-flight [connect] (e.g. the user tapped Cancel instead of
+     *  waiting out a timeout). Leaves the config untouched so they can retry. */
+    fun cancelConnect() {
+        if (!_state.value.loading) return
+        connectJob?.cancel()
+        connectJob = null
+        _state.update { it.copy(loading = false, error = null) }
     }
 
     fun disconnect() {
