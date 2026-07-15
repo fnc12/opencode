@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +47,12 @@ fun ConnectScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // Shrink the viewport by the keyboard, then make the form scrollable so
+            // a focused field (e.g. the Token field, lowest in the form) is scrolled
+            // above the keyboard instead of being covered. Compose auto-scrolls the
+            // focused text field into the scrollable viewport.
+            .imePadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
