@@ -112,6 +112,7 @@ private fun SessionDestination(
             injectTestPermission = UiTestFlags.injectPermission,
             injectTestQuestion = UiTestFlags.injectQuestion,
             injectTestTodo = UiTestFlags.injectTodo,
+            cache = studio.eugenezakharov.opencode.api.MessageCache(context),
         )
     }
     // Returning to the foreground re-syncs the snapshot (parity with iOS's

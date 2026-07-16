@@ -68,6 +68,8 @@ class SessionViewModel(
     private val injectTestQuestion: Boolean = false,
     /** UI tests inject synthetic todos so the panel can be driven (mirrors iOS UITEST_TODO). */
     private val injectTestTodo: Boolean = false,
+    /** On-disk newest-page cache for cache-first paint; null in tests / no-context. */
+    private val cache: studio.eugenezakharov.opencode.api.MessageCache? = null,
 ) : ViewModel() {
 
     private val store = SessionStore()
@@ -113,6 +115,17 @@ class SessionViewModel(
 
     private fun start() {
         viewModelScope.launch {
+            // 0) Cache-first paint: show the last-seen newest page from disk right
+            // away (the skeleton is skipped once messages are non-empty), then
+            // refresh from the network in parallel below.
+            if (store.messages.isEmpty()) {
+                cache?.load(session.id)?.let { cached ->
+                    store.setInitial(cached)
+                    store.setRevert(session.revert?.messageID)
+                    _state.update { it.copy(loading = false, error = null) }
+                }
+            }
+
             // 1) Seed just the newest page — not the whole transcript. A single
             // session can carry tens of MB of tool output; fetching it all blocked
             // the screen for 40s–2min. The newest page renders instantly and older
@@ -122,7 +135,15 @@ class SessionViewModel(
                 server.messagesPage(session.directory, session.id, INITIAL_PAGE_SIZE)
             }
             seeded.onFailure { e ->
-                _state.update { it.copy(loading = false, error = e.message ?: "Failed to load messages") }
+                // Keep any cache-painted messages on screen; only dead-end to the
+                // error view when there's nothing to show.
+                _state.update {
+                    if (store.messages.isEmpty()) {
+                        it.copy(loading = false, error = e.message ?: "Failed to load messages")
+                    } else {
+                        it.copy(loading = false)
+                    }
+                }
                 return@launch
             }
             val page = seeded.getOrThrow()
@@ -130,6 +151,7 @@ class SessionViewModel(
             oldestCursor = page.nextCursor
             reachedStart = page.nextCursor == null
             store.setRevert(session.revert?.messageID)
+            cache?.save(session.id, page.raw) // seed the next reopen
             _state.update { it.copy(loading = false, error = null) }
 
             // 1b) Seed any permission requests / questions already pending for this session.
@@ -229,6 +251,7 @@ class SessionViewModel(
                 oldestCursor = it.nextCursor
                 reachedStart = it.nextCursor == null
                 store.setRevert(session.revert?.messageID)
+                cache?.save(session.id, it.raw)
             }
             runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
                 store.setInitialPermissions(pending.filter { it.sessionID == session.id })

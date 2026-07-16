@@ -184,6 +184,9 @@ final class ServerConnection {
     struct MessagePage {
         let messages: [MessageWithParts]
         let nextCursor: String?
+        /// The raw response body (the server's JSON array) — cached verbatim by
+        /// the caller so a reopen can paint from disk before the network returns.
+        let raw: Data
     }
 
     func messagesPage(directory: String, sessionID: String, limit: Int, before: String? = nil) async throws -> MessagePage {
@@ -203,7 +206,7 @@ final class ServerConnection {
         }
         let messages = try JSONDecoder().decode([MessageWithParts].self, from: data)
         let cursor = http.value(forHTTPHeaderField: "X-Next-Cursor")
-        return MessagePage(messages: messages, nextCursor: (cursor?.isEmpty == false) ? cursor : nil)
+        return MessagePage(messages: messages, nextCursor: (cursor?.isEmpty == false) ? cursor : nil, raw: data)
     }
 
     /// The aggregate file changes for a session (`GET /session/:id/diff`) — one

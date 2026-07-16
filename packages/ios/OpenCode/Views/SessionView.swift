@@ -376,6 +376,15 @@ struct SessionView: View {
     /// Loads the message history, then consumes the SSE stream, reconnecting
     /// with exponential backoff until the view (and thus this task) goes away.
     private func run() async {
+        // Cache-first paint: show the last-seen newest page from disk immediately,
+        // then refresh from the network in parallel below. On a cache hit the
+        // skeleton is skipped (messages are non-empty) so a reopen feels instant
+        // even on a slow hop.
+        if store.messages.isEmpty, let cached = MessageCache.load(session.id) {
+            store.setInitial(cached)
+            store.setRevert(session.revert?.messageID)
+            loading = false
+        }
         do {
             // Only the newest page — not the whole transcript. A single session can
             // carry tens of MB of tool output; fetching it all blocked the screen
@@ -388,6 +397,7 @@ struct SessionView: View {
             oldestCursor = page.nextCursor
             reachedStart = page.nextCursor == nil
             store.setRevert(session.revert?.messageID)
+            MessageCache.save(session.id, raw: page.raw) // seed the next reopen
         } catch is CancellationError {
             loading = false // the .task was cancelled (e.g. a screen presented over us) — not an error
             return
@@ -395,7 +405,9 @@ struct SessionView: View {
             loading = false
             return
         } catch {
-            self.error = error.localizedDescription
+            // Keep any cache-painted messages on screen; only dead-end to the error
+            // view when there's nothing to show.
+            if store.messages.isEmpty { self.error = error.localizedDescription }
             loading = false
             return
         }

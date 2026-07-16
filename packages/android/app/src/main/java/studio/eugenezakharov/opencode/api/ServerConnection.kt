@@ -158,7 +158,13 @@ class ServerConnection(
      * page, or null once the very first message has been reached. Mirrors iOS
      * `ServerConnection.MessagePage`.
      */
-    data class MessagePage(val messages: List<MessageWithParts>, val nextCursor: String?)
+    data class MessagePage(
+        val messages: List<MessageWithParts>,
+        val nextCursor: String?,
+        /** The raw response body (the server's JSON array) — cached verbatim by
+         *  the caller so a reopen can paint from disk before the network returns. */
+        val raw: String,
+    )
 
     /**
      * Fetches the newest [limit] messages (or, with [before], the [limit] messages
@@ -178,7 +184,7 @@ class ServerConnection(
             if (before != null) put("before", before)
         }
         val (body, cursor) = getRawWithHeader("/session/$sessionID/message", query, "X-Next-Cursor")
-        MessagePage(MessageParsing.parseMessageList(json, body), cursor?.ifEmpty { null })
+        MessagePage(MessageParsing.parseMessageList(json, body), cursor?.ifEmpty { null }, body)
     }
 
     /** The session's current todo list (`GET /session/:id/todo`). Mirrors iOS. */
