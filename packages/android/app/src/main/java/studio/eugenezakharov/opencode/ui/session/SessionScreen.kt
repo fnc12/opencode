@@ -238,7 +238,9 @@ fun SessionScreen(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             when {
-                state.loading -> CircularProgressIndicator()
+                // A shimmering placeholder transcript reads better than a bare
+                // spinner while the newest page loads (mirrors iOS).
+                state.loading -> MessageSkeleton()
                 state.error != null -> CenteredMessage(
                     "Error", state.error!!,
                     actionLabel = "Retry", onAction = { viewModel.retry() },

@@ -78,8 +78,14 @@ struct SessionView: View {
                         stuckCheck = Date()
                     }
                 }
-                if loading {
-                    ProgressView("Loading messages...")
+                if loading && store.messages.isEmpty {
+                    // A shimmering placeholder transcript reads better than a bare
+                    // spinner while the newest page loads. Only on a cold open —
+                    // once any message is present (incl. a cache hit, later) the
+                    // real list shows through instead.
+                    MessageSkeletonView()
+                        .background(Color(.systemBackground))
+                        .transition(.opacity)
                 }
             }
         }
