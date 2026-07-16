@@ -248,6 +248,7 @@ fun SessionScreen(
                     state,
                     onRevert = { viewModel.revert(it) },
                     onSelect = { detailMessage = it },
+                    onLoadOlder = { viewModel.loadOlder() },
                 )
             }
             val last = state.messages.lastOrNull()
@@ -975,6 +976,7 @@ private fun MessageList(
     state: SessionUiState,
     onRevert: (String) -> Unit,
     onSelect: (studio.eugenezakharov.opencode.api.models.MessageWithParts) -> Unit,
+    onLoadOlder: () -> Unit,
 ) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
@@ -989,6 +991,21 @@ private fun MessageList(
                 // doesn't flicker on every token.
                 (itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)
                     ?.supportsChangeAnimations = false
+                // Instagram-style preload: page in older history while the user is
+                // still ~1.5 screens from the top, so it lands before they reach it.
+                // Only fires on a real scroll (dy != 0 while dragging/settling), so
+                // the initial fill can't auto-trigger it. loadOlder() is guarded by
+                // an in-flight flag, so firing every scroll frame is safe. Inserting
+                // older rows above keeps the viewport stable — RecyclerView anchors
+                // to the first visible child across a top insert (DiffUtil-driven).
+                addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                    override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                        if (dy >= 0) return // only when scrolling up (toward older)
+                        val manager = rv.layoutManager as LinearLayoutManager
+                        val visibleThreshold = manager.childCount * 3 / 2 // ~1.5 screens of rows
+                        if (manager.findFirstVisibleItemPosition() <= visibleThreshold) onLoadOlder()
+                    }
+                })
             }
         },
         update = { recycler ->

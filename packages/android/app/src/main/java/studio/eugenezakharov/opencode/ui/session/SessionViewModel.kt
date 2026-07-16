@@ -46,6 +46,9 @@ data class SessionUiState(
     val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem> = emptyList(),
     val commands: List<studio.eugenezakharov.opencode.api.models.CommandInfo> = emptyList(),
     val revertMessageID: String? = null,
+    // True while an older page of history is being fetched (scroll-up pagination) —
+    // drives the top-of-list loading indicator.
+    val loadingOlder: Boolean = false,
 )
 
 /**
@@ -69,6 +72,15 @@ class SessionViewModel(
 
     private val store = SessionStore()
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Scroll-up pagination cursor state. The initial seed pulls only the newest
+    // page so a huge session (tens of MB of tool output) opens instantly; older
+    // pages stream in as the user scrolls up. [oldestCursor] is the `before=`
+    // token for the next older page; null + [reachedStart] means the very first
+    // message has been reached.
+    private var oldestCursor: String? = null
+    private var reachedStart = false
+    private var loadingOlder = false
 
     private val _state = MutableStateFlow(
         SessionUiState(
@@ -101,13 +113,22 @@ class SessionViewModel(
 
     private fun start() {
         viewModelScope.launch {
-            // 1) Seed history.
-            val seeded = runCatching { server.messages(session.directory, session.id) }
+            // 1) Seed just the newest page — not the whole transcript. A single
+            // session can carry tens of MB of tool output; fetching it all blocked
+            // the screen for 40s–2min. The newest page renders instantly and older
+            // history pages in on scroll-up. (Measured: newest-5 = 32KB/4ms vs the
+            // full history = 41MB on the pathological session.)
+            val seeded = runCatching {
+                server.messagesPage(session.directory, session.id, INITIAL_PAGE_SIZE)
+            }
             seeded.onFailure { e ->
                 _state.update { it.copy(loading = false, error = e.message ?: "Failed to load messages") }
                 return@launch
             }
-            store.setInitial(seeded.getOrThrow())
+            val page = seeded.getOrThrow()
+            store.setInitial(page.messages)
+            oldestCursor = page.nextCursor
+            reachedStart = page.nextCursor == null
             store.setRevert(session.revert?.messageID)
             _state.update { it.copy(loading = false, error = null) }
 
@@ -201,8 +222,12 @@ class SessionViewModel(
         // overwrite it with (empty) server truth.
         if (injectTestPermission || injectTestQuestion || injectTestTodo) return
         viewModelScope.launch {
-            runCatching { server.messages(session.directory, session.id) }.getOrNull()?.let {
-                store.setInitial(it)
+            // Re-seed just the newest page and reset the pagination cursor — a
+            // foreground refresh shouldn't re-pull the whole (possibly huge) history.
+            runCatching { server.messagesPage(session.directory, session.id, INITIAL_PAGE_SIZE) }.getOrNull()?.let {
+                store.setInitial(it.messages)
+                oldestCursor = it.nextCursor
+                reachedStart = it.nextCursor == null
                 store.setRevert(session.revert?.messageID)
             }
             runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
@@ -214,6 +239,34 @@ class SessionViewModel(
             runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let {
                 store.setInitialTodos(it)
             }
+        }
+    }
+
+    /**
+     * Pages in the next older chunk of history (scroll-up). Called by the list as
+     * it nears the top — fired ahead of the user reaching the first row so the
+     * page lands before they get there. Guarded by an in-flight flag so the many
+     * scroll events near the top collapse into one request; a null [oldestCursor]
+     * / [reachedStart] means there's nothing older to fetch. Mirrors iOS
+     * `SessionView.loadOlder`.
+     */
+    fun loadOlder() {
+        if (injectTestPermission || injectTestQuestion || injectTestTodo) return
+        val cursor = oldestCursor
+        if (loadingOlder || reachedStart || cursor == null) return
+        loadingOlder = true
+        _state.update { it.copy(loadingOlder = true) }
+        viewModelScope.launch {
+            runCatching { server.messagesPage(session.directory, session.id, OLDER_PAGE_SIZE, cursor) }
+                .onSuccess { page ->
+                    store.prependOlder(page.messages)
+                    oldestCursor = page.nextCursor
+                    if (page.nextCursor == null) reachedStart = true
+                }
+            // On failure: leave the cursor untouched so the next scroll near the top
+            // retries. No user-facing error for a page fetched speculatively ahead.
+            loadingOlder = false
+            _state.update { it.copy(loadingOlder = false) }
         }
     }
 
@@ -387,5 +440,13 @@ class SessionViewModel(
         viewModelScope.launch {
             runCatching { server.rejectQuestion(session.directory, request.id) }
         }
+    }
+
+    companion object {
+        /** Newest page fetched on open — small so a huge session opens instantly. */
+        private const val INITIAL_PAGE_SIZE = 5
+
+        /** Older pages pulled on scroll-up — a bigger chunk, one round-trip. */
+        private const val OLDER_PAGE_SIZE = 20
     }
 }

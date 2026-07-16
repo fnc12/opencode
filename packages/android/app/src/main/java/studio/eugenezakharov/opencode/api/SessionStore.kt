@@ -74,6 +74,23 @@ class SessionStore {
         onChange?.invoke()
     }
 
+    /**
+     * Merges an older page of history in at the front (scroll-up pagination),
+     * de-duped by id. Existing entries win, so live SSE updates to a message
+     * aren't clobbered by the (older) snapshot from the page fetch. No-op if
+     * nothing new, so it's safe to call speculatively. Mirrors iOS
+     * `SessionStore.prependOlder`.
+     */
+    fun prependOlder(older: List<MessageWithParts>) {
+        val existing = _messages.mapTo(HashSet()) { it.id }
+        val fresh = older.filter { it.id !in existing }
+        if (fresh.isEmpty()) return
+        _messages.addAll(0, fresh)
+        _messages.sortBy { it.info.created }
+        revision += 1
+        onChange?.invoke()
+    }
+
     /** Seeds the pending permissions (from `GET /permission`, filtered to this session). */
     fun setInitialPermissions(permissions: List<PermissionRequest>) {
         _pendingPermissions.clear()
