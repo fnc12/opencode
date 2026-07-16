@@ -69,6 +69,11 @@ struct MessageListView: UIViewRepresentable {
         /// Called when a message row is tapped — opens its detail screen, zooming
         /// from the cell's frame (in window coordinates).
         var onSelectMessageAt: ((String, CGRect) -> Void)?
+        /// Fired (on a user-driven scroll) as the list nears the top, so older
+        /// history is paged in *ahead* of the user reaching the very first row —
+        /// Instagram-style preload. Idempotent on the callee (guarded by an
+        /// in-flight flag), so firing it every scroll delta is safe.
+        var onNearTop: (() -> Void)?
 
         /// Fade + slide a freshly-arrived row in the first time it displays, so a
         /// new step/tool line eases into the transcript instead of snapping in.
@@ -103,7 +108,7 @@ struct MessageListView: UIViewRepresentable {
             }
         }
 
-        func apply(_ messages: [MessageWithParts], table: UITableView) {
+        func apply(_ messages: [MessageWithParts], table: UITableView, suppressEntrance: Bool = false) {
             guard let dataSource else { return }
             lookup = Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
 
@@ -124,7 +129,7 @@ struct MessageListView: UIViewRepresentable {
             // Mark rows that appear *after* the first history fill for an entrance
             // animation (played in `willDisplay`). The initial load isn't animated
             // — only steps/tools streaming in during the turn should slide in.
-            if hasApplied {
+            if hasApplied && !suppressEntrance {
                 for id in messages.map(\.id) where !seenIDs.contains(id) { entranceIDs.insert(id) }
             }
             seenIDs = liveIDs                       // track current set (a reverted-away row re-animates if it returns)
@@ -203,11 +208,31 @@ struct MessageListView: UIViewRepresentable {
         }
 
         private func applyNow(_ messages: [MessageWithParts], table: UITableView) {
-            apply(messages, table: table)
+            // Detect an older-history prepend (scroll-up pagination): the row that
+            // was first is still present but no longer first — rows were inserted
+            // above it. Re-anchor the offset by the inserted height afterwards so
+            // paging in older messages never yanks the content the user is reading.
+            let oldFirstID = dataSource?.snapshot().itemIdentifiers.first
+            let isPrepend = !pinnedToBottom
+                && oldFirstID != nil
+                && messages.first?.id != oldFirstID
+                && messages.contains { $0.id == oldFirstID }
+            let oldContentHeight = table.contentSize.height
+            let oldOffsetY = table.contentOffset.y
+
+            apply(messages, table: table, suppressEntrance: isPrepend)
             hasApplied = true
+
             if pinnedToBottom {
                 table.layoutIfNeeded()
                 scrollToBottom(table)
+            } else if isPrepend {
+                // Exact row heights (estimatedHeightForRowAt returns the real cached
+                // height) make contentSize accurate immediately, so the delta below
+                // is the true height of the inserted history — no visible jump.
+                table.layoutIfNeeded()
+                let delta = table.contentSize.height - oldContentHeight
+                if delta != 0 { table.contentOffset.y = oldOffsetY + delta }
             }
         }
 
@@ -261,6 +286,17 @@ struct MessageListView: UIViewRepresentable {
             guard let table = scrollView as? UITableView,
                   scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else { return }
             pinnedToBottom = isNearBottom(table)
+            maybeLoadOlder(table)
+        }
+
+        /// Fire the older-history load while the user is still ~1.5 screens from
+        /// the top, so the previous page lands before they scroll onto it. Only
+        /// runs on a user-driven scroll (the callers all guard on isTracking/
+        /// isDragging/isDecelerating), so the initial layout can't auto-trigger it.
+        private func maybeLoadOlder(_ table: UITableView) {
+            guard hasApplied, let onNearTop else { return }
+            let distanceFromTop = table.contentOffset.y + table.adjustedContentInset.top
+            if distanceFromTop <= table.bounds.height * 1.5 { onNearTop() }
         }
 
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {

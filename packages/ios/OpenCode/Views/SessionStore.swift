@@ -35,6 +35,18 @@ final class SessionStore {
         revision += 1
     }
 
+    /// Merge an older page of history in at the front (scroll-up pagination),
+    /// de-duped by id. Existing entries win, so live SSE updates to a message
+    /// aren't clobbered by the (older) snapshot from the page fetch. No-op if
+    /// nothing new, so it's safe to call speculatively.
+    func prependOlder(_ older: [MessageWithParts]) {
+        let existing = Set(messages.map(\.id))
+        let fresh = older.filter { !existing.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        messages = (fresh + messages).sorted { Self.createdAt($0) < Self.createdAt($1) }
+        revision += 1
+    }
+
     func setInitialPermissions(_ permissions: [PermissionRequest]) {
         pendingPermissions = permissions
     }

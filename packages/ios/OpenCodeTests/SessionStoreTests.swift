@@ -95,4 +95,61 @@ final class SessionStoreTests: XCTestCase {
         store.apply(userUpdated(id: "msg_u", created: 1), sessionID: sessionID)
         XCTAssertGreaterThan(store.revision, before)
     }
+
+    // MARK: - scroll-up pagination (prependOlder)
+
+    /// A bare user message with a distinguishing text part, decoded the same way
+    /// the REST snapshot is — so `prependOlder` is exercised against real models.
+    private func message(id: String, created: Double, text: String = "") -> MessageWithParts {
+        let json = """
+        {"info":{"id":"\(id)","sessionID":"ses_1","role":"user","time":{"created":\(created)}},
+        "parts":[{"id":"prt_\(id)","sessionID":"ses_1","messageID":"\(id)","type":"text","text":"\(text)"}]}
+        """
+        return try! JSONDecoder().decode(MessageWithParts.self, from: Data(json.utf8))
+    }
+
+    private func text(of message: MessageWithParts) -> String {
+        for part in message.parts { if case .text(let t)? = part.content { return t } }
+        return ""
+    }
+
+    func testPrependOlderMergesInCreationOrder() {
+        let store = SessionStore()
+        // Newest page loaded first (as on open), oldest history prepended after.
+        store.setInitial([message(id: "m30", created: 30), message(id: "m40", created: 40)])
+        store.prependOlder([message(id: "m10", created: 10), message(id: "m20", created: 20)])
+        XCTAssertEqual(store.messages.map(\.id), ["m10", "m20", "m30", "m40"],
+                       "older page merges ahead of the newest page, sorted by creation time")
+    }
+
+    func testPrependOlderDedupesAndKeepsExisting() {
+        let store = SessionStore()
+        // The live/newest copy of m20 carries streamed text…
+        store.setInitial([message(id: "m20", created: 20, text: "live"),
+                          message(id: "m30", created: 30)])
+        // …and the older page re-includes m20 (page windows can overlap the cursor).
+        store.prependOlder([message(id: "m10", created: 10),
+                            message(id: "m20", created: 20, text: "stale")])
+        XCTAssertEqual(store.messages.map(\.id), ["m10", "m20", "m30"], "no duplicate m20")
+        let m20 = store.messages.first { $0.id == "m20" }!
+        XCTAssertEqual(text(of: m20), "live", "existing (live) copy wins over the older page")
+    }
+
+    func testPrependOlderNoopWhenNothingNew() {
+        let store = SessionStore()
+        store.setInitial([message(id: "m30", created: 30)])
+        let before = store.revision
+        store.prependOlder([])                                  // empty page
+        store.prependOlder([message(id: "m30", created: 30)])   // fully-overlapping page
+        XCTAssertEqual(store.messages.map(\.id), ["m30"])
+        XCTAssertEqual(store.revision, before, "a no-op prepend doesn't bump the revision / re-render")
+    }
+
+    func testPrependOlderBumpsRevisionWhenNew() {
+        let store = SessionStore()
+        store.setInitial([message(id: "m30", created: 30)])
+        let before = store.revision
+        store.prependOlder([message(id: "m10", created: 10)])
+        XCTAssertGreaterThan(store.revision, before)
+    }
 }

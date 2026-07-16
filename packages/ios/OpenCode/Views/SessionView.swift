@@ -9,6 +9,14 @@ struct SessionView: View {
     @State private var store = SessionStore()
     @State private var loading = true
     @State private var error: String?
+    // Scroll-up pagination cursor state. The initial load pulls only the newest
+    // page (see `initialPageSize`) so the screen fills instantly even on sessions
+    // whose full history is tens of MB; older pages stream in as the user scrolls
+    // up. `oldestCursor` is the `before=` token for the next older page; nil +
+    // reachedStart means we've hit the very first message.
+    @State private var oldestCursor: String?
+    @State private var reachedStart = false
+    @State private var loadingOlder = false
     @State private var showDiff = false
     @State private var showShell = false
     @State private var showTodos = false
@@ -56,6 +64,7 @@ struct SessionView: View {
                 SessionContent(messages: visibleMessages,
                                revision: store.revision,
                                onRevert: { revertTarget = $0 },
+                               onLoadOlder: { Task { await loadOlder() } },
                                showTyping: showThinking && !isStuck,
                                barRevision: barRevision) {
                     bottomBar
@@ -322,6 +331,34 @@ struct SessionView: View {
         }
     }
 
+    /// Newest page fetched on open — kept small so a huge session (tens of MB of
+    /// tool output) opens instantly instead of blocking on the whole transcript.
+    private static let initialPageSize = 5
+    /// Older pages pulled on scroll-up. Larger than the initial page: by the time
+    /// the user scrolls back they want a chunk of history, and it's one round-trip.
+    private static let olderPageSize = 20
+
+    /// Pages in the next older chunk of history (scroll-up). Guarded so the many
+    /// scroll events near the top collapse into one in-flight request; a nil
+    /// `oldestCursor` / `reachedStart` means there's nothing older to fetch.
+    private func loadOlder() async {
+        guard !loadingOlder, !reachedStart, let cursor = oldestCursor else { return }
+        loadingOlder = true
+        defer { loadingOlder = false }
+        do {
+            let page = try await server.messagesPage(
+                directory: session.directory, sessionID: session.id,
+                limit: Self.olderPageSize, before: cursor)
+            store.prependOlder(page.messages)
+            oldestCursor = page.nextCursor
+            if page.nextCursor == nil { reachedStart = true }
+        } catch {
+            // Transient (e.g. a flaky relay hop): leave the cursor untouched so the
+            // next scroll near the top retries. No user-facing error for a page we
+            // fetch speculatively ahead of the user reaching it.
+        }
+    }
+
     /// Clears the error screen and re-runs the load + stream. Wired to the Retry
     /// button so a timed-out initial fetch isn't a dead end.
     private func retry() async {
@@ -334,8 +371,16 @@ struct SessionView: View {
     /// with exponential backoff until the view (and thus this task) goes away.
     private func run() async {
         do {
-            let initial = try await server.messages(directory: session.directory, sessionID: session.id)
-            store.setInitial(initial)
+            // Only the newest page — not the whole transcript. A single session can
+            // carry tens of MB of tool output; fetching it all blocked the screen
+            // for 40s–2min. The newest page renders instantly and older history
+            // pages in on scroll-up. (Measured: newest-5 = 32KB/4ms vs the full
+            // history = 41MB on the pathological session.)
+            let page = try await server.messagesPage(
+                directory: session.directory, sessionID: session.id, limit: Self.initialPageSize)
+            store.setInitial(page.messages)
+            oldestCursor = page.nextCursor
+            reachedStart = page.nextCursor == nil
             store.setRevert(session.revert?.messageID)
         } catch is CancellationError {
             loading = false // the .task was cancelled (e.g. a screen presented over us) — not an error

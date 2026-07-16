@@ -135,6 +135,12 @@ final class SessionContentController: UIViewController {
         didSet { coordinator.onRevert = onRevert }
     }
 
+    /// Wired from SwiftUI: called as the list nears the top so older history pages
+    /// in (scroll-up pagination).
+    var onLoadOlder: (() -> Void)? {
+        didSet { coordinator.onNearTop = onLoadOlder }
+    }
+
     /// Wired from SwiftUI: called with a message id when a row is tapped.
     private var zoomTransition: ZoomTransition?
 
@@ -280,6 +286,8 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     let messages: [MessageWithParts]
     let revision: Int
     var onRevert: ((String) -> Void)? = nil
+    /// Called as the list nears the top so the view can page in older history.
+    var onLoadOlder: (() -> Void)? = nil
     /// Shows a "thinking" indicator as the last row (in the message flow, where
     /// the reply will appear) while the agent works but hasn't streamed text yet.
     var showTyping: Bool = false
@@ -306,6 +314,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         context.coordinator.lastBarRevision = barRevision
         let controller = SessionContentController(bar: InputBarView(content: host.view))
         controller.onRevert = onRevert
+        controller.onLoadOlder = onLoadOlder
         controller.messages = messages
         controller.showTyping = showTyping
         return controller
@@ -320,6 +329,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
             context.coordinator.host?.rootView = bar()
         }
         controller.onRevert = onRevert
+        controller.onLoadOlder = onLoadOlder
         controller.messages = messages
         controller.showTyping = showTyping
     }

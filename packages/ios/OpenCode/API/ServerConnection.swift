@@ -176,6 +176,36 @@ final class ServerConnection {
         try await get("/session/\(sessionID)/message", query: ["directory": directory])
     }
 
+    /// One page of a session's messages, newest-last. Without `before` it returns
+    /// the newest `limit` messages; with `before` (a cursor) the next older page.
+    /// `nextCursor` (from the `X-Next-Cursor` response header) is the cursor for the
+    /// next older page, or nil at the start of history. Lets a huge session paint
+    /// its latest messages immediately instead of blocking on the whole transcript.
+    struct MessagePage {
+        let messages: [MessageWithParts]
+        let nextCursor: String?
+    }
+
+    func messagesPage(directory: String, sessionID: String, limit: Int, before: String? = nil) async throws -> MessagePage {
+        guard var components = URLComponents(string: config.baseURL + "/session/\(sessionID)/message") else {
+            throw ClientError.invalidURL
+        }
+        var items = [URLQueryItem(name: "directory", value: directory),
+                     URLQueryItem(name: "limit", value: String(limit))]
+        if let before { items.append(URLQueryItem(name: "before", value: before)) }
+        components.queryItems = items
+        guard let url = components.url else { throw ClientError.invalidURL }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw ClientError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let messages = try JSONDecoder().decode([MessageWithParts].self, from: data)
+        let cursor = http.value(forHTTPHeaderField: "X-Next-Cursor")
+        return MessagePage(messages: messages, nextCursor: (cursor?.isEmpty == false) ? cursor : nil)
+    }
+
     /// The aggregate file changes for a session (`GET /session/:id/diff`) — one
     /// unified diff per touched file.
     func sessionDiff(directory: String, sessionID: String) async throws -> [SessionFileDiff] {
