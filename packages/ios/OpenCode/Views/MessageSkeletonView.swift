@@ -27,7 +27,12 @@ struct MessageSkeletonView: View {
             // Clip the shimmer sweep to the bubble shapes so it only glints over
             // "content", not the gaps between rows.
             .mask(bubbles)
-            .onAppear { withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) { shimmer = true } }
+            // NOT `withAnimation(.repeatForever)` in onAppear: a repeat-forever
+            // transaction leaks beyond this view and infects unrelated layers —
+            // measured on device as the toolbar buttons pulsing at exactly this
+            // 1.15s period, forever, after the skeleton had appeared once. The
+            // scoped `.animation(_:value:)` on the sweep (below) stays local.
+            .onAppear { shimmer = true }
             .accessibilityIdentifier("session.skeleton")
             .accessibilityLabel("Loading messages")
     }
@@ -74,6 +79,8 @@ struct MessageSkeletonView: View {
                 startPoint: .leading, endPoint: .trailing)
                 .frame(width: w * 0.6)
                 .offset(x: shimmer ? w : -w * 0.6)
+                // Scoped to THIS view only — see the onAppear note above.
+                .animation(.linear(duration: 1.15).repeatForever(autoreverses: false), value: shimmer)
         }
     }
 }
