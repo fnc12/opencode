@@ -95,17 +95,23 @@ struct SessionView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 // Equatable island: the session body re-evaluates on every
                 // streamed delta, and re-created toolbar buttons visibly flash
-                // on device. `.equatable()` skips this subtree's body unless its
-                // VALUE inputs (share state, stream status) actually change, so
-                // the buttons' render tree stays untouched while text streams.
+                // (measured on device: each re-created toolbar item's platter
+                // fades in from alpha 0 over ~0.3s). `.equatable()` skips this
+                // subtree's body unless its VALUE inputs actually change. The
+                // stream-status badge deliberately lives in its OWN item below:
+                // while the stream reconnects the status flips every backoff
+                // cycle, and having it as an input here re-created the buttons
+                // on every flip — the "buttons constantly blink" bug.
                 SessionToolbar(
                     hasShareURL: shareURL != nil,
-                    status: store.status,
                     onShell: { showShell = true },
                     onDiff: { showDiff = true },
                     onShare: { Task { await share() } },
                     onStopShare: { Task { await stopSharing() } })
                     .equatable()
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                StreamStatusBadge(status: store.status)
             }
         }
         .sheet(isPresented: $showShell) {
@@ -580,14 +586,13 @@ private struct StreamStatusBadge: View {
 /// the same state setters every time.
 private struct SessionToolbar: View, Equatable {
     let hasShareURL: Bool
-    let status: SessionStore.StreamStatus
     let onShell: () -> Void
     let onDiff: () -> Void
     let onShare: () -> Void
     let onStopShare: () -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.hasShareURL == rhs.hasShareURL && lhs.status == rhs.status
+        lhs.hasShareURL == rhs.hasShareURL
     }
 
     var body: some View {
@@ -616,7 +621,6 @@ private struct SessionToolbar: View, Equatable {
                 Image(systemName: hasShareURL ? "link.circle.fill" : "square.and.arrow.up")
             }
             .accessibilityIdentifier("session.share")
-            StreamStatusBadge(status: status)
         }
     }
 }
