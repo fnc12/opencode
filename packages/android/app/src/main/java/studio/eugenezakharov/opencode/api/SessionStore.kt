@@ -124,6 +124,10 @@ class SessionStore {
     }
 
     fun setStatus(newStatus: StreamStatus) {
+        // No-op on the same value: the stream loop reports LIVE on every SSE
+        // frame (of the global bus — all sessions), and re-publishing identical
+        // state recomposes status readers for nothing. Mirrors iOS.
+        if (newStatus == status) return
         status = newStatus
         onChange?.invoke()
     }

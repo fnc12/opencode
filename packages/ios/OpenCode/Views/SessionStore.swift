@@ -74,6 +74,12 @@ final class SessionStore {
     }
 
     func setStatus(_ status: StreamStatus) {
+        // No-op on the same value: the stream loop calls setStatus(.live) on
+        // EVERY SSE frame (of the global bus — all sessions), and @Observable
+        // notifies on any assignment, same value or not. That re-rendered the
+        // toolbar (which reads `status` for the badge) on every event, making
+        // the shell/diff/share buttons visibly flicker.
+        guard status != self.status else { return }
         self.status = status
     }
 
