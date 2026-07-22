@@ -212,22 +212,36 @@ final class SessionContentController: UIViewController {
     /// Keyboard height excluding the accessory bar (0 when the keyboard is down),
     /// so the inset can be recomputed against the *current* bar height.
     private var lastKeyboardOnly: CGFloat = 0
+
+    /// How much of THIS view the accessory bar actually covers, from its real
+    /// on-screen position. NOT the same as `bar.bounds.height`: the bar lives in
+    /// the keyboard window and spans down to the physical screen bottom
+    /// (including the home-indicator area), while this view stops at the safe
+    /// area ABOVE the home indicator. Using the bar's height as the inset floor
+    /// over-covered by that difference (~30-45pt), leaving a permanent band of
+    /// bare table background between the last message and the composer whenever
+    /// the keyboard was down — THE "gap" bug. (Keyboard-up insets come from the
+    /// keyboard frame converted into view coords, which is why that mode was
+    /// always flush.) Diagnosed by layer-coloring: the gap pixels were table
+    /// background, i.e. viewport past the content end created by the inflated
+    /// inset. Returns nil before the bar is on screen.
+    private func barOverlapNow() -> CGFloat? {
+        guard let barSuper = bar.superview, bar.window != nil, view.window != nil else { return nil }
+        let barTopInView = view.convert(bar.frame, from: barSuper).minY
+        return max(0, view.bounds.maxY - barTopInView)
+    }
     private func syncBottomInset() {
-        // Re-derive the keyboard part of the cover from the bar's ACTUAL on-screen
-        // position instead of trusting the last keyboard notification. The bar is
-        // the accessory view riding the keyboard, so `view.maxY - barTop` IS the
-        // real covered height. Measured on device: an interactive dismiss can end
-        // with a bogus (or missing) keyboard frame that our guard drops, leaving
-        // `lastKeyboardOnly` stuck at a transitional value — a phantom bottom
-        // inset that rested the list ~40-50pt above the composer with the
-        // keyboard closed (while opening the keyboard set an honest inset, which
-        // is why the two modes rested differently). The bar re-docks after any
-        // dismiss, its height change lands here, and this self-corrects.
-        if let barSuper = bar.superview, bar.window != nil, view.window != nil {
-            let barTopInView = view.convert(bar.frame, from: barSuper).minY
-            lastKeyboardOnly = max(0, view.bounds.maxY - barTopInView - bar.bounds.height)
+        // The resting cover is the bar's REAL overlap with this view (see
+        // barOverlapNow). This both fixes the home-indicator over-count and
+        // self-corrects `lastKeyboardOnly` after a dismiss whose final keyboard
+        // frame was bogus or absent.
+        let cover: CGFloat
+        if let overlap = barOverlapNow() {
+            cover = overlap
+            lastKeyboardOnly = max(0, overlap - bar.bounds.height)
+        } else {
+            cover = lastKeyboardOnly + bar.bounds.height
         }
-        let cover = lastKeyboardOnly + bar.bounds.height
         let delta = cover - table.contentInset.bottom
         guard abs(delta) > 0.5 else { return }
         let pinned = coordinator.isPinnedToBottom
@@ -264,11 +278,19 @@ final class SessionContentController: UIViewController {
               let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else { return }
         let endInView = view.convert(end, from: window)
+        // What the DOCKED bar covers of this view. Not `bar.bounds.height`: the
+        // bar spans down to the physical screen bottom while this view stops at
+        // the safe area above the home indicator, so the bar's own height
+        // over-counts by that slice (~30-45pt) — using it as the resting inset
+        // left a permanent band of bare table background above the composer.
+        let viewBottomInWindow = view.convert(CGPoint(x: 0, y: view.bounds.maxY), to: window).y
+        let belowView = max(0, window.bounds.height - viewBottomInWindow)
+        let dockedCover = max(0, bar.bounds.height - belowView)
         // A hide's end frame is untrustworthy (measured: bogus transitional
         // frames during interactive dismiss) — hidden means the docked bar is
         // the whole cover, full stop.
         let kbOverlap = note.name == UIResponder.keyboardWillHideNotification
-            ? bar.bounds.height
+            ? dockedCover
             : view.bounds.maxY - endInView.minY
         // UIKit posts spurious transitional keyboard frames during an interactive
         // dismiss with an inputAccessoryView — the frame is reported above the view,
@@ -280,7 +302,7 @@ final class SessionContentController: UIViewController {
             return
         }
         lastKeyboardOnly = max(0, kbOverlap - bar.bounds.height)
-        let cover = max(bar.bounds.height, kbOverlap)
+        let cover = max(dockedCover, kbOverlap)
         let delta = cover - table.contentInset.bottom
         guard abs(delta) > 0.5 else { return }
 
