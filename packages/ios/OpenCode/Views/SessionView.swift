@@ -93,33 +93,19 @@ struct SessionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 10) {
-                    // Stop lives in the composer (send ↔ stop), like the web — not here.
-                    Button { showShell = true } label: {
-                        Image(systemName: "terminal")
-                    }
-                    .accessibilityIdentifier("session.shell")
-                    .accessibilityLabel("Shell")
-                    Button { showDiff = true } label: {
-                        Image(systemName: "plusminus")
-                    }
-                    .accessibilityIdentifier("session.diff")
-                    .accessibilityLabel("Changes")
-                    Menu {
-                        Button { Task { await share() } } label: {
-                            Label("Share link", systemImage: "square.and.arrow.up")
-                        }
-                        if shareURL != nil {
-                            Button(role: .destructive) { Task { await stopSharing() } } label: {
-                                Label("Stop sharing", systemImage: "xmark.circle")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: shareURL != nil ? "link.circle.fill" : "square.and.arrow.up")
-                    }
-                    .accessibilityIdentifier("session.share")
-                    StreamStatusBadge(status: store.status)
-                }
+                // Equatable island: the session body re-evaluates on every
+                // streamed delta, and re-created toolbar buttons visibly flash
+                // on device. `.equatable()` skips this subtree's body unless its
+                // VALUE inputs (share state, stream status) actually change, so
+                // the buttons' render tree stays untouched while text streams.
+                SessionToolbar(
+                    hasShareURL: shareURL != nil,
+                    status: store.status,
+                    onShell: { showShell = true },
+                    onDiff: { showDiff = true },
+                    onShare: { Task { await share() } },
+                    onStopShare: { Task { await stopSharing() } })
+                    .equatable()
             }
         }
         .sheet(isPresented: $showShell) {
@@ -582,6 +568,55 @@ private struct StreamStatusBadge: View {
             ProgressView().controlSize(.mini)
                 .accessibilityLabel(status == .connecting ? "Connecting" : "Reconnecting")
                 .accessibilityIdentifier("session.status")
+        }
+    }
+}
+
+/// The session toolbar's trailing buttons, isolated behind `Equatable` so the
+/// per-delta re-evaluation of the session body can't re-create them: SwiftUI
+/// skips this body unless the share state or stream status changes, which keeps
+/// the shell/diff/share buttons from flashing on device while a reply streams.
+/// The action closures are intentionally excluded from equality — they capture
+/// the same state setters every time.
+private struct SessionToolbar: View, Equatable {
+    let hasShareURL: Bool
+    let status: SessionStore.StreamStatus
+    let onShell: () -> Void
+    let onDiff: () -> Void
+    let onShare: () -> Void
+    let onStopShare: () -> Void
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.hasShareURL == rhs.hasShareURL && lhs.status == rhs.status
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            // Stop lives in the composer (send ↔ stop), like the web — not here.
+            Button(action: onShell) {
+                Image(systemName: "terminal")
+            }
+            .accessibilityIdentifier("session.shell")
+            .accessibilityLabel("Shell")
+            Button(action: onDiff) {
+                Image(systemName: "plusminus")
+            }
+            .accessibilityIdentifier("session.diff")
+            .accessibilityLabel("Changes")
+            Menu {
+                Button(action: onShare) {
+                    Label("Share link", systemImage: "square.and.arrow.up")
+                }
+                if hasShareURL {
+                    Button(role: .destructive, action: onStopShare) {
+                        Label("Stop sharing", systemImage: "xmark.circle")
+                    }
+                }
+            } label: {
+                Image(systemName: hasShareURL ? "link.circle.fill" : "square.and.arrow.up")
+            }
+            .accessibilityIdentifier("session.share")
+            StreamStatusBadge(status: status)
         }
     }
 }
