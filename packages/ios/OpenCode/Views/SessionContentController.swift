@@ -233,11 +233,20 @@ final class SessionContentController: UIViewController {
         let pinned = coordinator.isPinnedToBottom
         table.contentInset.bottom = cover
         table.verticalScrollIndicatorInsets.bottom = cover
+        let maxY = max(-table.adjustedContentInset.top,
+                       table.contentSize.height - table.bounds.height + cover)
         if pinned {
-            let maxY = max(-table.adjustedContentInset.top,
-                           table.contentSize.height - table.bounds.height + cover)
             table.contentOffset.y = maxY
             reassertBottomSoon()
+        } else if table.contentOffset.y > maxY {
+            // The inset shrank while unpinned — the interactive keyboard dismiss
+            // scrolls the list a little, which drops `pinned` (measured:
+            // pinned true→false mid-drag), and UIKit NEVER clamps contentOffset
+            // when an inset shrinks. The stranded offset rested as a black gap
+            // between the last message and the composer. An offset past the
+            // bottom is invalid in any pin state; clamping it cannot disturb a
+            // legitimate reading position.
+            table.contentOffset.y = maxY
         }
     }
 

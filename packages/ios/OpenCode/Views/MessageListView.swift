@@ -254,8 +254,21 @@ struct MessageListView: UIViewRepresentable {
         /// or the user rested near the bottom. So only re-pin on a real frame
         /// change (first load / rotation).
         func tableDidLayout() {
-            guard let table, pinnedToBottom,
+            guard let table,
                   !table.isTracking, !table.isDragging, !table.isDecelerating else { return }
+            // An offset past the bottom is invalid in ANY pin state — it rests as
+            // a black gap between the last message and the composer. It happens
+            // when the covered height shrinks under a stranded offset (keyboard
+            // leaving after an interactive dismiss that dropped `pinned`, the
+            // typing footer going away) because UIKit never clamps contentOffset
+            // when insets or content shrink. Clamp it here, on every settled
+            // layout, unconditionally.
+            let target = bottomTarget(table)
+            if target > 0, table.contentOffset.y > target + 0.5 {
+                table.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+                return
+            }
+            guard pinnedToBottom else { return }
             if table.bounds.size != lastLayoutSize {
                 lastLayoutSize = table.bounds.size
                 scrollToBottom(table)
@@ -270,12 +283,7 @@ struct MessageListView: UIViewRepresentable {
             // height short of the composer. Pinning HERE runs after the clamp,
             // so the last word is ours; it converges because a no-op pin
             // (|diff| ≤ 0.5) sets nothing.
-            // Both directions: short of the bottom (the streaming clamp above)
-            // AND past it (a shrink — e.g. the typing footer going away — leaves
-            // the offset beyond the new bottom, which shows as a black gap
-            // between the last message and the composer).
-            let target = bottomTarget(table)
-            if target > 0, abs(table.contentOffset.y - target) > 0.5 {
+            if table.contentOffset.y < target - 0.5 {
                 scrollToBottom(table)
             }
         }
