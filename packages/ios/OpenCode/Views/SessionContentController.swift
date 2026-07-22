@@ -213,6 +213,20 @@ final class SessionContentController: UIViewController {
     /// so the inset can be recomputed against the *current* bar height.
     private var lastKeyboardOnly: CGFloat = 0
     private func syncBottomInset() {
+        // Re-derive the keyboard part of the cover from the bar's ACTUAL on-screen
+        // position instead of trusting the last keyboard notification. The bar is
+        // the accessory view riding the keyboard, so `view.maxY - barTop` IS the
+        // real covered height. Measured on device: an interactive dismiss can end
+        // with a bogus (or missing) keyboard frame that our guard drops, leaving
+        // `lastKeyboardOnly` stuck at a transitional value — a phantom bottom
+        // inset that rested the list ~40-50pt above the composer with the
+        // keyboard closed (while opening the keyboard set an honest inset, which
+        // is why the two modes rested differently). The bar re-docks after any
+        // dismiss, its height change lands here, and this self-corrects.
+        if let barSuper = bar.superview, bar.window != nil, view.window != nil {
+            let barTopInView = view.convert(bar.frame, from: barSuper).minY
+            lastKeyboardOnly = max(0, view.bounds.maxY - barTopInView - bar.bounds.height)
+        }
         let cover = lastKeyboardOnly + bar.bounds.height
         let delta = cover - table.contentInset.bottom
         guard abs(delta) > 0.5 else { return }
@@ -241,7 +255,12 @@ final class SessionContentController: UIViewController {
               let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else { return }
         let endInView = view.convert(end, from: window)
-        let kbOverlap = view.bounds.maxY - endInView.minY
+        // A hide's end frame is untrustworthy (measured: bogus transitional
+        // frames during interactive dismiss) — hidden means the docked bar is
+        // the whole cover, full stop.
+        let kbOverlap = note.name == UIResponder.keyboardWillHideNotification
+            ? bar.bounds.height
+            : view.bounds.maxY - endInView.minY
         // UIKit posts spurious transitional keyboard frames during an interactive
         // dismiss with an inputAccessoryView — the frame is reported above the view,
         // so the "overlap" spans more than the whole view. Acting on one inflates

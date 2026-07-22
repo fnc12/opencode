@@ -267,12 +267,15 @@ struct MessageListView: UIViewRepresentable {
             // *previous* flush offset (its internal max lags the reported
             // contentSize), so `applyNow`'s pin — which runs before that clamp —
             // always loses, and when the stream ends the list rests a footer's
-            // height short of the composer (the "gap only with the keyboard
-            // closed" bug; opening the keyboard re-clamped the offset, hiding
-            // it). Pinning HERE runs after the clamp, so the last word is ours;
-            // it converges because a no-op pin (|diff| ≤ 0.5) sets nothing.
-            let target = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
-            if target > 0, table.contentOffset.y < target - 0.5 {
+            // height short of the composer. Pinning HERE runs after the clamp,
+            // so the last word is ours; it converges because a no-op pin
+            // (|diff| ≤ 0.5) sets nothing.
+            // Both directions: short of the bottom (the streaming clamp above)
+            // AND past it (a shrink — e.g. the typing footer going away — leaves
+            // the offset beyond the new bottom, which shows as a black gap
+            // between the last message and the composer).
+            let target = bottomTarget(table)
+            if target > 0, abs(table.contentOffset.y - target) > 0.5 {
                 scrollToBottom(table)
             }
         }
@@ -284,14 +287,28 @@ struct MessageListView: UIViewRepresentable {
             // composer/dock grew to 355–377pt a half-screen scroll-up still read as
             // "near bottom" — pinnedToBottom stayed true and every stream delta
             // yanked the user back down. Measured; this is the snap-back bug.
-            let maxOffset = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
-            return (maxOffset - table.contentOffset.y) <= threshold
+            return (bottomTarget(table) - table.contentOffset.y) <= threshold
+        }
+
+        /// The offset that rests the newest message flush against the composer.
+        /// MANUAL `contentInset.bottom` on purpose, NOT `adjustedContentInset`:
+        /// the manual inset is the composer bar + keyboard overlap (maintained by
+        /// the controller), and the bar's height already spans the home-indicator
+        /// area. On DEVICE the system adds the 34pt safe-area bottom again into
+        /// `adjustedContentInset`, so pinning to the adjusted value rested the
+        /// list 34pt (+ card padding ≈ the ~50pt on screenshots) above the
+        /// composer whenever the keyboard was down — while the keyboard-change
+        /// path clamps with the manual inset, which is why the keyboard-up rest
+        /// was flush. Two formulas = two different rests; this is the single one.
+        /// (On the simulator adjusted == manual, so it couldn't reproduce this.)
+        private func bottomTarget(_ table: UITableView) -> CGFloat {
+            table.contentSize.height - table.bounds.height + table.contentInset.bottom
         }
 
         /// Idempotent — only moves if not already at the bottom, so it is safe to
         /// call from `layoutSubviews` without looping.
         func scrollToBottom(_ table: UITableView) {
-            let target = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
+            let target = bottomTarget(table)
             guard target > 0, abs(table.contentOffset.y - target) > 0.5 else { return }
             table.setContentOffset(CGPoint(x: 0, y: target), animated: false)
         }
