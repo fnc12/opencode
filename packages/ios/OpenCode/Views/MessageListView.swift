@@ -256,9 +256,25 @@ struct MessageListView: UIViewRepresentable {
         func tableDidLayout() {
             guard let table, pinnedToBottom,
                   !table.isTracking, !table.isDragging, !table.isDecelerating else { return }
-            guard table.bounds.size != lastLayoutSize else { return }
-            lastLayoutSize = table.bounds.size
-            scrollToBottom(table)
+            if table.bounds.size != lastLayoutSize {
+                lastLayoutSize = table.bounds.size
+                scrollToBottom(table)
+                return
+            }
+            // Re-pin when the table's own layout left us short of the bottom.
+            // Measured (kb.log, live stream): while streamed rows grow,
+            // UITableView's layoutSubviews clamps a fresh pin back to the
+            // *previous* flush offset (its internal max lags the reported
+            // contentSize), so `applyNow`'s pin — which runs before that clamp —
+            // always loses, and when the stream ends the list rests a footer's
+            // height short of the composer (the "gap only with the keyboard
+            // closed" bug; opening the keyboard re-clamped the offset, hiding
+            // it). Pinning HERE runs after the clamp, so the last word is ours;
+            // it converges because a no-op pin (|diff| ≤ 0.5) sets nothing.
+            let target = table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom
+            if target > 0, table.contentOffset.y < target - 0.5 {
+                scrollToBottom(table)
+            }
         }
 
         func isNearBottom(_ table: UITableView, threshold: CGFloat = 140) -> Bool {
