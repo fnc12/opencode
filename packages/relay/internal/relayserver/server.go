@@ -55,13 +55,13 @@ type Config struct {
 
 // Server is the relay. The zero value is not usable; call New.
 type Server struct {
-	reg         *tunnel.Registry
-	secret      string
-	log         *slog.Logger
-	store       push.Store
-	dispatcher  *push.Dispatcher
-	provision   provision.Store
-	adminSecret string
+	reg          *tunnel.Registry
+	secret       string
+	log          *slog.Logger
+	store        push.Store
+	dispatcher   *push.Dispatcher
+	provision    provision.Store
+	adminSecret  string
 	assetDir     string
 	publicURL    string
 	stripeSecret string
@@ -74,13 +74,13 @@ func New(cfg Config) *Server {
 		log = slog.Default()
 	}
 	return &Server{
-		reg:         tunnel.NewRegistry(),
-		secret:      cfg.Secret,
-		log:         log,
-		store:       cfg.Store,
-		dispatcher:  cfg.Dispatcher,
-		provision:   cfg.Provision,
-		adminSecret: cfg.AdminSecret,
+		reg:          tunnel.NewRegistry(),
+		secret:       cfg.Secret,
+		log:          log,
+		store:        cfg.Store,
+		dispatcher:   cfg.Dispatcher,
+		provision:    cfg.Provision,
+		adminSecret:  cfg.AdminSecret,
 		assetDir:     cfg.AssetDir,
 		publicURL:    cfg.PublicURL,
 		stripeSecret: cfg.StripeWebhookSecret,
@@ -335,7 +335,8 @@ func writeAck(ws *websocket.Conn, ack tunnel.RegisterAck) error {
 }
 
 var (
-	binaryNameRe = regexp.MustCompile(`^connector-(darwin|linux)-(amd64|arm64)$`)
+	// Connector binaries plus the Android beta APK (shubat.apk / shubat-<ver>.apk).
+	binaryNameRe = regexp.MustCompile(`^(connector-(darwin|linux)-(amd64|arm64)|shubat(-[A-Za-z0-9.]+)?\.apk)$`)
 	claimCodeRe  = regexp.MustCompile(`^[A-Za-z0-9-]{4,40}$`)
 )
 
