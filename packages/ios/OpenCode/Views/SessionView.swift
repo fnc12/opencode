@@ -428,6 +428,13 @@ struct SessionView: View {
                                        QuestionOption(label: "Option B", description: "the second")],
                              multiple: false, custom: false)])])
         }
+        // UI tests can inject a real captured question payload (raw /question JSON
+        // array) to reproduce layout bugs with production data.
+        if let raw = ProcessInfo.processInfo.environment["UITEST_QUESTION_JSON"],
+           let decoded = try? JSONDecoder().decode([QuestionRequest].self, from: Data(raw.utf8)),
+           let first = decoded.first {
+            store.setInitialQuestions([QuestionRequest(id: first.id, sessionID: session.id, questions: first.questions)])
+        }
         if ProcessInfo.processInfo.arguments.contains("UITEST_TODO") {
             store.setInitialTodos([
                 TodoItem(content: "Read the AST query schema", status: "completed", priority: "high"),

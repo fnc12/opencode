@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
@@ -538,6 +539,18 @@ private fun QuestionDock(
         )
         Spacer(Modifier.size(8.dp))
 
+        // The dock sits above the composer with NO outer bound — a real
+        // multi-question request (3 questions / 11 options with long
+        // descriptions, captured from the wifi-densepose session) grew it past
+        // the whole screen and shoved Skip/Submit off-screen with no way out
+        // (the same bug was reproduced and fixed on iOS with this payload).
+        // Questions scroll inside a bounded viewport; the action row below
+        // stays reachable, always.
+        Column(
+            Modifier
+                .heightIn(max = 280.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
         request.questions.forEach { question ->
             if (question.header.isNotEmpty()) {
                 Text(
@@ -586,6 +599,7 @@ private fun QuestionDock(
                 }
             }
             Spacer(Modifier.size(8.dp))
+        }
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {

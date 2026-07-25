@@ -111,6 +111,7 @@ private fun SessionDestination(
             studio.eugenezakharov.opencode.api.ComposerPrefs(context),
             injectTestPermission = UiTestFlags.injectPermission,
             injectTestQuestion = UiTestFlags.injectQuestion,
+            injectQuestionJson = UiTestFlags.injectQuestionJson,
             injectTestTodo = UiTestFlags.injectTodo,
             cache = studio.eugenezakharov.opencode.api.MessageCache(context),
         )

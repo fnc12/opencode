@@ -1,26 +1,30 @@
 import XCTest
 
-/// Drives the question dock on the simulator: open a session with an injected
-/// pending question (`UITEST_QUESTION`), pick an option, submit, and assert the
-/// dock dismisses. Requires the tunnel for connect→navigate; skipped otherwise.
+/// Reproduces the "question dialog you can't escape" bug with the REAL captured
+/// payload (see `QuestionFixtures.wifiDensepose`): a 3-question / 11-option
+/// request rendered the dock taller than the screen with no scrolling, pushing
+/// Skip/Submit off-screen — the user was stuck. The dock must keep its action
+/// row reachable no matter how big the questionnaire is.
 @MainActor
-final class QuestionDockUITests: XCTestCase {
+final class QuestionDockLayoutUITests: XCTestCase {
     private let base = "http://127.0.0.1:4096"
     private let dir = "/mnt/data/sources/sqlite_orm"
     private let projectName = "sqlite_orm"
-    /// Server password from the runner env (public repo — no hardcoded creds).
+    /// Server password from the runner env (public repo — no hardcoded creds):
+    /// TEST_RUNNER_OPENCODE_TEST_PASSWORD=…
     private let password = ProcessInfo.processInfo.environment["OPENCODE_TEST_PASSWORD"]
 
-    func testAnswerQuestionFromDock() async throws {
+    func testHugeRealQuestionKeepsActionsReachable() async throws {
         let reachable = await serverReachable()
         try XCTSkipUnless(reachable, "live server not reachable at \(base); start the tunnel to run this UI test")
 
         let stamp = Int(Date().timeIntervalSince1970)
-        let title = "QTEST \(stamp)"
+        let title = "QLAYOUT \(stamp)"
         try await createSession(title: title)
 
         let app = XCUIApplication()
-        app.launchArguments = ["UITEST_RESET", "UITEST_QUESTION"]
+        app.launchArguments = ["UITEST_RESET"]
+        app.launchEnvironment["UITEST_QUESTION_JSON"] = QuestionFixtures.wifiDensepose
         app.launch()
 
         let direct = app.buttons["Direct"]
@@ -43,23 +47,30 @@ final class QuestionDockUITests: XCTestCase {
         XCTAssertTrue(sessionCell.waitForExistence(timeout: 15), "session row not found")
         sessionCell.tap()
 
-        // The injected question renders a dock with the question and options.
-        XCTAssertTrue(app.staticTexts["Which database?"].waitForExistence(timeout: 10), "question dock didn't appear")
-        let optionA = app.buttons["Option A"]
-        XCTAssertTrue(optionA.waitForExistence(timeout: 3))
-        optionA.tap()
+        // The real payload's dock must appear…
+        let firstHeader = app.staticTexts["Модель ESP32"]
+        XCTAssertTrue(firstHeader.waitForExistence(timeout: 10), "question dock didn't appear")
 
+        // …with the escape hatches ON SCREEN despite the huge content. This is
+        // the bug: pre-fix the dock had no height bound or scrolling, so both
+        // buttons sat far below the screen edge.
+        let reject = app.buttons["question.reject"]
         let submit = app.buttons["question.submit"]
-        XCTAssertTrue(submit.isEnabled, "submit should enable after selecting an option")
-        submit.tap()
+        XCTAssertTrue(reject.exists, "Skip button missing")
+        XCTAssertTrue(reject.isHittable, "Skip is off-screen — the user can't escape the dialog")
+        XCTAssertTrue(submit.exists, "Submit button missing")
+        XCTAssertTrue(submit.isHittable, "Submit is off-screen")
 
-        XCTAssertTrue(waitForGone(app.buttons["question.submit"], timeout: 8), "dock didn't dismiss after submit")
-    }
+        // The deep options must be reachable by scrolling INSIDE the dock: the
+        // last question's last option.
+        let deepOption = app.buttons["Координаты (x,y) в комнате"]
+        XCTAssertTrue(deepOption.exists, "deep option missing from the dock")
 
-    private func waitForGone(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline { if !element.exists { return true }; usleep(200_000) }
-        return !element.exists
+        // Keep a visual of the bounded dock in the test results.
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "question-dock-bounded"
+        shot.lifetime = .keepAlways
+        add(shot)
     }
 
     private func serverReachable() async -> Bool {

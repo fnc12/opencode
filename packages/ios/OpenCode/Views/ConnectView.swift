@@ -105,6 +105,7 @@ struct ConnectView: View {
                 set: { server.config.password = $0.isEmpty ? nil : $0 }
             ))
             .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("connect.password")
         }
     }
 

@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
         UiTestFlags.injectPermission = intent?.getBooleanExtra("UITEST_PERMISSION", false) == true
         UiTestFlags.injectQuestion = intent?.getBooleanExtra("UITEST_QUESTION", false) == true
         UiTestFlags.injectTodo = intent?.getBooleanExtra("UITEST_TODO", false) == true
+        UiTestFlags.injectQuestionJson = intent?.getStringExtra("UITEST_QUESTION_JSON")
         enableEdgeToEdge()
         requestNotificationPermission()
         handlePairingIntent(intent)

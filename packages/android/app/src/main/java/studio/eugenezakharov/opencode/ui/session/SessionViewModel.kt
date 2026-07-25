@@ -68,6 +68,8 @@ class SessionViewModel(
     private val injectTestQuestion: Boolean = false,
     /** UI tests inject synthetic todos so the panel can be driven (mirrors iOS UITEST_TODO). */
     private val injectTestTodo: Boolean = false,
+    /** Raw `/question` JSON array injected by tests to reproduce layout bugs with real payloads. */
+    private val injectQuestionJson: String? = null,
     /** On-disk newest-page cache for cache-first paint; null in tests / no-context. */
     private val cache: studio.eugenezakharov.opencode.api.MessageCache? = null,
 ) : ViewModel() {
@@ -203,6 +205,16 @@ class SessionViewModel(
                     ),
                 )
             }
+            injectQuestionJson?.let { raw ->
+                runCatching {
+                    (json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonArray)
+                        ?.firstOrNull()
+                        ?.let { it as? kotlinx.serialization.json.JsonObject }
+                        ?.let(QuestionRequest::from)
+                }.getOrNull()?.let { req ->
+                    store.setInitialQuestions(listOf(QuestionRequest(req.id, session.id, req.questions)))
+                }
+            }
             if (injectTestTodo) {
                 store.setInitialTodos(
                     listOf(
@@ -242,7 +254,7 @@ class SessionViewModel(
     fun refresh() {
         // In UI-test mode the docks are driven by injected synthetic data — don't
         // overwrite it with (empty) server truth.
-        if (injectTestPermission || injectTestQuestion || injectTestTodo) return
+        if (injectTestPermission || injectTestQuestion || injectTestTodo || injectQuestionJson != null) return
         viewModelScope.launch {
             // Re-seed just the newest page and reset the pagination cursor — a
             // foreground refresh shouldn't re-pull the whole (possibly huge) history.
@@ -274,7 +286,7 @@ class SessionViewModel(
      * `SessionView.loadOlder`.
      */
     fun loadOlder() {
-        if (injectTestPermission || injectTestQuestion || injectTestTodo) return
+        if (injectTestPermission || injectTestQuestion || injectTestTodo || injectQuestionJson != null) return
         val cursor = oldestCursor
         if (loadingOlder || reachedStart || cursor == null) return
         loadingOlder = true

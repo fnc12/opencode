@@ -17,4 +17,9 @@ object UiTestFlags {
     /** When true, synthetic todos seed the panel (UITEST_TODO). */
     @Volatile
     var injectTodo: Boolean = false
+
+    /** Raw `/question` JSON array to inject as the pending question — lets tests
+     *  reproduce layout bugs with real captured payloads (UITEST_QUESTION_JSON). */
+    @Volatile
+    var injectQuestionJson: String? = null
 }
