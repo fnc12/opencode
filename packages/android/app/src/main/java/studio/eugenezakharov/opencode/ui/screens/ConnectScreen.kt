@@ -1,5 +1,6 @@
 package studio.eugenezakharov.opencode.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import studio.eugenezakharov.opencode.api.ConnectionMode
 import studio.eugenezakharov.opencode.ui.AppUiState
 import studio.eugenezakharov.opencode.ui.AppViewModel
@@ -43,6 +46,13 @@ fun ConnectScreen(
     // being validated can't change underneath it. The user can still bail out via
     // Cancel instead of force-killing the app to escape a timeout.
     val loading = state.loading
+
+    // QR pairing (#14): the embedded ZXing capture activity returns the scanned
+    // string (an opencode://pair?… link, same as the paste / deep-link path) and
+    // handles the camera + its runtime permission itself.
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { viewModel.applyPairingAndConnect(it) }
+    }
 
     Column(
         modifier = Modifier
@@ -94,11 +104,25 @@ fun ConnectScreen(
                 MonoField("Tunnel ID", state.config.tunnelID, viewModel::setTunnelID, enabled = !loading)
                 Spacer(Modifier.height(12.dp))
                 MonoField("Token", state.config.token, viewModel::setToken, password = true, enabled = !loading)
+                Spacer(Modifier.height(12.dp))
+                TextButton(
+                    onClick = {
+                        scanLauncher.launch(
+                            ScanOptions()
+                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                .setPrompt("Point the camera at the pairing QR")
+                                .setBeepEnabled(false)
+                                .setOrientationLocked(false),
+                        )
+                    },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth().testTag("connect.scanQr"),
+                ) { Text("Scan pairing QR") }
             }
             ConnectionMode.DIRECT -> {
                 MonoField("Server URL", state.config.directURL, viewModel::setDirectURL, KeyboardType.Uri, tag = "connect.serverURL", enabled = !loading)
                 Spacer(Modifier.height(12.dp))
-                MonoField("Password (optional)", state.config.password ?: "", viewModel::setPassword, password = true, enabled = !loading)
+                MonoField("Password (optional)", state.config.password ?: "", viewModel::setPassword, password = true, tag = "connect.password", enabled = !loading)
             }
         }
 

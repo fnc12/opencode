@@ -69,6 +69,9 @@ dependencies {
     implementation(libs.firebase.messaging)
     // Syntax highlighting for read results (Kotlin-native, any language).
     implementation("dev.snipme:highlights:1.0.0")
+    // QR scanner for relay pairing (#14): battle-tested embedded ZXing capture
+    // activity — handles the camera + runtime permission itself.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     debugImplementation(libs.androidx.ui.tooling)
 
     testImplementation(libs.junit)
@@ -79,6 +82,7 @@ dependencies {
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation("androidx.test:rules:1.6.1")
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
