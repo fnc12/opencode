@@ -176,6 +176,11 @@ func (p *FCMPusher) Send(ctx context.Context, token string, n Notification) erro
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		// UNREGISTERED / NotRegistered: the app was uninstalled or its token
+		// rotated away — permanently dead, prune it.
+		if resp.StatusCode == http.StatusNotFound && strings.Contains(string(body), "UNREGISTERED") {
+			return fmt.Errorf("%w: fcm: status %d: %s", ErrTokenGone, resp.StatusCode, body)
+		}
 		return fmt.Errorf("fcm: status %d: %s", resp.StatusCode, body)
 	}
 	return nil

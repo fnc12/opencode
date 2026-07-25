@@ -2,6 +2,7 @@ package push
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -94,4 +95,37 @@ func TestDispatcherDedupeIsPerKind(t *testing.T) {
 	if apns.count() != 2 {
 		t.Fatalf("repeat permission should dedupe, got %d", apns.count())
 	}
+}
+
+// A pusher reporting ErrTokenGone gets its device pruned from the store, so a
+// dead token stops erroring on every dispatch.
+func TestNotifyPrunesGoneTokens(t *testing.T) {
+	store := NewMemoryStore()
+	_ = store.Add("tun1", Device{Provider: APNs, Token: "dead"})
+	_ = store.Add("tun1", Device{Provider: APNs, Token: "alive"})
+
+	gone := &goneTokenPusher{provider: APNs, dead: "dead"}
+	d := NewDispatcher(store, slog.New(slog.NewTextHandler(io.Discard, nil)), gone)
+	sent := d.Notify(context.Background(), Notification{TunnelID: "tun1", SessionID: "s1", Kind: KindIdle})
+	if sent != 1 {
+		t.Fatalf("sent = %d, want 1", sent)
+	}
+	devices, _ := store.List("tun1")
+	if len(devices) != 1 || devices[0].Token != "alive" {
+		t.Fatalf("devices after prune = %+v, want only 'alive'", devices)
+	}
+}
+
+// goneTokenPusher fails one token with ErrTokenGone and accepts the rest.
+type goneTokenPusher struct {
+	provider Provider
+	dead     string
+}
+
+func (g *goneTokenPusher) Provider() Provider { return g.provider }
+func (g *goneTokenPusher) Send(_ context.Context, token string, _ Notification) error {
+	if token == g.dead {
+		return fmt.Errorf("%w: apns: status 400", ErrTokenGone)
+	}
+	return nil
 }
