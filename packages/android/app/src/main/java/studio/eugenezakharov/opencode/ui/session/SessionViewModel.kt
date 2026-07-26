@@ -51,6 +51,9 @@ data class SessionUiState(
     val loadingOlder: Boolean = false,
     // The diff toolbar button only shows when the session actually changed files.
     val hasDiff: Boolean = false,
+    // Tools currently executing in the unfinished turn — drives the
+    // "background processes" strip above the composer.
+    val runningTools: List<studio.eugenezakharov.opencode.api.RunningTool> = emptyList(),
 )
 
 /**
@@ -106,6 +109,7 @@ class SessionViewModel(
             _state.update {
                 it.copy(
                     messages = store.messages,
+                    runningTools = studio.eugenezakharov.opencode.api.RunningTools.extract(store.messages),
                     revision = store.revision,
                     status = store.status,
                     isBusy = store.isBusy,

@@ -249,8 +249,11 @@ struct SessionView: View {
     /// doesn't rebuild the accessory on every delta (which flickered its height
     /// and shoved content under the composer). Changes only when a dock/picker
     /// toggles or busy/stuck flips.
+    private var runningTools: [RunningTool] { RunningTools.extract(store.messages) }
+
     private var barRevision: Int {
         var h = Hasher()
+        h.combine(runningTools.map(\.id))
         h.combine(keyboardVisible)
         h.combine(isStreaming)
         h.combine(isStuck)
@@ -326,6 +329,12 @@ struct SessionView: View {
                     compact: keyboardVisible,
                     onReply: { answers in Task { await handleQuestionReply(request, answers) } },
                     onReject: { Task { await handleQuestionReject(request) } })
+            }
+            if !runningTools.isEmpty {
+                // "Background processes" strip (like Claude's): long tools emit
+                // no chat text for minutes, and busy-with-no-output otherwise
+                // reads as a hang. Absent entirely when nothing runs.
+                RunningToolsPill(tools: runningTools)
             }
             if isStuck {
                 HStack(spacing: 6) {

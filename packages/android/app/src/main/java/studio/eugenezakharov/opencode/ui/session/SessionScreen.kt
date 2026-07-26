@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import studio.eugenezakharov.opencode.api.models.PromptAttachment
 import studio.eugenezakharov.opencode.api.models.TodoItem
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -237,6 +238,9 @@ fun SessionScreen(
                             onReply = { answers -> viewModel.replyQuestion(request, answers) },
                             onReject = { viewModel.rejectQuestion(request) },
                         )
+                    }
+                    if (state.runningTools.isNotEmpty()) {
+                        RunningToolsStrip(state.runningTools)
                     }
                     Composer(state = state, viewModel = viewModel)
                 }
@@ -1114,4 +1118,59 @@ private suspend fun loadAttachment(
     bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
     val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     Pair(bmp, PromptAttachment("image/jpeg", "image.jpg", "data:image/jpeg;base64,$b64"))
+}
+
+
+/** One-line strip above the composer: spinner + what's running + for how long.
+ *  Shown ONLY while something actually runs (its absence means the agent is
+ *  generating text, not waiting on a process). Mirrors iOS `RunningToolsPill`. */
+@Composable
+private fun RunningToolsStrip(tools: List<studio.eugenezakharov.opencode.api.RunningTool>) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(tools.firstOrNull()?.id) {
+        while (true) {
+            kotlinx.coroutines.delay(10_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    val first = tools.first()
+    val label = if (first.name == "question") {
+        "waiting for your answer"
+    } else {
+        buildList {
+            add(first.name)
+            first.title?.takeIf { it.isNotEmpty() }?.let { add(it.take(60)) }
+            first.startedMs?.let {
+                val s = ((now - it) / 1000).toLong().coerceAtLeast(0)
+                add(if (s < 60) "${s}s" else "${s / 60}m")
+            }
+        }.joinToString(" · ")
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .testTag("session.runningTools"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (tools.size > 1) {
+            Text(
+                "${tools.size}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }
