@@ -4,6 +4,12 @@ import SwiftUI
 /// single- or multi-select; the reply is the selected labels per question.
 struct QuestionDock: View {
     let request: QuestionRequest
+    /// True while the real keyboard is up: the dock shares the input accessory
+    /// with it, and accessory + keyboard must fit the screen — so the questions
+    /// viewport shrinks instead of wedging the keyboard presentation. Changing
+    /// only this number keeps the view structure (and the composer's focus)
+    /// stable.
+    var compact: Bool = false
     /// Called with one array of selected labels per question.
     let onReply: ([[String]]) -> Void
     let onReject: () -> Void
@@ -18,6 +24,9 @@ struct QuestionDock: View {
     /// therefore scroll inside a bounded viewport (height-hugging for small
     /// requests) while the action row below stays reachable, always.
     private static let maxQuestionsHeight: CGFloat = 280
+    private static let compactQuestionsHeight: CGFloat = 120
+
+    private var maxHeight: CGFloat { compact ? Self.compactQuestionsHeight : Self.maxQuestionsHeight }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -63,7 +72,7 @@ struct QuestionDock: View {
                         Color.clear.preference(key: QuestionsHeightKey.self, value: geo.size.height)
                     })
                 }
-                .frame(height: min(max(contentHeight, 1), Self.maxQuestionsHeight))
+                .frame(height: min(max(contentHeight, 1), maxHeight))
                 .onPreferenceChange(QuestionsHeightKey.self) { contentHeight = $0 }
             }
 

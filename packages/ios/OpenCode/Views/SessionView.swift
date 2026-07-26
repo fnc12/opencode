@@ -35,6 +35,9 @@ struct SessionView: View {
     @State private var showPhotoPicker = false
     /// Bumped on a 30s timer while busy so `isStuck` re-evaluates without events.
     @State private var stuckCheck = Date()
+    /// Keyboard visibility, tracked so tall docks can collapse while typing —
+    /// the input accessory plus the keyboard must fit on screen.
+    @State private var keyboardVisible = false
     @AppStorage("composer.providerID") private var providerID = ""
     @AppStorage("composer.modelID") private var modelID = ""
 
@@ -65,6 +68,7 @@ struct SessionView: View {
                                revision: store.revision,
                                onRevert: { revertTarget = $0 },
                                onLoadOlder: { Task { await loadOlder() } },
+                               onKeyboardVisible: { keyboardVisible = $0 },
                                showTyping: showThinking && !isStuck,
                                barRevision: barRevision) {
                     bottomBar
@@ -239,6 +243,7 @@ struct SessionView: View {
     /// toggles or busy/stuck flips.
     private var barRevision: Int {
         var h = Hasher()
+        h.combine(keyboardVisible)
         h.combine(isStreaming)
         h.combine(isStuck)
         h.combine(store.revertMessageID)
@@ -302,8 +307,15 @@ struct SessionView: View {
                 }
             }
             ForEach(store.pendingQuestions) { request in
+                // `compact` shrinks the questions viewport while the keyboard is
+                // up: the dock rides the input accessory, and accessory +
+                // keyboard must fit the screen — a full-height questionnaire
+                // wedged the keyboard presentation (frozen phone, keyboard
+                // peeking). Height-only change: the view structure (and the
+                // composer's focus) stays intact.
                 QuestionDock(
                     request: request,
+                    compact: keyboardVisible,
                     onReply: { answers in Task { await handleQuestionReply(request, answers) } },
                     onReject: { Task { await handleQuestionReject(request) } })
             }

@@ -141,6 +141,39 @@ final class SessionContentController: UIViewController {
         didSet { coordinator.onNearTop = onLoadOlder }
     }
 
+    /// Wired from SwiftUI: reports whether the REAL keyboard (not just the
+    /// docked accessory) covers the view. Derived from the same measured state
+    /// the inset logic uses (`lastKeyboardOnly`, self-correcting from the bar's
+    /// on-screen position), because keyboard notifications alone proved
+    /// unreliable during dismissal. Tall docks collapse while this is true.
+    var onKeyboardVisible: ((Bool) -> Void)?
+    private var lastReportedKeyboard = false
+    private var kbReportWork: DispatchWorkItem?
+    private func reportKeyboard() {
+        let up = lastKeyboardOnly > 50
+        guard up != lastReportedKeyboard else { return }
+        kbReportWork?.cancel()
+        if up {
+            // Going up: report immediately (the dock must collapse before the
+            // keyboard finishes presenting).
+            lastReportedKeyboard = true
+            let cb = onKeyboardVisible
+            DispatchQueue.main.async { cb?(true) } // never mutate SwiftUI state mid-layout
+        } else {
+            // Going down: debounce — mid-animation the bar-position-derived
+            // overlap transiently dips below the threshold, and reporting it
+            // instantly flapped the dock back while the keyboard was still
+            // rising.
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.lastKeyboardOnly <= 50 else { return }
+                self.lastReportedKeyboard = false
+                self.onKeyboardVisible?(false)
+            }
+            kbReportWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        }
+    }
+
     /// Wired from SwiftUI: called with a message id when a row is tapped.
     private var zoomTransition: ZoomTransition?
 
@@ -243,6 +276,7 @@ final class SessionContentController: UIViewController {
             cover = lastKeyboardOnly + bar.bounds.height
         }
         let delta = cover - table.contentInset.bottom
+        reportKeyboard()
         guard abs(delta) > 0.5 else { return }
         let pinned = coordinator.isPinnedToBottom
         table.contentInset.bottom = cover
@@ -302,6 +336,7 @@ final class SessionContentController: UIViewController {
             return
         }
         lastKeyboardOnly = max(0, kbOverlap - bar.bounds.height)
+        reportKeyboard()
         let cover = max(dockedCover, kbOverlap)
         let delta = cover - table.contentInset.bottom
         guard abs(delta) > 0.5 else { return }
@@ -338,6 +373,8 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     var onRevert: ((String) -> Void)? = nil
     /// Called as the list nears the top so the view can page in older history.
     var onLoadOlder: (() -> Void)? = nil
+    /// Reports real-keyboard visibility so tall docks can collapse while typing.
+    var onKeyboardVisible: ((Bool) -> Void)? = nil
     /// Shows a "thinking" indicator as the last row (in the message flow, where
     /// the reply will appear) while the agent works but hasn't streamed text yet.
     var showTyping: Bool = false
@@ -365,6 +402,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         let controller = SessionContentController(bar: InputBarView(content: host.view))
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
+        controller.onKeyboardVisible = onKeyboardVisible
         controller.messages = messages
         controller.showTyping = showTyping
         return controller
@@ -380,6 +418,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         }
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
+        controller.onKeyboardVisible = onKeyboardVisible
         controller.messages = messages
         controller.showTyping = showTyping
     }
