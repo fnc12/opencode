@@ -17,6 +17,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import studio.eugenezakharov.opencode.api.models.QuestionItem
+import studio.eugenezakharov.opencode.api.models.QuestionRequest
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
@@ -77,19 +83,13 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -122,11 +122,6 @@ fun SessionScreen(
     var showShell by remember { mutableStateOf(false) }
     var showTodos by remember { mutableStateOf(false) }
     var detailMessage by remember { mutableStateOf<studio.eugenezakharov.opencode.api.models.MessageWithParts?>(null) }
-    // Reading-mode collapse of the question dock, tracked CONTINUOUSLY from the
-    // list's scroll position (0 = newest/full dock, 1 = deep-in-history/pill) so
-    // the dock slides into the pill in step with the scroll rather than snapping
-    // at a threshold. Mirrors iOS `collapseProgress`.
-    var collapseProgress by remember { mutableFloatStateOf(0f) }
     val recyclerRef = remember { mutableStateOf<RecyclerView?>(null) }
     var showShareMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -242,29 +237,10 @@ fun SessionScreen(
                             onReply = { reply -> viewModel.replyPermission(request, reply) },
                         )
                     }
-                    // Question docks also sit above the composer; the agent is blocked
-                    // until each is answered or skipped (#28). As the user scrolls up
-                    // into history the dock collapses CONTINUOUSLY into a one-line
-                    // pill (it would otherwise cover the transcript); tapping the pill
-                    // returns to the newest message where the full dock lives.
-                    state.pendingQuestions.forEach { request ->
-                        CollapsibleQuestionDock(
-                            request = request,
-                            progress = collapseProgress,
-                            onReply = { answers -> viewModel.replyQuestion(request, answers) },
-                            onReject = { viewModel.rejectQuestion(request) },
-                            onExpand = {
-                                // Smooth-scrolling to the bottom drives onScrolled,
-                                // which walks `collapseProgress` back to 0 — the dock
-                                // re-expands in step with the return scroll.
-                                recyclerRef.value?.let { rv ->
-                                    rv.adapter?.itemCount?.takeIf { it > 0 }?.let { n ->
-                                        rv.smoothScrollToPosition(n - 1)
-                                    }
-                                }
-                            },
-                        )
-                    }
+                    // NOTE: the question dock is NOT here — it rides the transcript as
+                    // the list's LAST ROW (see MessageAdapter.setFooter / SessionFooter),
+                    // so scrolling up moves it away with the content instead of the
+                    // messages sliding under a fixed dock and overlapping it.
                     if (state.runningTools.isNotEmpty()) {
                         RunningToolsStrip(state.runningTools)
                     }
@@ -282,13 +258,15 @@ fun SessionScreen(
                     "Error", state.error!!,
                     actionLabel = "Retry", onAction = { viewModel.retry() },
                 )
-                state.messages.isEmpty() -> CenteredMessage("No Messages", "This session has no messages yet")
+                state.messages.isEmpty() && state.pendingQuestions.isEmpty() ->
+                    CenteredMessage("No Messages", "This session has no messages yet")
                 else -> MessageList(
                     state,
                     onRevert = { viewModel.revert(it) },
                     onSelect = { detailMessage = it },
                     onLoadOlder = { viewModel.loadOlder() },
-                    onCollapseProgress = { collapseProgress = it },
+                    onQuestionReply = { request, answers -> viewModel.replyQuestion(request, answers) },
+                    onQuestionReject = { request -> viewModel.rejectQuestion(request) },
                     recyclerRef = recyclerRef,
                 )
             }
@@ -550,102 +528,66 @@ private fun PermissionDock(
  * the user submits answers or skips. Blue/info styling distinguishes it from the
  * orange permission dock. Mirrors iOS `QuestionDock`.
  */
-/** Points of transcript below the viewport over which the question dock fully
- *  collapses into the pill. Mirrors iOS `collapseSpan`. */
-private const val COLLAPSE_SPAN_DP = 260f
-
-/** The one-line pill's height (one line + vertical padding) — the collapse floor. */
-private val PILL_HEIGHT = 37.dp
-
-/**
- * Wraps [QuestionDock] so it collapses CONTINUOUSLY into a one-line pill as the
- * user scrolls up into history — the collapse tracks [progress] (0 = newest/full,
- * 1 = deep-in-history/pill), so the dock slides into the pill in step with the
- * scroll rather than snapping at a threshold. The dock and the pill are BOTH in
- * the tree through the crossfade (only their height + alpha animate); each drops
- * out only at its own vanishing end (already ~0 alpha), which also removes its
- * test tags so `question.reject`/`question.pill` match the visible state. Mirrors
- * iOS `CollapsibleQuestionDock`.
- */
+/** The list's footer content — the pending question dock(s), rendered right after
+ *  the newest message so they scroll WITH the transcript. Hosted by
+ *  [MessageAdapter] in a `ComposeView` last row. Mirrors iOS `SessionFooter`.
+ *  Selections are hoisted in ([selectionsFor]) so they survive the ComposeView
+ *  being recycled when the footer scrolls off. */
 @Composable
-private fun CollapsibleQuestionDock(
-    request: studio.eugenezakharov.opencode.api.models.QuestionRequest,
-    progress: Float,
-    onReply: (List<List<String>>) -> Unit,
-    onReject: () -> Unit,
-    onExpand: () -> Unit,
+internal fun SessionFooter(
+    questions: List<QuestionRequest>,
+    selectionsFor: (QuestionRequest) -> SnapshotStateMap<String, Set<String>>,
+    onReply: (QuestionRequest, List<List<String>>) -> Unit,
+    onReject: (QuestionRequest) -> Unit,
 ) {
-    val p = progress.coerceIn(0f, 1f)
-    val density = LocalDensity.current
-    val pillHeightPx = with(density) { PILL_HEIGHT.toPx() }
-    // The dock's natural (uncollapsed) height, measured from its own layout so the
-    // collapse interpolates down to the pill without a magic number. Retained when
-    // the dock leaves the tree at full collapse, so scrolling back doesn't flash
-    // it to full height for a frame.
-    var fullHeightPx by remember { mutableIntStateOf(0) }
-    val info = Color(0xFF2D7FF9)
-    val collapsedHeight = with(density) {
-        (pillHeightPx + (fullHeightPx - pillHeightPx) * (1f - p)).toDp()
-    }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .then(if (fullHeightPx > 0) Modifier.height(collapsedHeight) else Modifier)
-            .clipToBounds(),
-        contentAlignment = Alignment.BottomStart,
-    ) {
-        if (p < 0.995f) {
-            Box(
-                Modifier
-                    // Measure + render at natural height regardless of the collapsed
-                    // outer frame, so the dock CLIPS (slides down) instead of
-                    // squishing, and the measured height stays true mid-collapse.
-                    .wrapContentHeight(align = Alignment.Bottom, unbounded = true)
-                    .onSizeChanged { if (it.height > 0) fullHeightPx = it.height }
-                    .graphicsLayer { alpha = 1f - p },
-            ) {
-                QuestionDock(request = request, onReply = onReply, onReject = onReject)
-            }
-        }
-        if (p > 0.005f) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { alpha = p }
-                    .background(info.copy(alpha = 0.10f))
-                    .clickable { onExpand() }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-                    .testTag("question.pill"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "? Question from the agent (${request.questions.size})",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = info,
-                    modifier = Modifier.weight(1f),
-                )
-                Text("▼", style = MaterialTheme.typography.labelMedium, color = info)
-            }
+    Column(Modifier.fillMaxWidth()) {
+        questions.forEach { request ->
+            QuestionDock(
+                request = request,
+                selections = selectionsFor(request),
+                onReply = { answers -> onReply(request, answers) },
+                onReject = { onReject(request) },
+            )
         }
     }
 }
 
+/**
+ * A pending agent question, riding the transcript as its last row. A single-question
+ * request lays out directly; a multi-question request is shown as SLIDES (one
+ * question per screen, à la Claude): a "N / total" counter + dots, swipe between
+ * them, and answering a single-select question auto-advances to the next.
+ * Skip/Submit stay pinned below, always reachable. `selections` is hoisted so it
+ * survives the hosting ComposeView being recycled. Mirrors iOS `QuestionDock`.
+ */
 @Composable
 private fun QuestionDock(
-    request: studio.eugenezakharov.opencode.api.models.QuestionRequest,
+    request: QuestionRequest,
+    selections: SnapshotStateMap<String, Set<String>>,
     onReply: (List<List<String>>) -> Unit,
     onReject: () -> Unit,
 ) {
-    val info = androidx.compose.ui.graphics.Color(0xFF2D7FF9)
+    val info = Color(0xFF2D7FF9)
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-    // Selected labels per question, keyed by the question's stable key.
-    val selections = remember(request.id) { mutableStateMapOf<String, Set<String>>() }
-    // Auto-advance support: each question's Y inside the scroll content, so
-    // answering a single-select question can scroll the next unanswered one
-    // into view (otherwise it's not obvious why Submit is still disabled).
-    val questionOffsets = remember(request.id) { mutableStateMapOf<String, Int>() }
-    val questionsScroll = rememberScrollState()
+    val isMulti = request.questions.size > 1
+    val pagerState = rememberPagerState(pageCount = { request.questions.size })
     val scope = rememberCoroutineScope()
+
+    val pick: (QuestionItem, String) -> Unit = { question, label ->
+        val current = selections[question.key] ?: emptySet()
+        selections[question.key] = if (question.allowsMultiple) {
+            if (label in current) current - label else current + label
+        } else {
+            setOf(label) // radio
+        }
+        // Claude-style slides: a single-select answer advances to the next question.
+        if (isMulti && !question.allowsMultiple) {
+            val idx = request.questions.indexOfFirst { it.key == question.key }
+            if (idx >= 0 && idx + 1 < request.questions.size) {
+                scope.launch { pagerState.animateScrollToPage(idx + 1) }
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -655,93 +597,52 @@ private fun QuestionDock(
             .background(color = info.copy(alpha = 0.10f), shape = shape)
             .padding(12.dp),
     ) {
-        Text(
-            "? Question",
-            color = info,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.size(8.dp))
-
-        // The dock sits above the composer with NO outer bound — a real
-        // multi-question request (3 questions / 11 options with long
-        // descriptions, captured from the wifi-densepose session) grew it past
-        // the whole screen and shoved Skip/Submit off-screen with no way out
-        // (the same bug was reproduced and fixed on iOS with this payload).
-        // Questions scroll inside a bounded viewport; the action row below
-        // stays reachable, always.
-        Column(
-            Modifier
-                .heightIn(max = 280.dp)
-                .verticalScroll(questionsScroll),
-        ) {
-        request.questions.forEach { question ->
-          Column(
-              Modifier.onGloballyPositioned {
-                  questionOffsets[question.key] = it.positionInParent().y.toInt()
-              },
-          ) {
-            if (question.header.isNotEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "? Question",
+                color = info,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.weight(1f))
+            if (isMulti) {
                 Text(
-                    question.header,
+                    "${pagerState.currentPage + 1} / ${request.questions.size}",
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.size(2.dp))
             }
-            Text(question.question, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.size(6.dp))
+        }
+        Spacer(Modifier.size(8.dp))
 
-            question.options.forEach { option ->
-                val selected = selections[question.key]?.contains(option.label) == true
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val current = selections[question.key] ?: emptySet()
-                            selections[question.key] = if (question.allowsMultiple) {
-                                if (option.label in current) current - option.label else current + option.label
-                            } else {
-                                setOf(option.label) // radio
-                            }
-                            // Answering a single-select question scrolls the next
-                            // unanswered one into view; multi-select doesn't
-                            // auto-advance (the user may still be picking).
-                            if (!question.allowsMultiple) {
-                                request.questions.firstOrNull {
-                                    it.key != question.key && selections[it.key].isNullOrEmpty()
-                                }?.let { next ->
-                                    questionOffsets[next.key]?.let { y ->
-                                        scope.launch { questionsScroll.animateScrollTo(y) }
-                                    }
-                                }
-                            }
-                        }
-                        .padding(vertical = 6.dp)
-                        .testTag(option.label),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (selected) "●" else "○",
-                        color = if (selected) info else MaterialTheme.colorScheme.onSurfaceVariant,
+        if (isMulti) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp),
+                verticalAlignment = Alignment.Top,
+            ) { page ->
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    QuestionSlide(request.questions[page], selections, info, pick)
+                }
+            }
+            Spacer(Modifier.size(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                repeat(request.questions.size) { i ->
+                    val active = i == pagerState.currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(if (active) 8.dp else 6.dp)
+                            .background(if (active) info else info.copy(alpha = 0.3f), CircleShape),
                     )
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(option.label, style = MaterialTheme.typography.bodyMedium)
-                        if (option.description.isNotEmpty()) {
-                            Text(
-                                option.description,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
                 }
             }
             Spacer(Modifier.size(8.dp))
-          }
-        }
+        } else {
+            request.questions.firstOrNull()?.let { QuestionSlide(it, selections, info, pick) }
+            Spacer(Modifier.size(8.dp))
         }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -756,6 +657,57 @@ private fun QuestionDock(
                 enabled = canSubmit,
                 modifier = Modifier.testTag("question.submit"),
             ) { Text("Submit") }
+        }
+    }
+}
+
+/** One question inside the dock — header, prompt, and its selectable options. */
+@Composable
+private fun QuestionSlide(
+    question: QuestionItem,
+    selections: SnapshotStateMap<String, Set<String>>,
+    info: Color,
+    onPick: (QuestionItem, String) -> Unit,
+) {
+    Column {
+        if (question.header.isNotEmpty()) {
+            Text(
+                question.header,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.size(2.dp))
+        }
+        Text(question.question, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.size(6.dp))
+
+        question.options.forEach { option ->
+            val selected = selections[question.key]?.contains(option.label) == true
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onPick(question, option.label) }
+                    .padding(vertical = 6.dp)
+                    .testTag(option.label),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (selected) "●" else "○",
+                    color = if (selected) info else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                    if (option.description.isNotEmpty()) {
+                        Text(
+                            option.description,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1135,7 +1087,8 @@ private fun MessageList(
     onRevert: (String) -> Unit,
     onSelect: (studio.eugenezakharov.opencode.api.models.MessageWithParts) -> Unit,
     onLoadOlder: () -> Unit,
-    onCollapseProgress: (Float) -> Unit = {},
+    onQuestionReply: (QuestionRequest, List<List<String>>) -> Unit = { _, _ -> },
+    onQuestionReject: (QuestionRequest) -> Unit = {},
     recyclerRef: androidx.compose.runtime.MutableState<RecyclerView?>? = null,
 ) {
     AndroidView(
@@ -1143,7 +1096,10 @@ private fun MessageList(
         factory = { context ->
             RecyclerView(context).apply {
                 layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
-                adapter = MessageAdapter().apply { this.onRevert = onRevert; this.onSelect = onSelect }
+                adapter = MessageAdapter().apply {
+                    this.onRevert = onRevert; this.onSelect = onSelect
+                    this.onQuestionReply = onQuestionReply; this.onQuestionReject = onQuestionReject
+                }
                 clipToPadding = false
                 setPadding(0, 8, 0, 8)
                 // Keep insert/remove animations (a new step slides in) but drop the
@@ -1159,18 +1115,7 @@ private fun MessageList(
                 // older rows above keeps the viewport stable — RecyclerView anchors
                 // to the first visible child across a top insert (DiffUtil-driven).
                 addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                    // Continuous reading-mode collapse: 0 at the newest message
-                    // (full dock) → 1 once COLLAPSE_SPAN_DP of transcript sits below
-                    // the viewport (pill), so the dock slides into the pill in step
-                    // with the scroll instead of snapping at a threshold. Reported
-                    // every scroll frame; onScrolled stops firing at rest, so the
-                    // value simply holds there (no idle oscillation). Mirrors iOS.
                     override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
-                        val density = rv.resources.displayMetrics.density
-                        val belowDp = (rv.computeVerticalScrollRange() -
-                            rv.computeVerticalScrollOffset() -
-                            rv.computeVerticalScrollExtent()) / density
-                        onCollapseProgress((belowDp / COLLAPSE_SPAN_DP).coerceIn(0f, 1f))
                         if (dy >= 0) return // only when scrolling up (toward older)
                         val lm = rv.layoutManager as LinearLayoutManager
                         val visibleThreshold = lm.childCount * 3 / 2 // ~1.5 screens of rows
@@ -1184,6 +1129,8 @@ private fun MessageList(
             val adapter = recycler.adapter as MessageAdapter
             adapter.onRevert = onRevert
             adapter.onSelect = onSelect
+            adapter.onQuestionReply = onQuestionReply
+            adapter.onQuestionReject = onQuestionReject
             val lm = recycler.layoutManager as LinearLayoutManager
             val atBottom = lm.findLastVisibleItemPosition() >= adapter.itemCount - 2 || adapter.itemCount == 0
             // Hide messages after the revert boundary.
@@ -1195,7 +1142,10 @@ private fun MessageList(
                 state.messages
             }
             val changed = adapter.submit(visible)
-            if (changed && atBottom && adapter.itemCount > 0) {
+            // The question dock is the LAST ROW (a footer), so it scrolls with the
+            // transcript; keep it on screen when the user is at the newest message.
+            val footerChanged = adapter.setFooter(state.pendingQuestions)
+            if ((changed || footerChanged) && atBottom && adapter.itemCount > 0) {
                 recycler.post { recycler.scrollToPosition(adapter.itemCount - 1) }
             }
         },

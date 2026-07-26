@@ -19,11 +19,16 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.setPadding
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
+import studio.eugenezakharov.opencode.api.models.QuestionRequest
 
 /** One rendered piece of a message body: a run of styled text, or a GFM table. */
 sealed interface MsgBlock {
@@ -56,7 +61,7 @@ data class RenderedMessage(
  * so a streaming text delta rebinds a single row, never the whole list.
  * Mirrors the iOS `MessageListView` coordinator.
  */
-class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() {
+class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     /** A row holds the raw message + a cheap signature; the heavy Spanned body is
      *  rendered lazily in onBind (only for visible rows), so loading a 600-message
@@ -72,6 +77,33 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
     var onRevert: ((String) -> Unit)? = null
     /** Invoked with the full message when a row is tapped (opens its detail). */
     var onSelect: ((MessageWithParts) -> Unit)? = null
+
+    // --- Footer (the pending question dock) --------------------------------
+    // The dock rides the transcript as its LAST ROW so it scrolls WITH the
+    // messages (never floating over them). Mirrors iOS `SessionFooter`.
+    private var footerQuestions: List<QuestionRequest> = emptyList()
+    var onQuestionReply: ((QuestionRequest, List<List<String>>) -> Unit)? = null
+    var onQuestionReject: ((QuestionRequest) -> Unit)? = null
+    /** Selections hoisted OUT of the composable (keyed by request id → question key
+     *  → labels) so they survive the ComposeView being recycled when scrolled off. */
+    private val footerSelections = mutableMapOf<String, SnapshotStateMap<String, Set<String>>>()
+
+    private val hasFooter get() = footerQuestions.isNotEmpty()
+
+    /** Set / update / clear the footer question dock. Returns true if it changed. */
+    fun setFooter(questions: List<QuestionRequest>): Boolean {
+        val had = hasFooter
+        val idsChanged = footerQuestions.map { it.id } != questions.map { it.id }
+        footerQuestions = questions
+        footerSelections.keys.retainAll(questions.map { it.id }.toSet())
+        val pos = items.size
+        return when {
+            !had && hasFooter -> { notifyItemInserted(pos); true }
+            had && !hasFooter -> { notifyItemRemoved(pos); true }
+            had && hasFooter && idsChanged -> { notifyItemChanged(pos); true }
+            else -> false
+        }
+    }
 
     /** Replaces the list, issuing minimal notifications. Returns true if anything changed. */
     fun submit(messages: List<MessageWithParts>): Boolean {
@@ -107,9 +139,22 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         return renderCache.get(key) ?: render(row.message).also { renderCache.put(key, it) }
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = items.size + if (hasFooter) 1 else 0
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
+    override fun getItemViewType(position: Int): Int =
+        if (hasFooter && position == items.size) TYPE_FOOTER else TYPE_MESSAGE
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        if (viewType == TYPE_FOOTER) {
+            val compose = ComposeView(parent.context).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool)
+            }
+            return FooterViewHolder(compose)
+        }
         val context = parent.context
         val density = context.resources.displayMetrics.density
         fun dp(v: Int) = (v * density).toInt()
@@ -182,9 +227,22 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
         )
     }
 
-    override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        holder.bind(rendered(items[position]))
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        if (holder is FooterViewHolder) {
+            holder.composeView.setContent {
+                SessionFooter(
+                    questions = footerQuestions,
+                    selectionsFor = { req -> footerSelections.getOrPut(req.id) { mutableStateMapOf() } },
+                    onReply = { req, answers -> onQuestionReply?.invoke(req, answers) },
+                    onReject = { req -> onQuestionReject?.invoke(req) },
+                )
+            }
+            return
+        }
+        (holder as MessageViewHolder).bind(rendered(items[position]))
     }
+
+    class FooterViewHolder(val composeView: ComposeView) : RecyclerView.ViewHolder(composeView)
 
     class MessageViewHolder(
         itemView: LinearLayout,
@@ -269,6 +327,9 @@ class MessageAdapter : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() 
     }
 
     companion object {
+        private const val TYPE_MESSAGE = 0
+        private const val TYPE_FOOTER = 1
+
         private fun isNightMode(context: android.content.Context): Boolean =
             (context.resources.configuration.uiMode and
                 android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==

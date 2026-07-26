@@ -100,21 +100,13 @@ class QuestionDockLayoutUITest {
                 composeRule.onAllNodes(hasText("Модель ESP32")).fetchSemanticsNodes().isNotEmpty()
             }
 
-            // …with the escape hatches ON SCREEN despite the huge content. Pre-fix
-            // the dock had no height bound or scrolling, so both buttons sat far
-            // below the screen edge.
+            // The escape hatches (Skip/Submit) stay pinned below the slides, ON
+            // SCREEN, no matter how big the questionnaire is.
             composeRule.onNodeWithTag("question.reject").assertIsDisplayed()
             composeRule.onNodeWithTag("question.submit").assertIsDisplayed()
 
-            // The deep options must exist inside the dock's internal scroll: the
-            // last question's last option.
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodes(hasTestTag("Координаты (x,y) в комнате")).fetchSemanticsNodes().isNotEmpty()
-            }
-
-            // Auto-advance: answering a single-select question scrolls the next
-            // unanswered one into view; the whole questionnaire ends with an
-            // enabled Submit.
+            // Multi-question requests are SLIDES: answering a single-select question
+            // auto-advances to the next; the walk ends with an enabled Submit.
             composeRule.onNodeWithTag("ESP32-S3 (8MB flash)").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 runCatching {
@@ -133,12 +125,12 @@ class QuestionDockLayoutUITest {
         }
     }
 
-    /** Reading mode: with a pending question, scrolling up into history must
-     *  collapse the dock to a one-line pill; tapping the pill returns to the
-     *  bottom where the full dock lives. (Covers the full roundtrip — the iOS
-     *  UI test covers only the collapse half; see its comment.) */
+    /** The question dock RIDES THE TRANSCRIPT as its last row, in step with the
+     *  content — not a fixed overlay the messages slide under. Reachable at the
+     *  newest message; scroll up into history and it leaves the screen WITH the
+     *  content; scroll back and it returns. */
     @Test
-    fun dockCollapsesToPillWhileReadingHistoryAndReturns() {
+    fun dockRidesTranscriptAsFooterAndReturns() {
         assumeTrue("live server not reachable at $hostBase; start the tunnel to run this UI test", serverReachable())
 
         val intent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).apply {
@@ -161,40 +153,28 @@ class QuestionDockLayoutUITest {
             clickNativeText("sqlite2orm", timeoutMs = 20_000)
             clickNativeText("Описание проекта", timeoutMs = 20_000)
 
-            // Full dock at the bottom.
-            composeRule.waitUntil(timeoutMillis = 15_000) {
-                composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isNotEmpty()
-            }
+            fun rejectShown() = composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isNotEmpty()
+            fun swipe(action: androidx.test.espresso.ViewAction) =
+                androidx.test.espresso.Espresso.onView(
+                    androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(androidx.recyclerview.widget.RecyclerView::class.java),
+                ).perform(action)
 
-            // Scroll up into history → the dock must collapse to the pill.
-            androidx.test.espresso.Espresso.onView(
-                androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(androidx.recyclerview.widget.RecyclerView::class.java),
-            ).perform(
-                androidx.test.espresso.action.ViewActions.swipeDown(),
-                androidx.test.espresso.action.ViewActions.swipeDown(),
-            )
-            composeRule.waitUntil(timeoutMillis = 10_000) {
-                composeRule.onAllNodes(hasTestTag("question.pill")).fetchSemanticsNodes().isNotEmpty()
-            }
-            check(composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isEmpty()) {
-                "full dock must be hidden while reading"
-            }
+            // Reachable at the newest message (the dock is the transcript's last row).
+            composeRule.waitUntil(timeoutMillis = 15_000) { rejectShown() }
 
-            // REGRESSION (reported live on iOS): the collapse must not feed back
-            // into its own trigger — the pill must be STABLE seconds later.
-            Thread.sleep(2_500)
-            check(composeRule.onAllNodes(hasTestTag("question.pill")).fetchSemanticsNodes().isNotEmpty()) {
-                "pill must remain while reading — no yank-back loop"
-            }
-            check(composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isEmpty()) {
-                "full dock must stay hidden while reading"
-            }
+            // Scroll into history (swipeDown reveals older rows on a stackFromEnd
+            // list): the dock leaves the screen WITH the content's end. A FIXED
+            // overlay would stay pinned and keep covering the transcript.
+            swipe(androidx.test.espresso.action.ViewActions.swipeDown())
+            swipe(androidx.test.espresso.action.ViewActions.swipeDown())
+            composeRule.waitUntil(timeoutMillis = 10_000) { !rejectShown() }
 
-            // Tap the pill → back at the bottom with the full dock.
-            composeRule.onNodeWithTag("question.pill").performClick()
-            composeRule.waitUntil(timeoutMillis = 10_000) {
-                composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isNotEmpty()
+            // Scroll back to the newest message (swipeUp): the dock returns.
+            repeat(12) {
+                if (rejectShown()) return@repeat
+                swipe(androidx.test.espresso.action.ViewActions.swipeUp())
             }
+            composeRule.waitUntil(timeoutMillis = 10_000) { rejectShown() }
         }
     }
 
