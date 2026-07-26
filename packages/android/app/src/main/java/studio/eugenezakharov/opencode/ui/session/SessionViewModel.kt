@@ -49,6 +49,8 @@ data class SessionUiState(
     // True while an older page of history is being fetched (scroll-up pagination) —
     // drives the top-of-list loading indicator.
     val loadingOlder: Boolean = false,
+    // The diff toolbar button only shows when the session actually changed files.
+    val hasDiff: Boolean = false,
 )
 
 /**
@@ -97,7 +99,10 @@ class SessionViewModel(
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
     init {
+        _state.update { it.copy(hasDiff = (session.summary?.files ?: 0) > 0) }
         store.onChange = {
+            val wasBusy = _state.value.isBusy
+            if (wasBusy && !store.isBusy) refreshDiffBadge() // a finished turn may have edited files
             _state.update {
                 it.copy(
                     messages = store.messages,
@@ -273,6 +278,18 @@ class SessionViewModel(
             }
             runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let {
                 store.setInitialTodos(it)
+            }
+        }
+    }
+
+    /**
+     * Re-checks whether the session has any file changes (drives the diff
+     * toolbar button). Cheap: one `GET /session/:id` reading the summary.
+     */
+    private fun refreshDiffBadge() {
+        viewModelScope.launch {
+            runCatching { server.getSession(session.id) }.getOrNull()?.let { fresh ->
+                _state.update { it.copy(hasDiff = (fresh.summary?.files ?: 0) > 0) }
             }
         }
     }

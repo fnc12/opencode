@@ -150,11 +150,15 @@ fun SessionScreen(
                     ) {
                         Text(">_", style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
                     }
-                    IconButton(
-                        onClick = { showDiff = true },
-                        modifier = Modifier.testTag("session.diff"),
-                    ) {
-                        Text("±", style = MaterialTheme.typography.titleMedium)
+                    // Only when the session actually changed files — the top
+                    // bar is tight, don't spend a slot on an empty screen.
+                    if (state.hasDiff) {
+                        IconButton(
+                            onClick = { showDiff = true },
+                            modifier = Modifier.testTag("session.diff"),
+                        ) {
+                            Text("±", style = MaterialTheme.typography.titleMedium)
+                        }
                     }
                     Box {
                         IconButton(

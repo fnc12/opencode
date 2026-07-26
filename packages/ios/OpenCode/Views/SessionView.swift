@@ -38,6 +38,9 @@ struct SessionView: View {
     /// Keyboard visibility, tracked so tall docks can collapse while typing —
     /// the input accessory plus the keyboard must fit on screen.
     @State private var keyboardVisible = false
+    /// Whether the session has any file changes — the diff toolbar button only
+    /// appears when there is something to show (the top bar is tight on space).
+    @State private var hasDiff = false
     @AppStorage("composer.providerID") private var providerID = ""
     @AppStorage("composer.modelID") private var modelID = ""
 
@@ -95,6 +98,10 @@ struct SessionView: View {
         }
         .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
         .navigationBarTitleDisplayMode(.inline)
+        .task { hasDiff = (session.summary?.files ?? 0) > 0; await refreshDiffBadge() }
+        .onChange(of: store.isBusy) { _, busy in
+            if !busy { Task { await refreshDiffBadge() } } // a finished turn may have edited files
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 // Equatable island: the session body re-evaluates on every
@@ -108,6 +115,7 @@ struct SessionView: View {
                 // on every flip — the "buttons constantly blink" bug.
                 SessionToolbar(
                     hasShareURL: shareURL != nil,
+                    hasDiff: hasDiff,
                     onShell: { showShell = true },
                     onDiff: { showDiff = true },
                     onShare: { Task { await share() } },
@@ -369,6 +377,14 @@ struct SessionView: View {
         }
     }
 
+    /// Re-checks whether the session has any file changes (drives the diff
+    /// toolbar button's visibility). Cheap: one `GET /session/:id`, reading the
+    /// server-maintained summary — not the diff payload itself.
+    private func refreshDiffBadge() async {
+        guard let fresh = try? await server.getSession(id: session.id) else { return }
+        hasDiff = (fresh.summary?.files ?? 0) > 0
+    }
+
     /// Clears the error screen and re-runs the load + stream. Wired to the Retry
     /// button so a timed-out initial fetch isn't a dead end.
     private func retry() async {
@@ -605,13 +621,16 @@ private struct StreamStatusBadge: View {
 /// the same state setters every time.
 private struct SessionToolbar: View, Equatable {
     let hasShareURL: Bool
+    /// The diff button only shows when the session actually changed files —
+    /// the top bar is tight, don't spend a slot on an empty screen.
+    let hasDiff: Bool
     let onShell: () -> Void
     let onDiff: () -> Void
     let onShare: () -> Void
     let onStopShare: () -> Void
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.hasShareURL == rhs.hasShareURL
+        lhs.hasShareURL == rhs.hasShareURL && lhs.hasDiff == rhs.hasDiff
     }
 
     var body: some View {
@@ -622,11 +641,13 @@ private struct SessionToolbar: View, Equatable {
             }
             .accessibilityIdentifier("session.shell")
             .accessibilityLabel("Shell")
-            Button(action: onDiff) {
-                Image(systemName: "plusminus")
+            if hasDiff {
+                Button(action: onDiff) {
+                    Image(systemName: "plusminus")
+                }
+                .accessibilityIdentifier("session.diff")
+                .accessibilityLabel("Changes")
             }
-            .accessibilityIdentifier("session.diff")
-            .accessibilityLabel("Changes")
             Menu {
                 Button(action: onShare) {
                     Label("Share link", systemImage: "square.and.arrow.up")

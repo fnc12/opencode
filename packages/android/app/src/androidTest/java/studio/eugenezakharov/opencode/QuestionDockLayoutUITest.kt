@@ -87,6 +87,14 @@ class QuestionDockLayoutUITest {
 
             clickNativeText(title, timeoutMs = 20_000)
 
+            // A fresh session has no file changes — the diff button must be hidden.
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodes(hasTestTag("session.shell")).fetchSemanticsNodes().isNotEmpty()
+            }
+            check(composeRule.onAllNodes(hasTestTag("session.diff")).fetchSemanticsNodes().isEmpty()) {
+                "diff button must hide when there is no diff"
+            }
+
             // The real payload's dock must appear…
             composeRule.waitUntil(timeoutMillis = 15_000) {
                 composeRule.onAllNodes(hasText("Модель ESP32")).fetchSemanticsNodes().isNotEmpty()

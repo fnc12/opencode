@@ -47,6 +47,9 @@ final class QuestionDockLayoutUITests: XCTestCase {
         XCTAssertTrue(sessionCell.waitForExistence(timeout: 15), "session row not found")
         sessionCell.tap()
 
+        // A fresh session has no file changes — the diff button must be hidden.
+        XCTAssertFalse(app.buttons["session.diff"].exists, "diff button must hide when there is no diff")
+
         // The real payload's dock must appear…
         let firstHeader = app.staticTexts["Модель ESP32"]
         XCTAssertTrue(firstHeader.waitForExistence(timeout: 10), "question dock didn't appear")
