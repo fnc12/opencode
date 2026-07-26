@@ -41,9 +41,11 @@ struct SessionView: View {
     /// Whether the session has any file changes — the diff toolbar button only
     /// appears when there is something to show (the top bar is tight on space).
     @State private var hasDiff = false
-    /// False while the user reads history away from the newest message — tall
-    /// docks collapse to a one-line pill so they stop covering the transcript.
-    @State private var atBottom = true
+    /// Reading-mode collapse of the question dock, updated continuously from the
+    /// list's scroll position (0 = newest/full dock, 1 = deep-in-history/pill).
+    /// A reference model so a per-frame scroll update re-renders only the dock,
+    /// never the composer accessory.
+    @State private var reading = ReadingMode()
     /// Bumped by the question pill to scroll the list back to the newest message.
     @State private var returnToBottomSignal = 0
     @AppStorage("composer.providerID") private var providerID = ""
@@ -77,7 +79,7 @@ struct SessionView: View {
                                onRevert: { revertTarget = $0 },
                                onLoadOlder: { Task { await loadOlder() } },
                                onKeyboardVisible: { keyboardVisible = $0 },
-                               onAtBottomChange: { atBottom = $0 },
+                               onCollapseProgress: { reading.collapseProgress = $0 },
                                returnToBottomSignal: returnToBottomSignal,
                                showTyping: showThinking && !isStuck,
                                barRevision: barRevision) {
@@ -262,7 +264,9 @@ struct SessionView: View {
         var h = Hasher()
         h.combine(runningTools.map(\.id))
         h.combine(keyboardVisible)
-        h.combine(atBottom)
+        // NOT the collapse progress: it drives a leaf @Observable the dock reads
+        // directly, so the accessory must NOT rebuild as it scrubs (that would
+        // churn the composer every scroll frame). Only `keyboardVisible` gates it.
         h.combine(isStreaming)
         h.combine(isStuck)
         h.combine(store.revertMessageID)
@@ -325,46 +329,29 @@ struct SessionView: View {
                     Task { await handleReply(request, reply) }
                 }
             }
-            if !atBottom && !keyboardVisible, let pending = store.pendingQuestions.first {
-                // Reading mode: the user scrolled up into history — a full-size
-                // questionnaire would cover the transcript they're reading, so
-                // it collapses to one line. Tapping returns to the newest
-                // message, where the full dock lives. (Keyboard-up keeps the
-                // compact dock instead: swapping the accessory's structure with
-                // focus active would tear down the composer and dismiss the
-                // keyboard — measured, see the frozen-phone saga.)
-                Button {
-                    returnToBottomSignal += 1
-                    atBottom = true
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "questionmark.circle.fill")
-                        Text("Question from the agent (\(pending.questions.count))")
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.blue.opacity(0.12))
-                    .foregroundStyle(.blue)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("question.pill")
-            } else {
-                ForEach(store.pendingQuestions) { request in
-                    // `compact` shrinks the questions viewport while the keyboard
-                    // is up: the dock rides the input accessory, and accessory +
-                    // keyboard must fit the screen — a full-height questionnaire
-                    // wedged the keyboard presentation (frozen phone, keyboard
-                    // peeking). Height-only change: the view structure (and the
-                    // composer's focus) stays intact.
-                    QuestionDock(
-                        request: request,
-                        compact: keyboardVisible,
-                        onReply: { answers in Task { await handleQuestionReply(request, answers) } },
-                        onReject: { Task { await handleQuestionReject(request) } })
-                }
+            ForEach(store.pendingQuestions) { request in
+                // Reading mode: as the user scrolls up into history the dock —
+                // which would otherwise cover the transcript — collapses
+                // CONTINUOUSLY into a one-line pill, tracking the scroll (not a
+                // threshold). Tapping the pill returns to the newest message where
+                // the full dock lives. The dock and pill both stay in the tree
+                // (only height/opacity animate), so the accessory's structure is
+                // constant and the keyboard-hosted composer is never torn down.
+                //
+                // `compact` shrinks the questions viewport while the keyboard is up
+                // (accessory + keyboard must fit the screen — a full-height
+                // questionnaire wedged the keyboard presentation, the frozen-phone
+                // bug) and disables the collapse (reading happens keyboard-down).
+                CollapsibleQuestionDock(
+                    request: request,
+                    reading: reading,
+                    compact: keyboardVisible,
+                    onReply: { answers in Task { await handleQuestionReply(request, answers) } },
+                    onReject: { Task { await handleQuestionReject(request) } },
+                    onExpand: {
+                        withAnimation(.easeOut(duration: 0.28)) { reading.collapseProgress = 0 }
+                        returnToBottomSignal += 1
+                    })
             }
             if !runningTools.isEmpty {
                 // "Background processes" strip (like Claude's): long tools emit

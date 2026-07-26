@@ -77,13 +77,19 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -116,10 +122,11 @@ fun SessionScreen(
     var showShell by remember { mutableStateOf(false) }
     var showTodos by remember { mutableStateOf(false) }
     var detailMessage by remember { mutableStateOf<studio.eugenezakharov.opencode.api.models.MessageWithParts?>(null) }
-    // False while the user reads history away from the newest message — the
-    // question dock collapses to a one-line pill so it stops covering the
-    // transcript. Mirrors iOS.
-    var atBottom by remember { mutableStateOf(true) }
+    // Reading-mode collapse of the question dock, tracked CONTINUOUSLY from the
+    // list's scroll position (0 = newest/full dock, 1 = deep-in-history/pill) so
+    // the dock slides into the pill in step with the scroll rather than snapping
+    // at a threshold. Mirrors iOS `collapseProgress`.
+    var collapseProgress by remember { mutableFloatStateOf(0f) }
     val recyclerRef = remember { mutableStateOf<RecyclerView?>(null) }
     var showShareMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -236,44 +243,27 @@ fun SessionScreen(
                         )
                     }
                     // Question docks also sit above the composer; the agent is blocked
-                    // until each is answered or skipped (#28).
-                    if (!atBottom && state.pendingQuestions.isNotEmpty()) {
-                        // Reading mode: a full-size questionnaire would cover the
-                        // transcript — collapse to one line; tapping returns to
-                        // the newest message where the full dock lives.
-                        val pending = state.pendingQuestions.first()
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF2D7FF9).copy(alpha = 0.10f))
-                                .clickable {
-                                    recyclerRef.value?.let { rv ->
-                                        rv.adapter?.itemCount?.takeIf { it > 0 }?.let { n ->
-                                            rv.smoothScrollToPosition(n - 1)
-                                        }
+                    // until each is answered or skipped (#28). As the user scrolls up
+                    // into history the dock collapses CONTINUOUSLY into a one-line
+                    // pill (it would otherwise cover the transcript); tapping the pill
+                    // returns to the newest message where the full dock lives.
+                    state.pendingQuestions.forEach { request ->
+                        CollapsibleQuestionDock(
+                            request = request,
+                            progress = collapseProgress,
+                            onReply = { answers -> viewModel.replyQuestion(request, answers) },
+                            onReject = { viewModel.rejectQuestion(request) },
+                            onExpand = {
+                                // Smooth-scrolling to the bottom drives onScrolled,
+                                // which walks `collapseProgress` back to 0 — the dock
+                                // re-expands in step with the return scroll.
+                                recyclerRef.value?.let { rv ->
+                                    rv.adapter?.itemCount?.takeIf { it > 0 }?.let { n ->
+                                        rv.smoothScrollToPosition(n - 1)
                                     }
-                                    atBottom = true
                                 }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                                .testTag("question.pill"),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "? Question from the agent (${pending.questions.size})",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFF2D7FF9),
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text("▼", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2D7FF9))
-                        }
-                    } else {
-                        state.pendingQuestions.forEach { request ->
-                            QuestionDock(
-                                request = request,
-                                onReply = { answers -> viewModel.replyQuestion(request, answers) },
-                                onReject = { viewModel.rejectQuestion(request) },
-                            )
-                        }
+                            },
+                        )
                     }
                     if (state.runningTools.isNotEmpty()) {
                         RunningToolsStrip(state.runningTools)
@@ -298,7 +288,7 @@ fun SessionScreen(
                     onRevert = { viewModel.revert(it) },
                     onSelect = { detailMessage = it },
                     onLoadOlder = { viewModel.loadOlder() },
-                    onAtBottomChange = { atBottom = it },
+                    onCollapseProgress = { collapseProgress = it },
                     recyclerRef = recyclerRef,
                 )
             }
@@ -560,6 +550,86 @@ private fun PermissionDock(
  * the user submits answers or skips. Blue/info styling distinguishes it from the
  * orange permission dock. Mirrors iOS `QuestionDock`.
  */
+/** Points of transcript below the viewport over which the question dock fully
+ *  collapses into the pill. Mirrors iOS `collapseSpan`. */
+private const val COLLAPSE_SPAN_DP = 260f
+
+/** The one-line pill's height (one line + vertical padding) — the collapse floor. */
+private val PILL_HEIGHT = 37.dp
+
+/**
+ * Wraps [QuestionDock] so it collapses CONTINUOUSLY into a one-line pill as the
+ * user scrolls up into history — the collapse tracks [progress] (0 = newest/full,
+ * 1 = deep-in-history/pill), so the dock slides into the pill in step with the
+ * scroll rather than snapping at a threshold. The dock and the pill are BOTH in
+ * the tree through the crossfade (only their height + alpha animate); each drops
+ * out only at its own vanishing end (already ~0 alpha), which also removes its
+ * test tags so `question.reject`/`question.pill` match the visible state. Mirrors
+ * iOS `CollapsibleQuestionDock`.
+ */
+@Composable
+private fun CollapsibleQuestionDock(
+    request: studio.eugenezakharov.opencode.api.models.QuestionRequest,
+    progress: Float,
+    onReply: (List<List<String>>) -> Unit,
+    onReject: () -> Unit,
+    onExpand: () -> Unit,
+) {
+    val p = progress.coerceIn(0f, 1f)
+    val density = LocalDensity.current
+    val pillHeightPx = with(density) { PILL_HEIGHT.toPx() }
+    // The dock's natural (uncollapsed) height, measured from its own layout so the
+    // collapse interpolates down to the pill without a magic number. Retained when
+    // the dock leaves the tree at full collapse, so scrolling back doesn't flash
+    // it to full height for a frame.
+    var fullHeightPx by remember { mutableIntStateOf(0) }
+    val info = Color(0xFF2D7FF9)
+    val collapsedHeight = with(density) {
+        (pillHeightPx + (fullHeightPx - pillHeightPx) * (1f - p)).toDp()
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .then(if (fullHeightPx > 0) Modifier.height(collapsedHeight) else Modifier)
+            .clipToBounds(),
+        contentAlignment = Alignment.BottomStart,
+    ) {
+        if (p < 0.995f) {
+            Box(
+                Modifier
+                    // Measure + render at natural height regardless of the collapsed
+                    // outer frame, so the dock CLIPS (slides down) instead of
+                    // squishing, and the measured height stays true mid-collapse.
+                    .wrapContentHeight(align = Alignment.Bottom, unbounded = true)
+                    .onSizeChanged { if (it.height > 0) fullHeightPx = it.height }
+                    .graphicsLayer { alpha = 1f - p },
+            ) {
+                QuestionDock(request = request, onReply = onReply, onReject = onReject)
+            }
+        }
+        if (p > 0.005f) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { alpha = p }
+                    .background(info.copy(alpha = 0.10f))
+                    .clickable { onExpand() }
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .testTag("question.pill"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "? Question from the agent (${request.questions.size})",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = info,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("▼", style = MaterialTheme.typography.labelMedium, color = info)
+            }
+        }
+    }
+}
+
 @Composable
 private fun QuestionDock(
     request: studio.eugenezakharov.opencode.api.models.QuestionRequest,
@@ -1065,7 +1135,7 @@ private fun MessageList(
     onRevert: (String) -> Unit,
     onSelect: (studio.eugenezakharov.opencode.api.models.MessageWithParts) -> Unit,
     onLoadOlder: () -> Unit,
-    onAtBottomChange: (Boolean) -> Unit = {},
+    onCollapseProgress: (Float) -> Unit = {},
     recyclerRef: androidx.compose.runtime.MutableState<RecyclerView?>? = null,
 ) {
     AndroidView(
@@ -1089,25 +1159,18 @@ private fun MessageList(
                 // older rows above keeps the viewport stable — RecyclerView anchors
                 // to the first visible child across a top insert (DiffUtil-driven).
                 addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                    // Reading mode with WIDE hysteresis on a pixel metric: the
-                    // dock↔pill swap resizes the list itself (the bottom bar
-                    // changes height), so a row-index check oscillates at the
-                    // boundary (same feedback measured on iOS). The band gap
-                    // (600dp enter / 0 exit) exceeds any bar resize, so the
-                    // swap can't walk the metric across both thresholds.
-                    private var reading = false
+                    // Continuous reading-mode collapse: 0 at the newest message
+                    // (full dock) → 1 once COLLAPSE_SPAN_DP of transcript sits below
+                    // the viewport (pill), so the dock slides into the pill in step
+                    // with the scroll instead of snapping at a threshold. Reported
+                    // every scroll frame; onScrolled stops firing at rest, so the
+                    // value simply holds there (no idle oscillation). Mirrors iOS.
                     override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
                         val density = rv.resources.displayMetrics.density
                         val belowDp = (rv.computeVerticalScrollRange() -
                             rv.computeVerticalScrollOffset() -
                             rv.computeVerticalScrollExtent()) / density
-                        val was = reading
-                        if (reading) {
-                            if (belowDp < 1) reading = false // viewport reaches the content's end
-                        } else if (belowDp > 600) {
-                            reading = true
-                        }
-                        if (was != reading) onAtBottomChange(!reading)
+                        onCollapseProgress((belowDp / COLLAPSE_SPAN_DP).coerceIn(0f, 1f))
                         if (dy >= 0) return // only when scrolling up (toward older)
                         val lm = rv.layoutManager as LinearLayoutManager
                         val visibleThreshold = lm.childCount * 3 / 2 // ~1.5 screens of rows

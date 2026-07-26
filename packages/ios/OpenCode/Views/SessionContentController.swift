@@ -148,13 +148,17 @@ final class SessionContentController: UIViewController {
     /// unreliable during dismissal. Tall docks collapse while this is true.
     var onKeyboardVisible: ((Bool) -> Void)?
 
-    /// Wired from SwiftUI: reports whether the list rests at the newest message
-    /// (false while the user reads history) — tall docks collapse to a pill then.
-    var onAtBottomChange: ((Bool) -> Void)? {
+    /// Wired from SwiftUI: reports the reading-mode collapse progress (0 = at the
+    /// newest message with the full dock, 1 = deep in history with the one-line
+    /// pill) so the dock animates its collapse in step with the scroll. Pushed
+    /// straight through — the value drives a leaf `@Observable` the dock reads, not
+    /// SwiftUI @State feeding the accessory rebuild, so a per-frame update only
+    /// re-renders the dock, and it fires from a UIKit scroll callback (not inside a
+    /// SwiftUI update), so no dispatch hop is needed.
+    var onCollapseProgress: ((CGFloat) -> Void)? {
         didSet {
-            coordinator.onReadingModeChange = { [weak self] reading in
-                let cb = self?.onAtBottomChange
-                DispatchQueue.main.async { cb?(!reading) } // never mutate SwiftUI state mid-scroll
+            coordinator.onCollapseProgressChange = { [weak self] progress in
+                self?.onCollapseProgress?(progress)
             }
         }
     }
@@ -392,8 +396,9 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     /// Reports real-keyboard visibility so tall docks can collapse while typing.
     var onKeyboardVisible: ((Bool) -> Void)?
 
-    /// Reports at-bottom state so tall docks can collapse while reading history.
-    var onAtBottomChange: ((Bool) -> Void)? = nil
+    /// Reports the reading-mode collapse progress (0 = newest/full dock,
+    /// 1 = deep-in-history/pill) so the dock collapses in step with the scroll.
+    var onCollapseProgress: ((CGFloat) -> Void)? = nil
     /// Bump to command a scroll back to the newest message (pill tap).
     var returnToBottomSignal: Int = 0
     /// Shows a "thinking" indicator as the last row (in the message flow, where
@@ -424,7 +429,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
         controller.onKeyboardVisible = onKeyboardVisible
-        controller.onAtBottomChange = onAtBottomChange
+        controller.onCollapseProgress = onCollapseProgress
         context.coordinator.lastReturnSignal = returnToBottomSignal
         controller.messages = messages
         controller.showTyping = showTyping
@@ -442,7 +447,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
         controller.onKeyboardVisible = onKeyboardVisible
-        controller.onAtBottomChange = onAtBottomChange
+        controller.onCollapseProgress = onCollapseProgress
         if context.coordinator.lastReturnSignal != returnToBottomSignal {
             context.coordinator.lastReturnSignal = returnToBottomSignal
             controller.returnToBottom()

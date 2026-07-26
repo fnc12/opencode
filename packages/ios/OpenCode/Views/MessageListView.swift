@@ -64,35 +64,35 @@ struct MessageListView: UIViewRepresentable {
         /// shrinks for the keyboard, so the controller only shifts when this is false.
         private var pinnedToBottom = true
         var isPinnedToBottom: Bool { pinnedToBottom }
-        /// Reading mode with WIDE hysteresis, decoupled from `pinnedToBottom`:
-        /// tall docks collapse only deep in history (>350pt above the bottom)
-        /// and re-expand only at the very bottom (<20pt). The first version
-        /// keyed the collapse to `pinnedToBottom` (140pt threshold both ways):
-        /// the collapse shrank the accessory, the inset clamp nudged the offset
-        /// into the near-bottom band, the next touch re-pinned, the expanding
-        /// dock's pin-clamp threw the user to the very bottom — an endless
-        /// yank-back loop while trying to read. The wide bands make the swap
-        /// impossible to feed back into itself: at the collapse point the
-        /// offset is already far below the shrunken inset's maximum.
-        private var readingMode = false {
-            didSet { if readingMode != oldValue { onReadingModeChange?(readingMode) } }
-        }
-        var onReadingModeChange: ((Bool) -> Void)?
-
-        private func updateReadingMode(_ table: UITableView) {
-            // INSET-INDEPENDENT measure: how much content lies below the visible
-            // viewport. The first cut measured distance-to-flush, which includes
-            // `contentInset.bottom` — but the dock↔pill swap changes that inset
-            // by the dock's own height, so the swap itself walked the metric
-            // across both hysteresis bands and oscillated at every layout
-            // (measured: flips every 25ms). `contentBelow` doesn't move when the
-            // inset changes, so the swap cannot feed back into its own trigger.
-            let contentBelow = table.contentSize.height - table.contentOffset.y - table.bounds.height
-            if readingMode {
-                if contentBelow < 0 { readingMode = false } // viewport reaches the content's end
-            } else if contentBelow > 300 {
-                readingMode = true // deep enough that the dock covers what you read
+        /// Reading-mode collapse tracked CONTINUOUSLY from the scroll position,
+        /// 0…1, instead of flipping at a fixed threshold: 0 at the newest message
+        /// (full dock) → 1 once `collapseSpan` points of transcript sit below the
+        /// viewport (one-line pill), linearly interpolated between, so the dock
+        /// slides into the pill in step with the finger.
+        ///
+        /// The measure is `contentBelow` (content past the bottom of the viewport)
+        /// — INSET-INDEPENDENT on purpose. The dock's own height feeds
+        /// `contentInset.bottom`, so any distance-to-flush measure moves as the
+        /// dock collapses and would drive the collapse from its own output: that
+        /// was the oscillation the earlier threshold version hit (a 355pt inset
+        /// jump walking a hysteresis band, flips every 25ms). `contentBelow` can't
+        /// move when the inset changes, so the scrub is stable with NO hysteresis
+        /// — a continuous function of scroll can't feed back into itself.
+        private var collapseProgress: CGFloat = 0 {
+            didSet {
+                if abs(collapseProgress - oldValue) > 0.001 { onCollapseProgressChange?(collapseProgress) }
             }
+        }
+        var onCollapseProgressChange: ((CGFloat) -> Void)?
+
+        /// Points of transcript below the viewport over which the dock fully
+        /// collapses. Wide enough that the collapse reads as a deliberate scrub
+        /// into history, not a twitch on a short flick.
+        private static let collapseSpan: CGFloat = 260
+
+        private func updateCollapseProgress(_ table: UITableView) {
+            let contentBelow = table.contentSize.height - table.contentOffset.y - table.bounds.height
+            collapseProgress = min(max(contentBelow / Self.collapseSpan, 0), 1)
         }
         /// Called when the user picks "Revert to here" on a message (its id).
         var onRevert: ((String) -> Void)?
@@ -346,7 +346,10 @@ struct MessageListView: UIViewRepresentable {
         /// Re-pins and scrolls to the newest message (the reading-mode pill tap).
         func returnToBottom(_ table: UITableView) {
             pinnedToBottom = true
-            readingMode = false
+            // Don't push `collapseProgress` here: the pill tap animates it to 0 in
+            // SwiftUI (in step with this scroll), and the next user scroll — now at
+            // the bottom — recomputes it to 0 anyway. Setting it non-animated from
+            // here would cancel that expansion animation.
             let target = bottomTarget(table)
             guard target > 0 else { return }
             table.setContentOffset(CGPoint(x: 0, y: target), animated: true)
@@ -366,7 +369,7 @@ struct MessageListView: UIViewRepresentable {
             guard let table = scrollView as? UITableView,
                   scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else { return }
             pinnedToBottom = isNearBottom(table)
-            updateReadingMode(table)
+            updateCollapseProgress(table)
             maybeLoadOlder(table)
         }
 
@@ -383,7 +386,7 @@ struct MessageListView: UIViewRepresentable {
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             if let table = scrollView as? UITableView {
                 pinnedToBottom = isNearBottom(table)
-                updateReadingMode(table)
+                updateCollapseProgress(table)
             }
             if !decelerate { flushPending() }
         }
@@ -391,7 +394,7 @@ struct MessageListView: UIViewRepresentable {
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             if let table = scrollView as? UITableView {
                 pinnedToBottom = isNearBottom(table)
-                updateReadingMode(table)
+                updateCollapseProgress(table)
             }
             flushPending()
         }
