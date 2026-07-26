@@ -44,6 +44,24 @@ func TestScannerDetectsPermissionEvents(t *testing.T) {
 	}
 }
 
+func TestScannerDetectsQuestionEvents(t *testing.T) {
+	s := &Scanner{}
+	stream := "" +
+		`data: {"payload":{"type":"question.v2.asked","properties":{"id":"que_1","sessionID":"s1","questions":[{"question":"Which?"}]}}}` + "\n\n" +
+		`data: {"payload":{"type":"question.asked","properties":{"id":"que_2","sessionID":"s2","questions":[]}}}` + "\n\n" +
+		// resolved is NOT a trigger
+		`data: {"payload":{"type":"question.v2.resolved","properties":{"sessionID":"s1","requestID":"que_1"}}}` + "\n\n"
+
+	got := s.Feed([]byte(stream))
+	want := []Event{
+		{SessionID: "s1", Kind: KindQuestion},
+		{SessionID: "s2", Kind: KindQuestion},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
 func TestScannerHandlesSplitChunks(t *testing.T) {
 	s := &Scanner{}
 	full := `data: {"payload":{"type":"session.idle","properties":{"sessionID":"abc"}}}` + "\n\n"

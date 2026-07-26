@@ -255,6 +255,9 @@ func (s *Server) watchEvents(ctx context.Context, conn *tunnel.Conn) {
 				case push.KindPermission:
 					n.Title = "Permission needed"
 					n.Body = "Your OpenCode agent is waiting for you to allow an action."
+				case push.KindQuestion:
+					n.Title = "The agent has a question"
+					n.Body = "Your OpenCode agent is waiting for your answer."
 				default:
 					n.Title = "Session finished"
 					n.Body = "Your OpenCode agent finished the task."

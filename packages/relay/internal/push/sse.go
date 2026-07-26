@@ -13,6 +13,8 @@ const (
 	KindIdle Kind = "idle"
 	// KindPermission: the agent is waiting for a permission to be allowed.
 	KindPermission Kind = "permission"
+	// KindQuestion: the agent asked the user a question and is blocked on it.
+	KindQuestion Kind = "question"
 )
 
 // Event is a notable occurrence extracted from the SSE stream.
@@ -94,6 +96,10 @@ func parseEvent(event []byte) (Event, bool) {
 		case "permission.asked", "permission.v2.asked":
 			if sid != "" {
 				return Event{SessionID: sid, Kind: KindPermission}, true
+			}
+		case "question.asked", "question.v2.asked":
+			if sid != "" {
+				return Event{SessionID: sid, Kind: KindQuestion}, true
 			}
 		}
 	}
