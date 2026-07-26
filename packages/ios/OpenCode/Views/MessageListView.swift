@@ -62,8 +62,13 @@ struct MessageListView: UIViewRepresentable {
         /// Whether the list should stay pinned to the newest message. At the
         /// bottom the scroll view already keeps the last row visible as the frame
         /// shrinks for the keyboard, so the controller only shifts when this is false.
-        private var pinnedToBottom = true
+        private var pinnedToBottom = true {
+            didSet { if pinnedToBottom != oldValue { onPinChange?(pinnedToBottom) } }
+        }
         var isPinnedToBottom: Bool { pinnedToBottom }
+        /// Fired when the pinned-to-bottom state flips (user scrolls away from /
+        /// back to the newest message) — lets tall docks collapse while reading.
+        var onPinChange: ((Bool) -> Void)?
         /// Called when the user picks "Revert to here" on a message (its id).
         var onRevert: ((String) -> Void)?
         /// Called when a message row is tapped — opens its detail screen, zooming
@@ -311,6 +316,14 @@ struct MessageListView: UIViewRepresentable {
         /// (On the simulator adjusted == manual, so it couldn't reproduce this.)
         private func bottomTarget(_ table: UITableView) -> CGFloat {
             table.contentSize.height - table.bounds.height + table.contentInset.bottom
+        }
+
+        /// Re-pins and scrolls to the newest message (the reading-mode pill tap).
+        func returnToBottom(_ table: UITableView) {
+            pinnedToBottom = true
+            let target = bottomTarget(table)
+            guard target > 0 else { return }
+            table.setContentOffset(CGPoint(x: 0, y: target), animated: true)
         }
 
         /// Idempotent — only moves if not already at the bottom, so it is safe to

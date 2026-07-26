@@ -41,6 +41,11 @@ struct SessionView: View {
     /// Whether the session has any file changes — the diff toolbar button only
     /// appears when there is something to show (the top bar is tight on space).
     @State private var hasDiff = false
+    /// False while the user reads history away from the newest message — tall
+    /// docks collapse to a one-line pill so they stop covering the transcript.
+    @State private var atBottom = true
+    /// Bumped by the question pill to scroll the list back to the newest message.
+    @State private var returnToBottomSignal = 0
     @AppStorage("composer.providerID") private var providerID = ""
     @AppStorage("composer.modelID") private var modelID = ""
 
@@ -72,6 +77,8 @@ struct SessionView: View {
                                onRevert: { revertTarget = $0 },
                                onLoadOlder: { Task { await loadOlder() } },
                                onKeyboardVisible: { keyboardVisible = $0 },
+                               onAtBottomChange: { atBottom = $0 },
+                               returnToBottomSignal: returnToBottomSignal,
                                showTyping: showThinking && !isStuck,
                                barRevision: barRevision) {
                     bottomBar
@@ -255,6 +262,7 @@ struct SessionView: View {
         var h = Hasher()
         h.combine(runningTools.map(\.id))
         h.combine(keyboardVisible)
+        h.combine(atBottom)
         h.combine(isStreaming)
         h.combine(isStuck)
         h.combine(store.revertMessageID)
@@ -317,18 +325,46 @@ struct SessionView: View {
                     Task { await handleReply(request, reply) }
                 }
             }
-            ForEach(store.pendingQuestions) { request in
-                // `compact` shrinks the questions viewport while the keyboard is
-                // up: the dock rides the input accessory, and accessory +
-                // keyboard must fit the screen — a full-height questionnaire
-                // wedged the keyboard presentation (frozen phone, keyboard
-                // peeking). Height-only change: the view structure (and the
-                // composer's focus) stays intact.
-                QuestionDock(
-                    request: request,
-                    compact: keyboardVisible,
-                    onReply: { answers in Task { await handleQuestionReply(request, answers) } },
-                    onReject: { Task { await handleQuestionReject(request) } })
+            if !atBottom && !keyboardVisible, let pending = store.pendingQuestions.first {
+                // Reading mode: the user scrolled up into history — a full-size
+                // questionnaire would cover the transcript they're reading, so
+                // it collapses to one line. Tapping returns to the newest
+                // message, where the full dock lives. (Keyboard-up keeps the
+                // compact dock instead: swapping the accessory's structure with
+                // focus active would tear down the composer and dismiss the
+                // keyboard — measured, see the frozen-phone saga.)
+                Button {
+                    returnToBottomSignal += 1
+                    atBottom = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "questionmark.circle.fill")
+                        Text("Question from the agent (\(pending.questions.count))")
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue.opacity(0.12))
+                    .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("question.pill")
+            } else {
+                ForEach(store.pendingQuestions) { request in
+                    // `compact` shrinks the questions viewport while the keyboard
+                    // is up: the dock rides the input accessory, and accessory +
+                    // keyboard must fit the screen — a full-height questionnaire
+                    // wedged the keyboard presentation (frozen phone, keyboard
+                    // peeking). Height-only change: the view structure (and the
+                    // composer's focus) stays intact.
+                    QuestionDock(
+                        request: request,
+                        compact: keyboardVisible,
+                        onReply: { answers in Task { await handleQuestionReply(request, answers) } },
+                        onReject: { Task { await handleQuestionReject(request) } })
+                }
             }
             if !runningTools.isEmpty {
                 // "Background processes" strip (like Claude's): long tools emit

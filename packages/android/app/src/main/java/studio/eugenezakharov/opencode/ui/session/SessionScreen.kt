@@ -116,6 +116,11 @@ fun SessionScreen(
     var showShell by remember { mutableStateOf(false) }
     var showTodos by remember { mutableStateOf(false) }
     var detailMessage by remember { mutableStateOf<studio.eugenezakharov.opencode.api.models.MessageWithParts?>(null) }
+    // False while the user reads history away from the newest message — the
+    // question dock collapses to a one-line pill so it stops covering the
+    // transcript. Mirrors iOS.
+    var atBottom by remember { mutableStateOf(true) }
+    val recyclerRef = remember { mutableStateOf<RecyclerView?>(null) }
     var showShareMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
@@ -232,12 +237,43 @@ fun SessionScreen(
                     }
                     // Question docks also sit above the composer; the agent is blocked
                     // until each is answered or skipped (#28).
-                    state.pendingQuestions.forEach { request ->
-                        QuestionDock(
-                            request = request,
-                            onReply = { answers -> viewModel.replyQuestion(request, answers) },
-                            onReject = { viewModel.rejectQuestion(request) },
-                        )
+                    if (!atBottom && state.pendingQuestions.isNotEmpty()) {
+                        // Reading mode: a full-size questionnaire would cover the
+                        // transcript — collapse to one line; tapping returns to
+                        // the newest message where the full dock lives.
+                        val pending = state.pendingQuestions.first()
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF2D7FF9).copy(alpha = 0.10f))
+                                .clickable {
+                                    recyclerRef.value?.let { rv ->
+                                        rv.adapter?.itemCount?.takeIf { it > 0 }?.let { n ->
+                                            rv.smoothScrollToPosition(n - 1)
+                                        }
+                                    }
+                                    atBottom = true
+                                }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .testTag("question.pill"),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "? Question from the agent (${pending.questions.size})",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color(0xFF2D7FF9),
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text("▼", style = MaterialTheme.typography.labelMedium, color = Color(0xFF2D7FF9))
+                        }
+                    } else {
+                        state.pendingQuestions.forEach { request ->
+                            QuestionDock(
+                                request = request,
+                                onReply = { answers -> viewModel.replyQuestion(request, answers) },
+                                onReject = { viewModel.rejectQuestion(request) },
+                            )
+                        }
                     }
                     if (state.runningTools.isNotEmpty()) {
                         RunningToolsStrip(state.runningTools)
@@ -262,6 +298,8 @@ fun SessionScreen(
                     onRevert = { viewModel.revert(it) },
                     onSelect = { detailMessage = it },
                     onLoadOlder = { viewModel.loadOlder() },
+                    onAtBottomChange = { atBottom = it },
+                    recyclerRef = recyclerRef,
                 )
             }
             val last = state.messages.lastOrNull()
@@ -1027,6 +1065,8 @@ private fun MessageList(
     onRevert: (String) -> Unit,
     onSelect: (studio.eugenezakharov.opencode.api.models.MessageWithParts) -> Unit,
     onLoadOlder: () -> Unit,
+    onAtBottomChange: (Boolean) -> Unit = {},
+    recyclerRef: androidx.compose.runtime.MutableState<RecyclerView?>? = null,
 ) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
@@ -1050,12 +1090,17 @@ private fun MessageList(
                 // to the first visible child across a top insert (DiffUtil-driven).
                 addOnScrollListener(object : RecyclerView.OnScrollListener() {
                     override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                        // Reading-mode tracking: away from the newest message the
+                        // question dock collapses to a pill.
+                        val lm = rv.layoutManager as LinearLayoutManager
+                        val count = rv.adapter?.itemCount ?: 0
+                        onAtBottomChange(count == 0 || lm.findLastVisibleItemPosition() >= count - 2)
                         if (dy >= 0) return // only when scrolling up (toward older)
-                        val manager = rv.layoutManager as LinearLayoutManager
-                        val visibleThreshold = manager.childCount * 3 / 2 // ~1.5 screens of rows
-                        if (manager.findFirstVisibleItemPosition() <= visibleThreshold) onLoadOlder()
+                        val visibleThreshold = lm.childCount * 3 / 2 // ~1.5 screens of rows
+                        if (lm.findFirstVisibleItemPosition() <= visibleThreshold) onLoadOlder()
                     }
                 })
+                recyclerRef?.value = this
             }
         },
         update = { recycler ->

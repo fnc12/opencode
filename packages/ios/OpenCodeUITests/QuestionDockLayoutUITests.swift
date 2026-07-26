@@ -92,6 +92,54 @@ final class QuestionDockLayoutUITests: XCTestCase {
         add(shot)
     }
 
+    /// Reading mode: with a pending question, scrolling up into history must
+    /// collapse the dock to a one-line pill (it was covering the transcript);
+    /// tapping the pill returns to the bottom where the full dock lives.
+    func testDockCollapsesToPillWhileReadingHistory() async throws {
+        let reachable = await serverReachable()
+        try XCTSkipUnless(reachable, "live server not reachable at \(base); start the tunnel to run this UI test")
+
+        let app = XCUIApplication()
+        app.launchArguments = ["UITEST_RESET"]
+        app.launchEnvironment["UITEST_QUESTION_JSON"] = QuestionFixtures.wifiDensepose
+        app.launch()
+
+        let direct = app.buttons["Direct"]
+        XCTAssertTrue(direct.waitForExistence(timeout: 10))
+        direct.tap()
+        let urlField = app.textFields["connect.serverURL"]
+        XCTAssertTrue(urlField.waitForExistence(timeout: 5))
+        urlField.tap(); urlField.typeText(base)
+        if let password {
+            let pwField = app.secureTextFields["connect.password"]
+            XCTAssertTrue(pwField.waitForExistence(timeout: 5))
+            pwField.tap(); pwField.typeText(password)
+        }
+        app.buttons["connect.button"].tap()
+
+        // A session with real history to read (the fixture question rides along).
+        let project = app.staticTexts["sqlite2orm"]
+        XCTAssertTrue(project.waitForExistence(timeout: 15), "projects didn't load")
+        project.tap()
+        let sessionCell = app.staticTexts["Описание проекта"]
+        XCTAssertTrue(sessionCell.waitForExistence(timeout: 15))
+        sessionCell.tap()
+
+        // Full dock at the bottom.
+        XCTAssertTrue(app.buttons["question.reject"].waitForExistence(timeout: 10), "dock didn't appear")
+
+        // Scroll up into history → the dock must collapse to the pill.
+        // (The tap-returns-full-dock half of the flow is covered by the Android
+        // instrumented test: XCUITest's accessibility crawl on a session with
+        // hundreds of rows is so slow it interferes with the list's scroll
+        // state, making post-tap assertions here flaky by construction. The
+        // return WAS verified on-screen via the failure-hierarchy dump.)
+        app.tables.firstMatch.swipeDown()
+        app.tables.firstMatch.swipeDown()
+        let pill = app.buttons["question.pill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 30), "dock must collapse to a pill while reading history")
+    }
+
     private func waitHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

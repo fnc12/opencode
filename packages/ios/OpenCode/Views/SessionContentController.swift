@@ -147,6 +147,22 @@ final class SessionContentController: UIViewController {
     /// on-screen position), because keyboard notifications alone proved
     /// unreliable during dismissal. Tall docks collapse while this is true.
     var onKeyboardVisible: ((Bool) -> Void)?
+
+    /// Wired from SwiftUI: reports whether the list rests at the newest message
+    /// (false while the user reads history) — tall docks collapse to a pill then.
+    var onAtBottomChange: ((Bool) -> Void)? {
+        didSet {
+            coordinator.onPinChange = { [weak self] pinned in
+                let cb = self?.onAtBottomChange
+                DispatchQueue.main.async { cb?(pinned) } // never mutate SwiftUI state mid-scroll
+            }
+        }
+    }
+
+    /// Scrolls back to the newest message and re-pins (the reading-mode pill tap).
+    func returnToBottom() {
+        coordinator.returnToBottom(table)
+    }
     private var lastReportedKeyboard = false
     private var kbReportWork: DispatchWorkItem?
     private func reportKeyboard() {
@@ -374,7 +390,12 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     /// Called as the list nears the top so the view can page in older history.
     var onLoadOlder: (() -> Void)? = nil
     /// Reports real-keyboard visibility so tall docks can collapse while typing.
-    var onKeyboardVisible: ((Bool) -> Void)? = nil
+    var onKeyboardVisible: ((Bool) -> Void)?
+
+    /// Reports at-bottom state so tall docks can collapse while reading history.
+    var onAtBottomChange: ((Bool) -> Void)? = nil
+    /// Bump to command a scroll back to the newest message (pill tap).
+    var returnToBottomSignal: Int = 0
     /// Shows a "thinking" indicator as the last row (in the message flow, where
     /// the reply will appear) while the agent works but hasn't streamed text yet.
     var showTyping: Bool = false
@@ -403,6 +424,8 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
         controller.onKeyboardVisible = onKeyboardVisible
+        controller.onAtBottomChange = onAtBottomChange
+        context.coordinator.lastReturnSignal = returnToBottomSignal
         controller.messages = messages
         controller.showTyping = showTyping
         return controller
@@ -419,6 +442,11 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
         controller.onKeyboardVisible = onKeyboardVisible
+        controller.onAtBottomChange = onAtBottomChange
+        if context.coordinator.lastReturnSignal != returnToBottomSignal {
+            context.coordinator.lastReturnSignal = returnToBottomSignal
+            controller.returnToBottom()
+        }
         controller.messages = messages
         controller.showTyping = showTyping
     }
@@ -428,5 +456,6 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     @MainActor final class Coordinator {
         var host: UIHostingController<Bar>?
         var lastBarRevision: Int = 0
+        var lastReturnSignal: Int = 0
     }
 }

@@ -133,6 +133,61 @@ class QuestionDockLayoutUITest {
         }
     }
 
+    /** Reading mode: with a pending question, scrolling up into history must
+     *  collapse the dock to a one-line pill; tapping the pill returns to the
+     *  bottom where the full dock lives. (Covers the full roundtrip — the iOS
+     *  UI test covers only the collapse half; see its comment.) */
+    @Test
+    fun dockCollapsesToPillWhileReadingHistoryAndReturns() {
+        assumeTrue("live server not reachable at $hostBase; start the tunnel to run this UI test", serverReachable())
+
+        val intent = Intent(ApplicationProvider.getApplicationContext(), MainActivity::class.java).apply {
+            putExtra("UITEST_RESET", true)
+            putExtra("UITEST_QUESTION_JSON", QuestionFixtures.wifiDensepose)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        ActivityScenario.launch<MainActivity>(intent).use {
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runCatching {
+                    composeRule.onAllNodes(hasText("Direct")).fetchSemanticsNodes().isNotEmpty()
+                }.getOrDefault(false)
+            }
+            composeRule.onNodeWithTag("connect.direct").performClick()
+            composeRule.onNodeWithTag("connect.serverURL").performTextInput(hostBase)
+            password?.let { composeRule.onNodeWithTag("connect.password").performTextInput(it) }
+            composeRule.onNodeWithTag("connect.button").performClick()
+
+            // A session with real history to read (the fixture question rides along).
+            clickNativeText("sqlite2orm", timeoutMs = 20_000)
+            clickNativeText("Описание проекта", timeoutMs = 20_000)
+
+            // Full dock at the bottom.
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            // Scroll up into history → the dock must collapse to the pill.
+            androidx.test.espresso.Espresso.onView(
+                androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom(androidx.recyclerview.widget.RecyclerView::class.java),
+            ).perform(
+                androidx.test.espresso.action.ViewActions.swipeDown(),
+                androidx.test.espresso.action.ViewActions.swipeDown(),
+            )
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.onAllNodes(hasTestTag("question.pill")).fetchSemanticsNodes().isNotEmpty()
+            }
+            check(composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isEmpty()) {
+                "full dock must be hidden while reading"
+            }
+
+            // Tap the pill → back at the bottom with the full dock.
+            composeRule.onNodeWithTag("question.pill").performClick()
+            composeRule.waitUntil(timeoutMillis = 10_000) {
+                composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isNotEmpty()
+            }
+        }
+    }
+
     private fun serverReachable(): Boolean = runCatching {
         http.newCall(
             Request.Builder().url("$hostBase/global/health").apply { auth?.let { header("Authorization", it) } }.build(),
