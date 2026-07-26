@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import studio.eugenezakharov.opencode.api.ComposerPrefs
@@ -137,6 +138,15 @@ class SessionViewModel(
                 }
             }
 
+            // Kick the seed fetches off CONCURRENTLY with the message page — a
+            // question already pending for this session used to wait behind messages
+            // AND permissions (serial round-trips), so on open the transcript showed
+            // and the dock only popped in seconds later. They're independent.
+            val permsDeferred = async { runCatching { server.permissions(session.directory) }.getOrNull() }
+            val questionsDeferred = async { runCatching { server.questions(session.directory) }.getOrNull() }
+            val todosDeferred = async { runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull() }
+            val commandsDeferred = async { runCatching { server.commands(session.directory) }.getOrNull() }
+
             // 1) Seed just the newest page — not the whole transcript. A single
             // session can carry tens of MB of tool output; fetching it all blocked
             // the screen for 40s–2min. The newest page renders instantly and older
@@ -165,17 +175,18 @@ class SessionViewModel(
             cache?.save(session.id, page.raw) // seed the next reopen
             _state.update { it.copy(loading = false, error = null) }
 
-            // 1b) Seed any permission requests / questions already pending for this session.
-            runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
-                store.setInitialPermissions(pending.filter { it.sessionID == session.id })
-            }
-            runCatching { server.questions(session.directory) }.getOrNull()?.let { pending ->
+            // 1b) Apply the in-flight seeds. Questions first — that's the one the
+            // user is waiting to answer.
+            questionsDeferred.await()?.let { pending ->
                 store.setInitialQuestions(pending.filter { it.sessionID == session.id })
             }
-            runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let { todos ->
+            permsDeferred.await()?.let { pending ->
+                store.setInitialPermissions(pending.filter { it.sessionID == session.id })
+            }
+            todosDeferred.await()?.let { todos ->
                 store.setInitialTodos(todos)
             }
-            runCatching { server.commands(session.directory) }.getOrNull()?.let { cmds ->
+            commandsDeferred.await()?.let { cmds ->
                 _state.update { it.copy(commands = cmds) }
             }
             // UI tests inject synthetic requests (after the seeds, so they win) so the
