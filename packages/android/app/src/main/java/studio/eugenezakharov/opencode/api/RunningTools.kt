@@ -27,6 +27,11 @@ object RunningTools {
             for (part in m.parts) {
                 val tool = part.content as? PartContent.Tool ?: continue
                 if (tool.status != "running") continue
+                // The `question` tool "runs" while the agent waits on the USER, not a
+                // background process — it's shown by the question dock itself, so keep
+                // it out of the running-processes strip (a spinner there reads as
+                // "working" and duplicates the dock). Mirrors iOS.
+                if (tool.tool == "question") continue
                 out.add(
                     RunningTool(
                         id = part.id,

@@ -19,6 +19,11 @@ enum RunningTools {
             guard case .assistant(let info) = message.info, info.time.completed == nil else { continue }
             for part in message.parts {
                 guard case .tool(let tool)? = part.content, tool.state.status == "running" else { continue }
+                // The `question` tool "runs" while the agent waits on the USER — not
+                // a background process. It's shown by the question dock itself, so it
+                // doesn't belong in the running-processes strip (a spinner there reads
+                // as "working", and it duplicates the dock).
+                if tool.tool == "question" { continue }
                 out.append(RunningTool(
                     id: part.id,
                     name: tool.tool,
@@ -64,8 +69,6 @@ struct RunningToolsPill: View {
 
     private func label(now: Date) -> String {
         guard let first = tools.first else { return "" }
-        // The question tool "runs" while the agent waits for the user — say so.
-        if first.name == "question" { return "waiting for your answer" }
         var parts: [String] = [first.name]
         if let title = first.title, !title.isEmpty { parts.append(title) }
         if let started = first.startedMS {

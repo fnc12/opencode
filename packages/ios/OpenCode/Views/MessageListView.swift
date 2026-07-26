@@ -115,6 +115,9 @@ struct MessageListView: UIViewRepresentable {
         /// The hosted footer view (a child VC's view) mounted into the footer row.
         private weak var footerView: UIView?
         private var showFooter = false
+        /// Set when the footer row is freshly inserted, so it eases in (fade +
+        /// slide) the first time it displays instead of popping.
+        private var animateFooterEntrance = false
         /// EXACT height of the footer row (measured by the controller). Returned as
         /// both height and estimate — like the message rows — so `contentSize` stays
         /// stable and scroll-to-bottom isn't chasing a self-sizing row's guess.
@@ -139,6 +142,7 @@ struct MessageListView: UIViewRepresentable {
             let hasSentinel = snapshot.itemIdentifiers.contains(Self.footerID)
             if show && !hasSentinel {
                 snapshot.appendItems([Self.footerID], toSection: 0)
+                animateFooterEntrance = true
             } else if !show && hasSentinel {
                 snapshot.deleteItems([Self.footerID])
             } else if show && hasSentinel && viewChanged {
@@ -165,8 +169,20 @@ struct MessageListView: UIViewRepresentable {
         /// Bounded to ids flagged in `apply`, and each id fires once (`remove`),
         /// so scrolling an old row back into view never re-animates it.
         func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
-            guard let id = dataSource?.itemIdentifier(for: indexPath),
-                  entranceIDs.remove(id) != nil else { return }
+            guard let id = dataSource?.itemIdentifier(for: indexPath) else { return }
+            if id == Self.footerID {
+                // Ease the question dock in when it first appears (not on every
+                // re-display while scrolling).
+                guard animateFooterEntrance else { return }
+                animateFooterEntrance = false
+                easeIn(cell)
+                return
+            }
+            guard entranceIDs.remove(id) != nil else { return }
+            easeIn(cell)
+        }
+
+        private func easeIn(_ cell: UITableViewCell) {
             let content = cell.contentView
             content.alpha = 0
             content.transform = CGAffineTransform(translationX: 0, y: 12)

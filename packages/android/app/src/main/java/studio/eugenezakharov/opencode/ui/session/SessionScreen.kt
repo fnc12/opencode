@@ -1256,18 +1256,14 @@ private fun RunningToolsStrip(tools: List<studio.eugenezakharov.opencode.api.Run
         }
     }
     val first = tools.first()
-    val label = if (first.name == "question") {
-        "waiting for your answer"
-    } else {
-        buildList {
-            add(first.name)
-            first.title?.takeIf { it.isNotEmpty() }?.let { add(it.take(60)) }
-            first.startedMs?.let {
-                val s = ((now - it) / 1000).toLong().coerceAtLeast(0)
-                add(if (s < 60) "${s}s" else "${s / 60}m")
-            }
-        }.joinToString(" · ")
-    }
+    val label = buildList {
+        add(first.name)
+        first.title?.takeIf { it.isNotEmpty() }?.let { add(it.take(60)) }
+        first.startedMs?.let {
+            val s = ((now - it) / 1000).toLong().coerceAtLeast(0)
+            add(if (s < 60) "${s}s" else "${s / 60}m")
+        }
+    }.joinToString(" · ")
     Row(
         Modifier
             .fillMaxWidth()

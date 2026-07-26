@@ -2,11 +2,12 @@ import SwiftUI
 
 /// A pending question from the agent. It rides the transcript as its LAST ROW —
 /// right after the newest message, scrolling with the content — so it never
-/// floats over (and overlaps) the messages the way a fixed bar did: scroll to the
-/// newest message and it's there; scroll up and it leaves with the content. Each
-/// question is single- or multi-select; the reply is the selected labels per
-/// question. Laid out at full height (the transcript does the scrolling), so a
-/// huge questionnaire's Skip/Submit are reached by scrolling the list to its end.
+/// floats over (and overlaps) the messages the way a fixed bar did.
+///
+/// A single-question request lays out directly (height-hugging). A multi-question
+/// request is shown as SLIDES (one question per screen, à la Claude): dots for
+/// progress, swipe between them, and answering a single-select question
+/// auto-advances to the next. Skip/Submit stay pinned below, always reachable.
 struct QuestionDock: View {
     let request: QuestionRequest
     /// Called with one array of selected labels per question.
@@ -14,40 +15,39 @@ struct QuestionDock: View {
     let onReject: () -> Void
 
     @State private var selections: [String: Set<String>] = [:]
+    @State private var page = 0
+
+    private var isMulti: Bool { request.questions.count > 1 }
+    /// Fixed height for the slide viewport so navigating between questions doesn't
+    /// resize the row (each slide scrolls internally if its options overflow).
+    private static let slideHeight: CGFloat = 260
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Question", systemImage: "questionmark.circle.fill")
-                .font(.caption.bold())
-                .foregroundStyle(.blue)
+            HStack {
+                Label("Question", systemImage: "questionmark.circle.fill")
+                    .font(.caption.bold())
+                    .foregroundStyle(.blue)
+                Spacer()
+                if isMulti {
+                    Text("\(min(page + 1, request.questions.count)) / \(request.questions.count)")
+                        .font(.caption).monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
 
-            ForEach(request.questions) { question in
-                VStack(alignment: .leading, spacing: 6) {
-                    if !question.header.isEmpty {
-                        Text(question.header).font(.caption.bold()).foregroundStyle(.secondary)
-                    }
-                    Text(question.question).font(.callout)
-
-                    ForEach(question.options) { option in
-                        Button {
-                            toggle(question, option.label)
-                        } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Image(systemName: isSelected(question, option.label) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isSelected(question, option.label) ? .blue : .secondary)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(option.label).foregroundStyle(.primary)
-                                    if !option.description.isEmpty {
-                                        Text(option.description).font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer()
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier(option.label)
+            if isMulti {
+                TabView(selection: $page) {
+                    ForEach(Array(request.questions.enumerated()), id: \.offset) { index, question in
+                        ScrollView { questionBody(question) }
+                            .tag(index)
                     }
                 }
+                .frame(height: Self.slideHeight)
+                .tabViewStyle(.page(indexDisplayMode: .always))
+                .indexViewStyle(.page(backgroundDisplayMode: .interactive))
+            } else if let only = request.questions.first {
+                questionBody(only)
             }
 
             HStack {
@@ -74,6 +74,36 @@ struct QuestionDock: View {
         .padding(.top, 8)
     }
 
+    @ViewBuilder private func questionBody(_ question: QuestionItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !question.header.isEmpty {
+                Text(question.header).font(.caption.bold()).foregroundStyle(.secondary)
+            }
+            Text(question.question).font(.callout)
+
+            ForEach(question.options) { option in
+                Button {
+                    toggle(question, option.label)
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: isSelected(question, option.label) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(isSelected(question, option.label) ? .blue : .secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(option.label).foregroundStyle(.primary)
+                            if !option.description.isEmpty {
+                                Text(option.description).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier(option.label)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func isSelected(_ question: QuestionItem, _ label: String) -> Bool {
         selections[question.id]?.contains(label) ?? false
     }
@@ -86,6 +116,17 @@ struct QuestionDock: View {
             set = [label] // radio
         }
         selections[question.id] = set
+        advance(after: question)
+    }
+
+    /// After answering a single-select question, slide to the next one — the
+    /// Claude-style flow. Multi-select waits (the user may still be picking); they
+    /// swipe on when ready.
+    private func advance(after question: QuestionItem) {
+        guard isMulti, !question.allowsMultiple,
+              let idx = request.questions.firstIndex(where: { $0.id == question.id }),
+              idx + 1 < request.questions.count else { return }
+        withAnimation { page = idx + 1 }
     }
 
     private var answers: [[String]] {
