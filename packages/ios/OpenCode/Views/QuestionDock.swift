@@ -16,6 +16,9 @@ struct QuestionDock: View {
 
     @State private var selections: [String: Set<String>] = [:]
     @State private var page = 0
+    /// Entrance animation: the dock fades + slides up the first time it renders
+    /// (opacity/offset are visual only, so they don't disturb the measured height).
+    @State private var appeared = false
 
     private var isMulti: Bool { request.questions.count > 1 }
     /// Fixed height for the slide viewport so navigating between questions doesn't
@@ -72,6 +75,9 @@ struct QuestionDock: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.blue.opacity(0.3)))
         .padding(.horizontal, 12)
         .padding(.top, 8)
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 18)
+        .onAppear { withAnimation(.easeOut(duration: 0.32)) { appeared = true } }
     }
 
     @ViewBuilder private func questionBody(_ question: QuestionItem) -> some View {

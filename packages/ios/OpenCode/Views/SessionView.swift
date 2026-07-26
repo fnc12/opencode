@@ -404,6 +404,15 @@ struct SessionView: View {
             store.setRevert(session.revert?.messageID)
             loading = false
         }
+        // Kick the auxiliary fetches off CONCURRENTLY with the message page — a
+        // question already pending for this session used to wait behind messages AND
+        // permissions (three serial round-trips), so on open the transcript showed
+        // and the dock only popped in seconds later. They're independent; run them
+        // in parallel and apply each as it lands.
+        async let permsFetch = server.permissions(directory: session.directory)
+        async let questionsFetch = server.questions(directory: session.directory)
+        async let todosFetch = server.sessionTodos(directory: session.directory, sessionID: session.id)
+
         do {
             // Only the newest page — not the whole transcript. A single session can
             // carry tens of MB of tool output; fetching it all blocked the screen
@@ -432,14 +441,15 @@ struct SessionView: View {
         }
         loading = false
 
-        // Seed permission + question requests already pending for this session.
-        if let pending = try? await server.permissions(directory: session.directory) {
-            store.setInitialPermissions(pending.filter { $0.sessionID == session.id })
-        }
-        if let pendingQuestions = try? await server.questions(directory: session.directory) {
+        // Apply the already-in-flight seeds. Questions first — that's the one the
+        // user is waiting to answer.
+        if let pendingQuestions = try? await questionsFetch {
             store.setInitialQuestions(pendingQuestions.filter { $0.sessionID == session.id })
         }
-        if let todos = try? await server.sessionTodos(directory: session.directory, sessionID: session.id) {
+        if let pending = try? await permsFetch {
+            store.setInitialPermissions(pending.filter { $0.sessionID == session.id })
+        }
+        if let todos = try? await todosFetch {
             store.setInitialTodos(todos)
         }
         // UI tests inject synthetic requests (after the seeds, so they win) so the
