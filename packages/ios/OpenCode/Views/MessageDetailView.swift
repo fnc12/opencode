@@ -7,6 +7,10 @@ struct MessageDetailView: View {
     let message: MessageWithParts
     var onClose: () -> Void = {}
     @Environment(\.colorScheme) private var colorScheme
+    /// Thinking blocks expanded by the user. Collapsed (3 lines) by default:
+    /// people open this screen for the ANSWER or a tool's output, and a long
+    /// chain of thought otherwise buries it under a screenful of scrolling.
+    @State private var expandedThinking: Set<String> = []
 
     private enum Block: Identifiable {
         case thinking(String)
@@ -32,17 +36,39 @@ struct MessageDetailView: View {
                     ForEach(blocks) { block in
                         switch block {
                         case .thinking(let text):
+                            let expanded = expandedThinking.contains(block.id)
                             VStack(alignment: .leading, spacing: 6) {
-                                Label("Thinking", systemImage: "brain")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                SelectableText(attributed: MarkdownRenderer.attributed(
-                                    text, font: .preferredFont(forTextStyle: .callout), color: .secondaryLabel))
+                                HStack {
+                                    Label("Thinking", systemImage: "brain")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                                .onTapGesture { toggleThinking(block.id) }
+                                if expanded {
+                                    // Selectable full text once opened.
+                                    SelectableText(attributed: MarkdownRenderer.attributed(
+                                        text, font: .preferredFont(forTextStyle: .callout), color: .secondaryLabel))
+                                } else {
+                                    // A 3-line teaser; tap anywhere to expand.
+                                    Text(text)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(3)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { toggleThinking(block.id) }
+                                }
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color(uiColor: .secondarySystemBackground))
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .accessibilityIdentifier("detail.thinking")
 
                         case .text(let text):
                             SelectableText(attributed: MarkdownRenderer.attributed(
@@ -88,6 +114,16 @@ struct MessageDetailView: View {
 
     private var title: String {
         message.info.role == "user" ? "You" : "Assistant"
+    }
+
+    private func toggleThinking(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if expandedThinking.contains(id) {
+                expandedThinking.remove(id)
+            } else {
+                expandedThinking.insert(id)
+            }
+        }
     }
 
     private var blocks: [Block] {
