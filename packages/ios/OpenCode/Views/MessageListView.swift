@@ -137,16 +137,22 @@ struct MessageListView: UIViewRepresentable {
             guard let dataSource, hasApplied else { return }
             var snapshot = dataSource.snapshot()
             let hasSentinel = snapshot.itemIdentifiers.contains(Self.footerID)
+            // Animate the REMOVAL (a diffable delete fades the row out), so the
+            // "thinking" progress / answered dock eases away instead of vanishing
+            // when the turn ends or Stop is pressed. The insert is animated by the
+            // dock's own SwiftUI onAppear, so keep that side instant here.
+            var animated = false
             if show && !hasSentinel {
                 snapshot.appendItems([Self.footerID], toSection: 0)
             } else if !show && hasSentinel {
                 snapshot.deleteItems([Self.footerID])
+                animated = true
             } else if show && hasSentinel && viewChanged {
                 snapshot.reconfigureItems([Self.footerID])
             } else {
                 return
             }
-            dataSource.apply(snapshot, animatingDifferences: false)
+            dataSource.apply(snapshot, animatingDifferences: animated)
         }
 
         /// Called when the user picks "Revert to here" on a message (its id).

@@ -9,6 +9,13 @@ final class PushManager: NSObject, UIApplicationDelegate, UNUserNotificationCent
     static var onToken: ((String) -> Void)?
     /// The most recent token, so registration can be retried after connecting.
     static private(set) var lastToken: String?
+    /// The session currently on screen (set by `SessionView` while it's visible).
+    /// A push for THIS session is suppressed in the foreground — the user is
+    /// already looking at it, so a "session finished" banner is just noise.
+    /// `nonisolated(unsafe)`: a lone pointer-sized flag written on the main actor
+    /// and read from the notification callback; a stale read at worst shows one
+    /// banner, so a full lock isn't warranted.
+    nonisolated(unsafe) static var activeSessionID: String?
     /// Called with a session id when the user taps a notification.
     @MainActor static var onOpenSession: ((String) -> Void)?
     /// Holds a tapped session id that arrived before a handler was wired (e.g. a
@@ -73,10 +80,17 @@ final class PushManager: NSObject, UIApplicationDelegate, UNUserNotificationCent
         completionHandler()
     }
 
-    /// Show the banner even while the app is in the foreground.
+    /// Show the banner even while the app is in the foreground — EXCEPT when it's
+    /// for the session already on screen (this handler only runs in the foreground,
+    /// so a match means the user is looking right at it).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+        let sid = notification.request.content.userInfo["sessionId"] as? String
+        if let sid, sid == PushManager.activeSessionID {
+            completionHandler([]) // already viewing this session — no banner/sound
+        } else {
+            completionHandler([.banner, .sound])
+        }
     }
 }

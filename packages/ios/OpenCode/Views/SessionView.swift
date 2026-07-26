@@ -97,6 +97,10 @@ struct SessionView: View {
         }
         .navigationTitle(session.title.isEmpty ? "Untitled" : session.title)
         .navigationBarTitleDisplayMode(.inline)
+        // While this session is on screen, suppress its own foreground pushes
+        // (e.g. "session finished") — the user is already looking at it.
+        .onAppear { PushManager.activeSessionID = session.id }
+        .onDisappear { if PushManager.activeSessionID == session.id { PushManager.activeSessionID = nil } }
         .task { hasDiff = (session.summary?.files ?? 0) > 0; await refreshDiffBadge() }
         .onChange(of: store.isBusy) { _, busy in
             if !busy { Task { await refreshDiffBadge() } } // a finished turn may have edited files
