@@ -1089,13 +1089,27 @@ private fun MessageList(
                 // older rows above keeps the viewport stable — RecyclerView anchors
                 // to the first visible child across a top insert (DiffUtil-driven).
                 addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                    // Reading mode with WIDE hysteresis on a pixel metric: the
+                    // dock↔pill swap resizes the list itself (the bottom bar
+                    // changes height), so a row-index check oscillates at the
+                    // boundary (same feedback measured on iOS). The band gap
+                    // (600dp enter / 0 exit) exceeds any bar resize, so the
+                    // swap can't walk the metric across both thresholds.
+                    private var reading = false
                     override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
-                        // Reading-mode tracking: away from the newest message the
-                        // question dock collapses to a pill.
-                        val lm = rv.layoutManager as LinearLayoutManager
-                        val count = rv.adapter?.itemCount ?: 0
-                        onAtBottomChange(count == 0 || lm.findLastVisibleItemPosition() >= count - 2)
+                        val density = rv.resources.displayMetrics.density
+                        val belowDp = (rv.computeVerticalScrollRange() -
+                            rv.computeVerticalScrollOffset() -
+                            rv.computeVerticalScrollExtent()) / density
+                        val was = reading
+                        if (reading) {
+                            if (belowDp < 1) reading = false // viewport reaches the content's end
+                        } else if (belowDp > 600) {
+                            reading = true
+                        }
+                        if (was != reading) onAtBottomChange(!reading)
                         if (dy >= 0) return // only when scrolling up (toward older)
+                        val lm = rv.layoutManager as LinearLayoutManager
                         val visibleThreshold = lm.childCount * 3 / 2 // ~1.5 screens of rows
                         if (lm.findFirstVisibleItemPosition() <= visibleThreshold) onLoadOlder()
                     }

@@ -62,13 +62,38 @@ struct MessageListView: UIViewRepresentable {
         /// Whether the list should stay pinned to the newest message. At the
         /// bottom the scroll view already keeps the last row visible as the frame
         /// shrinks for the keyboard, so the controller only shifts when this is false.
-        private var pinnedToBottom = true {
-            didSet { if pinnedToBottom != oldValue { onPinChange?(pinnedToBottom) } }
-        }
+        private var pinnedToBottom = true
         var isPinnedToBottom: Bool { pinnedToBottom }
-        /// Fired when the pinned-to-bottom state flips (user scrolls away from /
-        /// back to the newest message) — lets tall docks collapse while reading.
-        var onPinChange: ((Bool) -> Void)?
+        /// Reading mode with WIDE hysteresis, decoupled from `pinnedToBottom`:
+        /// tall docks collapse only deep in history (>350pt above the bottom)
+        /// and re-expand only at the very bottom (<20pt). The first version
+        /// keyed the collapse to `pinnedToBottom` (140pt threshold both ways):
+        /// the collapse shrank the accessory, the inset clamp nudged the offset
+        /// into the near-bottom band, the next touch re-pinned, the expanding
+        /// dock's pin-clamp threw the user to the very bottom — an endless
+        /// yank-back loop while trying to read. The wide bands make the swap
+        /// impossible to feed back into itself: at the collapse point the
+        /// offset is already far below the shrunken inset's maximum.
+        private var readingMode = false {
+            didSet { if readingMode != oldValue { onReadingModeChange?(readingMode) } }
+        }
+        var onReadingModeChange: ((Bool) -> Void)?
+
+        private func updateReadingMode(_ table: UITableView) {
+            // INSET-INDEPENDENT measure: how much content lies below the visible
+            // viewport. The first cut measured distance-to-flush, which includes
+            // `contentInset.bottom` — but the dock↔pill swap changes that inset
+            // by the dock's own height, so the swap itself walked the metric
+            // across both hysteresis bands and oscillated at every layout
+            // (measured: flips every 25ms). `contentBelow` doesn't move when the
+            // inset changes, so the swap cannot feed back into its own trigger.
+            let contentBelow = table.contentSize.height - table.contentOffset.y - table.bounds.height
+            if readingMode {
+                if contentBelow < 0 { readingMode = false } // viewport reaches the content's end
+            } else if contentBelow > 300 {
+                readingMode = true // deep enough that the dock covers what you read
+            }
+        }
         /// Called when the user picks "Revert to here" on a message (its id).
         var onRevert: ((String) -> Void)?
         /// Called when a message row is tapped — opens its detail screen, zooming
@@ -321,6 +346,7 @@ struct MessageListView: UIViewRepresentable {
         /// Re-pins and scrolls to the newest message (the reading-mode pill tap).
         func returnToBottom(_ table: UITableView) {
             pinnedToBottom = true
+            readingMode = false
             let target = bottomTarget(table)
             guard target > 0 else { return }
             table.setContentOffset(CGPoint(x: 0, y: target), animated: true)
@@ -340,6 +366,7 @@ struct MessageListView: UIViewRepresentable {
             guard let table = scrollView as? UITableView,
                   scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else { return }
             pinnedToBottom = isNearBottom(table)
+            updateReadingMode(table)
             maybeLoadOlder(table)
         }
 
@@ -354,12 +381,18 @@ struct MessageListView: UIViewRepresentable {
         }
 
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-            if let table = scrollView as? UITableView { pinnedToBottom = isNearBottom(table) }
+            if let table = scrollView as? UITableView {
+                pinnedToBottom = isNearBottom(table)
+                updateReadingMode(table)
+            }
             if !decelerate { flushPending() }
         }
 
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-            if let table = scrollView as? UITableView { pinnedToBottom = isNearBottom(table) }
+            if let table = scrollView as? UITableView {
+                pinnedToBottom = isNearBottom(table)
+                updateReadingMode(table)
+            }
             flushPending()
         }
 

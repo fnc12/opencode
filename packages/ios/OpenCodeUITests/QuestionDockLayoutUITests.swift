@@ -138,6 +138,15 @@ final class QuestionDockLayoutUITests: XCTestCase {
         app.tables.firstMatch.swipeDown()
         let pill = app.buttons["question.pill"]
         XCTAssertTrue(pill.waitForExistence(timeout: 30), "dock must collapse to a pill while reading history")
+
+        // REGRESSION (reported live): the collapse used to feed back into the
+        // scroll position — the shrinking accessory re-clamped the offset into
+        // the near-bottom band, the dock re-expanded, and its pin threw the
+        // user to the very bottom, endlessly. The pill must be STABLE: still
+        // collapsed seconds later, with the full dock still hidden.
+        sleep(3)
+        XCTAssertTrue(pill.exists, "pill must remain while reading — no yank-back loop")
+        XCTAssertFalse(app.buttons["question.reject"].exists, "full dock must stay hidden while reading")
     }
 
     private func waitHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

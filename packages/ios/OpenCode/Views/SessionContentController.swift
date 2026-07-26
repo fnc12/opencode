@@ -152,9 +152,9 @@ final class SessionContentController: UIViewController {
     /// (false while the user reads history) — tall docks collapse to a pill then.
     var onAtBottomChange: ((Bool) -> Void)? {
         didSet {
-            coordinator.onPinChange = { [weak self] pinned in
+            coordinator.onReadingModeChange = { [weak self] reading in
                 let cb = self?.onAtBottomChange
-                DispatchQueue.main.async { cb?(pinned) } // never mutate SwiftUI state mid-scroll
+                DispatchQueue.main.async { cb?(!reading) } // never mutate SwiftUI state mid-scroll
             }
         }
     }

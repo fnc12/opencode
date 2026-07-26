@@ -180,6 +180,16 @@ class QuestionDockLayoutUITest {
                 "full dock must be hidden while reading"
             }
 
+            // REGRESSION (reported live on iOS): the collapse must not feed back
+            // into its own trigger — the pill must be STABLE seconds later.
+            Thread.sleep(2_500)
+            check(composeRule.onAllNodes(hasTestTag("question.pill")).fetchSemanticsNodes().isNotEmpty()) {
+                "pill must remain while reading — no yank-back loop"
+            }
+            check(composeRule.onAllNodes(hasTestTag("question.reject")).fetchSemanticsNodes().isEmpty()) {
+                "full dock must stay hidden while reading"
+            }
+
             // Tap the pill → back at the bottom with the full dock.
             composeRule.onNodeWithTag("question.pill").performClick()
             composeRule.waitUntil(timeoutMillis = 10_000) {
