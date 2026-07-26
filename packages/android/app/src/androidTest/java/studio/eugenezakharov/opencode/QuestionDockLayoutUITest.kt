@@ -2,6 +2,8 @@ package studio.eugenezakharov.opencode
 
 import android.content.Intent
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -101,6 +103,25 @@ class QuestionDockLayoutUITest {
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodes(hasTestTag("Координаты (x,y) в комнате")).fetchSemanticsNodes().isNotEmpty()
             }
+
+            // Auto-advance: answering a single-select question scrolls the next
+            // unanswered one into view; the whole questionnaire ends with an
+            // enabled Submit.
+            composeRule.onNodeWithTag("ESP32-S3 (8MB flash)").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                runCatching {
+                    composeRule.onNodeWithText("Где работает агрегатор").assertIsDisplayed(); true
+                }.getOrDefault(false)
+            }
+            composeRule.onNodeWithTag("Домашний laptop/RPi в той же WiFi-сети").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                runCatching {
+                    composeRule.onNodeWithText("Цель по точности").assertIsDisplayed(); true
+                }.getOrDefault(false)
+            }
+            composeRule.onNodeWithTag("question.submit").assertIsNotEnabled()
+            composeRule.onNodeWithTag("Presence по комнатам").performClick() // Q3 is multi-select
+            composeRule.onNodeWithTag("question.submit").assertIsEnabled()
         }
     }
 

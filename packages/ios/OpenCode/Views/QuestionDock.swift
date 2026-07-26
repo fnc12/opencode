@@ -25,41 +25,47 @@ struct QuestionDock: View {
                 .font(.caption.bold())
                 .foregroundStyle(.blue)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(request.questions) { question in
-                        VStack(alignment: .leading, spacing: 6) {
-                            if !question.header.isEmpty {
-                                Text(question.header).font(.caption.bold()).foregroundStyle(.secondary)
-                            }
-                            Text(question.question).font(.callout)
-
-                            ForEach(question.options) { option in
-                                Button { toggle(question, option.label) } label: {
-                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                        Image(systemName: isSelected(question, option.label) ? "checkmark.circle.fill" : "circle")
-                                            .foregroundStyle(isSelected(question, option.label) ? .blue : .secondary)
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(option.label).foregroundStyle(.primary)
-                                            if !option.description.isEmpty {
-                                                Text(option.description).font(.caption2).foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        Spacer()
-                                    }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(request.questions) { question in
+                            VStack(alignment: .leading, spacing: 6) {
+                                if !question.header.isEmpty {
+                                    Text(question.header).font(.caption.bold()).foregroundStyle(.secondary)
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier(option.label)
+                                Text(question.question).font(.callout)
+
+                                ForEach(question.options) { option in
+                                    Button {
+                                        toggle(question, option.label)
+                                        advance(after: question, proxy: proxy)
+                                    } label: {
+                                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                            Image(systemName: isSelected(question, option.label) ? "checkmark.circle.fill" : "circle")
+                                                .foregroundStyle(isSelected(question, option.label) ? .blue : .secondary)
+                                            VStack(alignment: .leading, spacing: 1) {
+                                                Text(option.label).foregroundStyle(.primary)
+                                                if !option.description.isEmpty {
+                                                    Text(option.description).font(.caption2).foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            Spacer()
+                                        }
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier(option.label)
+                                }
                             }
+                            .id(question.id)
                         }
                     }
+                    .background(GeometryReader { geo in
+                        Color.clear.preference(key: QuestionsHeightKey.self, value: geo.size.height)
+                    })
                 }
-                .background(GeometryReader { geo in
-                    Color.clear.preference(key: QuestionsHeightKey.self, value: geo.size.height)
-                })
+                .frame(height: min(max(contentHeight, 1), Self.maxQuestionsHeight))
+                .onPreferenceChange(QuestionsHeightKey.self) { contentHeight = $0 }
             }
-            .frame(height: min(max(contentHeight, 1), Self.maxQuestionsHeight))
-            .onPreferenceChange(QuestionsHeightKey.self) { contentHeight = $0 }
 
             HStack {
                 Button(role: .destructive) { onReject() } label: {
@@ -97,6 +103,18 @@ struct QuestionDock: View {
             set = [label] // radio
         }
         selections[question.id] = set
+    }
+
+    /// After answering a single-select question, auto-scroll to the next
+    /// unanswered one — otherwise, with several questions in the scroll
+    /// viewport, it's not obvious why Submit is still disabled. Multi-select
+    /// questions don't auto-advance (the user may still be picking options).
+    private func advance(after question: QuestionItem, proxy: ScrollViewProxy) {
+        guard !question.allowsMultiple else { return }
+        guard let next = request.questions.first(where: {
+            $0.id != question.id && (selections[$0.id]?.isEmpty ?? true)
+        }) else { return } // all answered — Submit is enabled now
+        withAnimation { proxy.scrollTo(next.id, anchor: .top) }
     }
 
     private var answers: [[String]] {

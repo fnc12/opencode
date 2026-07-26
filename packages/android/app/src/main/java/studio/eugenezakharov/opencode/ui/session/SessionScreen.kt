@@ -72,6 +72,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -522,6 +524,12 @@ private fun QuestionDock(
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
     // Selected labels per question, keyed by the question's stable key.
     val selections = remember(request.id) { mutableStateMapOf<String, Set<String>>() }
+    // Auto-advance support: each question's Y inside the scroll content, so
+    // answering a single-select question can scroll the next unanswered one
+    // into view (otherwise it's not obvious why Submit is still disabled).
+    val questionOffsets = remember(request.id) { mutableStateMapOf<String, Int>() }
+    val questionsScroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
 
     Column(
         Modifier
@@ -549,9 +557,14 @@ private fun QuestionDock(
         Column(
             Modifier
                 .heightIn(max = 280.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(questionsScroll),
         ) {
         request.questions.forEach { question ->
+          Column(
+              Modifier.onGloballyPositioned {
+                  questionOffsets[question.key] = it.positionInParent().y.toInt()
+              },
+          ) {
             if (question.header.isNotEmpty()) {
                 Text(
                     question.header,
@@ -576,6 +589,18 @@ private fun QuestionDock(
                             } else {
                                 setOf(option.label) // radio
                             }
+                            // Answering a single-select question scrolls the next
+                            // unanswered one into view; multi-select doesn't
+                            // auto-advance (the user may still be picking).
+                            if (!question.allowsMultiple) {
+                                request.questions.firstOrNull {
+                                    it.key != question.key && selections[it.key].isNullOrEmpty()
+                                }?.let { next ->
+                                    questionOffsets[next.key]?.let { y ->
+                                        scope.launch { questionsScroll.animateScrollTo(y) }
+                                    }
+                                }
+                            }
                         }
                         .padding(vertical = 6.dp)
                         .testTag(option.label),
@@ -599,6 +624,7 @@ private fun QuestionDock(
                 }
             }
             Spacer(Modifier.size(8.dp))
+          }
         }
         }
 

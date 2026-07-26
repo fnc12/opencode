@@ -66,11 +66,36 @@ final class QuestionDockLayoutUITests: XCTestCase {
         let deepOption = app.buttons["Координаты (x,y) в комнате"]
         XCTAssertTrue(deepOption.exists, "deep option missing from the dock")
 
+        // Auto-advance: answering a single-select question scrolls the next
+        // unanswered one into view, so it's obvious why Submit is still
+        // disabled. Walk the whole questionnaire to an enabled Submit.
+        app.buttons["ESP32-S3 (8MB flash)"].firstMatch.tap()
+        XCTAssertTrue(waitHittable(app.staticTexts["Где работает агрегатор"], timeout: 4),
+                      "answering Q1 must scroll Q2 into view")
+
+        app.buttons["Домашний laptop/RPi в той же WiFi-сети"].firstMatch.tap()
+        XCTAssertTrue(waitHittable(app.staticTexts["Цель по точности"], timeout: 4),
+                      "answering Q2 must scroll Q3 into view")
+
+        let submit2 = app.buttons["question.submit"]
+        XCTAssertFalse(submit2.isEnabled, "submit stays disabled until every question is answered")
+        app.buttons["Presence по комнатам"].firstMatch.tap() // Q3 is multi-select
+        XCTAssertTrue(submit2.isEnabled, "submit enables once all questions have an answer")
+
         // Keep a visual of the bounded dock in the test results.
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "question-dock-bounded"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    private func waitHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists && element.isHittable { return true }
+            usleep(200_000)
+        }
+        return element.exists && element.isHittable
     }
 
     private func serverReachable() async -> Bool {
