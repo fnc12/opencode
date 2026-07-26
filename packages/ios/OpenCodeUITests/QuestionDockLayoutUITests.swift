@@ -64,25 +64,27 @@ final class QuestionDockLayoutUITests: XCTestCase {
         XCTAssertTrue(submit.exists, "Submit button missing")
         XCTAssertTrue(submit.isHittable, "Submit is off-screen")
 
-        // The deep options must be reachable by scrolling INSIDE the dock: the
-        // last question's last option.
+        // Every option is present in the dock (the whole questionnaire is laid out
+        // as one tall row; the LIST scrolls to reach the deep ones). Check the last
+        // question's last option exists.
         let deepOption = app.buttons["Координаты (x,y) в комнате"]
         XCTAssertTrue(deepOption.exists, "deep option missing from the dock")
 
-        // Auto-advance: answering a single-select question scrolls the next
-        // unanswered one into view, so it's obvious why Submit is still
-        // disabled. Walk the whole questionnaire to an enabled Submit.
-        app.buttons["ESP32-S3 (8MB flash)"].firstMatch.tap()
-        XCTAssertTrue(waitHittable(app.staticTexts["Где работает агрегатор"], timeout: 4),
-                      "answering Q1 must scroll Q2 into view")
-
-        app.buttons["Домашний laptop/RPi в той же WiFi-сети"].firstMatch.tap()
-        XCTAssertTrue(waitHittable(app.staticTexts["Цель по точности"], timeout: 4),
-                      "answering Q2 must scroll Q3 into view")
-
+        // Answer every question — the questionnaire is taller than the screen, so
+        // reveal the top first, then walk down (tapping auto-scrolls to the lower
+        // ones). Submit only enables once all three have an answer.
         let submit2 = app.buttons["question.submit"]
+        let q1 = app.buttons["ESP32-S3 (8MB flash)"].firstMatch
+        reveal(app, q1)
+        q1.tap()
         XCTAssertFalse(submit2.isEnabled, "submit stays disabled until every question is answered")
-        app.buttons["Presence по комнатам"].firstMatch.tap() // Q3 is multi-select
+        let q2 = app.buttons["Домашний laptop/RPi в той же WiFi-сети"].firstMatch
+        reveal(app, q2)
+        q2.tap()
+        XCTAssertFalse(submit2.isEnabled, "submit stays disabled until every question is answered")
+        let q3 = app.buttons["Presence по комнатам"].firstMatch // Q3 is multi-select
+        reveal(app, q3)
+        q3.tap()
         XCTAssertTrue(submit2.isEnabled, "submit enables once all questions have an answer")
 
         // Keep a visual of the bounded dock in the test results.
@@ -92,10 +94,12 @@ final class QuestionDockLayoutUITests: XCTestCase {
         add(shot)
     }
 
-    /// Reading mode: with a pending question, scrolling up into history must
-    /// collapse the dock to a one-line pill (it was covering the transcript);
-    /// tapping the pill returns to the bottom where the full dock lives.
-    func testDockCollapsesToPillWhileReadingHistory() async throws {
+    /// The question dock RIDES THE TRANSCRIPT as its footer, in step with the
+    /// content — it is NOT a fixed overlay the messages slide under (which drew
+    /// text-on-text). So: reachable at the newest message; scroll up into history
+    /// and it leaves the screen together with the content's end; scroll back and
+    /// it returns. A fixed overlay would stay put and keep overlapping.
+    func testDockRidesTranscriptAsFooterNotFixedOverlay() async throws {
         let reachable = await serverReachable()
         try XCTSkipUnless(reachable, "live server not reachable at \(base); start the tunnel to run this UI test")
 
@@ -125,28 +129,46 @@ final class QuestionDockLayoutUITests: XCTestCase {
         XCTAssertTrue(sessionCell.waitForExistence(timeout: 15))
         sessionCell.tap()
 
-        // Full dock at the bottom.
-        XCTAssertTrue(app.buttons["question.reject"].waitForExistence(timeout: 10), "dock didn't appear")
+        // The dock is reachable at the newest message (it's the transcript's last row).
+        let reject = app.buttons["question.reject"]
+        XCTAssertTrue(reject.waitForExistence(timeout: 10), "dock didn't appear")
+        XCTAssertTrue(waitHittable(reject, timeout: 5), "dock must be reachable at the newest message")
+        attach(app, "footer-at-newest-message")
 
-        // Scroll up into history → the dock must collapse to the pill.
-        // (The tap-returns-full-dock half of the flow is covered by the Android
-        // instrumented test: XCUITest's accessibility crawl on a session with
-        // hundreds of rows is so slow it interferes with the list's scroll
-        // state, making post-tap assertions here flaky by construction. The
-        // return WAS verified on-screen via the failure-hierarchy dump.)
+        // Scroll UP into history: the dock rides the content's END off the screen.
+        // A FIXED overlay would stay pinned and keep covering the transcript — the
+        // bug in the screenshots. Here it must leave WITH the content.
         app.tables.firstMatch.swipeDown()
         app.tables.firstMatch.swipeDown()
-        let pill = app.buttons["question.pill"]
-        XCTAssertTrue(pill.waitForExistence(timeout: 30), "dock must collapse to a pill while reading history")
+        XCTAssertTrue(waitUnhittable(reject, timeout: 8),
+                      "dock must scroll away with the transcript, not stay pinned over it")
+        attach(app, "reading-history-dock-gone")
 
-        // REGRESSION (reported live): the collapse used to feed back into the
-        // scroll position — the shrinking accessory re-clamped the offset into
-        // the near-bottom band, the dock re-expanded, and its pin threw the
-        // user to the very bottom, endlessly. The pill must be STABLE: still
-        // collapsed seconds later, with the full dock still hidden.
-        sleep(3)
-        XCTAssertTrue(pill.exists, "pill must remain while reading — no yank-back loop")
-        XCTAssertFalse(app.buttons["question.reject"].exists, "full dock must stay hidden while reading")
+        // Scroll back to the newest message: the dock returns with the content.
+        for _ in 0..<15 {
+            if reject.exists && reject.isHittable { break }
+            app.tables.firstMatch.swipeUp(velocity: .fast)
+        }
+        XCTAssertTrue(waitHittable(reject, timeout: 8), "dock must return at the newest message")
+        attach(app, "back-at-newest-message")
+    }
+
+    private func attach(_ app: XCUIApplication, _ name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name; shot.lifetime = .keepAlways; add(shot)
+    }
+
+    /// Scroll the list until `element` is on-screen and hittable, moving toward it
+    /// (up or down) based on where its frame currently sits.
+    private func reveal(_ app: XCUIApplication, _ element: XCUIElement, attempts: Int = 12) {
+        let table = app.tables.firstMatch
+        let screenH = app.windows.firstMatch.frame.height
+        for _ in 0..<attempts {
+            if element.exists && element.isHittable { return }
+            guard element.exists else { table.swipeUp(); continue }
+            if element.frame.midY < screenH * 0.2 { table.swipeDown() } // above viewport → scroll up
+            else { table.swipeUp() }                                    // below viewport → scroll down
+        }
     }
 
     private func waitHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
@@ -156,6 +178,15 @@ final class QuestionDockLayoutUITests: XCTestCase {
             usleep(200_000)
         }
         return element.exists && element.isHittable
+    }
+
+    private func waitUnhittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists || !element.isHittable { return true }
+            usleep(200_000)
+        }
+        return !element.exists || !element.isHittable
     }
 
     private func serverReachable() async -> Bool {

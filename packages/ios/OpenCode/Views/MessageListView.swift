@@ -16,6 +16,50 @@ final class MessageTableView: UITableView {
     }
 }
 
+/// A self-sizing cell that parks a hosted view (the question dock / typing footer,
+/// a child view controller's view) as the transcript's LAST ROW — so that content
+/// scrolls WITH the messages and, being a real cell, vends its accessibility (a
+/// `tableFooterView`-hosted `UIHostingController` renders but exposes nothing to
+/// VoiceOver / XCUITest). The hosted view is owned elsewhere and merely mounted
+/// here; the cell only pins it to its content view and lets Auto Layout size it.
+final class FooterHostCell: UITableViewCell {
+    static let reuseID = "FooterHostCell"
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        selectionStyle = .none
+    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private weak var mounted: UIView?
+    func mount(_ view: UIView?) {
+        guard mounted !== view else { return }
+        mounted?.removeFromSuperview()
+        mounted = view
+        guard let view else { return }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(view)
+        // Bottom pin at < required so the table's EXACT row height wins without an
+        // Auto Layout conflict if the measured height is a hair off the intrinsic.
+        let bottom = view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        bottom.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: contentView.topAnchor),
+            view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            bottom,
+        ])
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        mounted?.removeFromSuperview()
+        mounted = nil
+    }
+}
+
 struct MessageListView: UIViewRepresentable {
     let messages: [MessageWithParts]
     /// Bumped by the store on every change; ties SwiftUI's `updateUIView` to data updates.
@@ -64,36 +108,47 @@ struct MessageListView: UIViewRepresentable {
         /// shrinks for the keyboard, so the controller only shifts when this is false.
         private var pinnedToBottom = true
         var isPinnedToBottom: Bool { pinnedToBottom }
-        /// Reading-mode collapse tracked CONTINUOUSLY from the scroll position,
-        /// 0…1, instead of flipping at a fixed threshold: 0 at the newest message
-        /// (full dock) → 1 once `collapseSpan` points of transcript sit below the
-        /// viewport (one-line pill), linearly interpolated between, so the dock
-        /// slides into the pill in step with the finger.
-        ///
-        /// The measure is `contentBelow` (content past the bottom of the viewport)
-        /// — INSET-INDEPENDENT on purpose. The dock's own height feeds
-        /// `contentInset.bottom`, so any distance-to-flush measure moves as the
-        /// dock collapses and would drive the collapse from its own output: that
-        /// was the oscillation the earlier threshold version hit (a 355pt inset
-        /// jump walking a hysteresis band, flips every 25ms). `contentBelow` can't
-        /// move when the inset changes, so the scrub is stable with NO hysteresis
-        /// — a continuous function of scroll can't feed back into itself.
-        private var collapseProgress: CGFloat = 0 {
+
+        /// Sentinel item id for the footer row (question dock / typing). A control
+        /// char keeps it from ever colliding with a real message id.
+        static let footerID = "\u{1}session-footer"
+        /// The hosted footer view (a child VC's view) mounted into the footer row.
+        private weak var footerView: UIView?
+        private var showFooter = false
+        /// EXACT height of the footer row (measured by the controller). Returned as
+        /// both height and estimate — like the message rows — so `contentSize` stays
+        /// stable and scroll-to-bottom isn't chasing a self-sizing row's guess.
+        var footerHeight: CGFloat = 240 {
             didSet {
-                if abs(collapseProgress - oldValue) > 0.001 { onCollapseProgressChange?(collapseProgress) }
+                guard abs(footerHeight - oldValue) > 0.5, showFooter, let table else { return }
+                UIView.performWithoutAnimation { table.beginUpdates(); table.endUpdates() }
             }
         }
-        var onCollapseProgressChange: ((CGFloat) -> Void)?
 
-        /// Points of transcript below the viewport over which the dock fully
-        /// collapses. Wide enough that the collapse reads as a deliberate scrub
-        /// into history, not a twitch on a short flick.
-        private static let collapseSpan: CGFloat = 260
-
-        private func updateCollapseProgress(_ table: UITableView) {
-            let contentBelow = table.contentSize.height - table.contentOffset.y - table.bounds.height
-            collapseProgress = min(max(contentBelow / Self.collapseSpan, 0), 1)
+        /// Install / update / remove the transcript's footer row. The controller
+        /// owns the hosted view (a child view controller, so its accessibility is
+        /// vended); this only slots it in as the last row so it scrolls with the
+        /// messages. Re-applies the snapshot to add/drop the sentinel or swap the
+        /// mounted view.
+        func setFooter(view: UIView?, show: Bool) {
+            let viewChanged = footerView !== view
+            footerView = view
+            showFooter = show
+            guard let dataSource, hasApplied else { return }
+            var snapshot = dataSource.snapshot()
+            let hasSentinel = snapshot.itemIdentifiers.contains(Self.footerID)
+            if show && !hasSentinel {
+                snapshot.appendItems([Self.footerID], toSection: 0)
+            } else if !show && hasSentinel {
+                snapshot.deleteItems([Self.footerID])
+            } else if show && hasSentinel && viewChanged {
+                snapshot.reconfigureItems([Self.footerID])
+            } else {
+                return
+            }
+            dataSource.apply(snapshot, animatingDifferences: false)
         }
+
         /// Called when the user picks "Revert to here" on a message (its id).
         var onRevert: ((String) -> Void)?
         /// Called when a message row is tapped — opens its detail screen, zooming
@@ -132,6 +187,11 @@ struct MessageListView: UIViewRepresentable {
 
         func makeDataSource(for table: UITableView) {
             dataSource = UITableViewDiffableDataSource<Int, String>(tableView: table) { [weak self] table, indexPath, id in
+                if id == Self.footerID {
+                    let cell = table.dequeueReusableCell(withIdentifier: FooterHostCell.reuseID, for: indexPath) as! FooterHostCell
+                    cell.mount(self?.footerView)
+                    return cell
+                }
                 let cell = table.dequeueReusableCell(withIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
                 if let entry = self?.rendered[id] { cell.configure(entry.message) }
                 return cell
@@ -168,6 +228,7 @@ struct MessageListView: UIViewRepresentable {
             var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
             snapshot.appendSections([0])
             snapshot.appendItems(messages.map(\.id), toSection: 0)
+            if showFooter { snapshot.appendItems([Self.footerID], toSection: 0) } // keep the footer as the last row across message updates
             if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
             dataSource.apply(snapshot, animatingDifferences: false)
         }
@@ -175,7 +236,8 @@ struct MessageListView: UIViewRepresentable {
         // MARK: heights
 
         func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            exactHeight(tableView, indexPath)
+            if dataSource?.itemIdentifier(for: indexPath) == Self.footerID { return footerHeight }
+            return exactHeight(tableView, indexPath)
         }
 
         /// Return the SAME exact height as an *estimate* too, so `contentSize` is
@@ -184,7 +246,8 @@ struct MessageListView: UIViewRepresentable {
         /// 7566), so the pin-to-bottom target became a moving goalpost and the
         /// viewport jerked / the newest content ducked under the composer.
         func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
-            exactHeight(tableView, indexPath)
+            if dataSource?.itemIdentifier(for: indexPath) == Self.footerID { return footerHeight } // exact estimate, like messages
+            return exactHeight(tableView, indexPath)
         }
 
         private func exactHeight(_ tableView: UITableView, _ indexPath: IndexPath) -> CGFloat {
@@ -343,13 +406,9 @@ struct MessageListView: UIViewRepresentable {
             table.contentSize.height - table.bounds.height + table.contentInset.bottom
         }
 
-        /// Re-pins and scrolls to the newest message (the reading-mode pill tap).
+        /// Re-pins and scrolls to the newest message.
         func returnToBottom(_ table: UITableView) {
             pinnedToBottom = true
-            // Don't push `collapseProgress` here: the pill tap animates it to 0 in
-            // SwiftUI (in step with this scroll), and the next user scroll — now at
-            // the bottom — recomputes it to 0 anyway. Setting it non-animated from
-            // here would cancel that expansion animation.
             let target = bottomTarget(table)
             guard target > 0 else { return }
             table.setContentOffset(CGPoint(x: 0, y: target), animated: true)
@@ -369,7 +428,6 @@ struct MessageListView: UIViewRepresentable {
             guard let table = scrollView as? UITableView,
                   scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else { return }
             pinnedToBottom = isNearBottom(table)
-            updateCollapseProgress(table)
             maybeLoadOlder(table)
         }
 
@@ -386,7 +444,6 @@ struct MessageListView: UIViewRepresentable {
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             if let table = scrollView as? UITableView {
                 pinnedToBottom = isNearBottom(table)
-                updateCollapseProgress(table)
             }
             if !decelerate { flushPending() }
         }
@@ -394,7 +451,6 @@ struct MessageListView: UIViewRepresentable {
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             if let table = scrollView as? UITableView {
                 pinnedToBottom = isNearBottom(table)
-                updateCollapseProgress(table)
             }
             flushPending()
         }

@@ -35,19 +35,9 @@ struct SessionView: View {
     @State private var showPhotoPicker = false
     /// Bumped on a 30s timer while busy so `isStuck` re-evaluates without events.
     @State private var stuckCheck = Date()
-    /// Keyboard visibility, tracked so tall docks can collapse while typing —
-    /// the input accessory plus the keyboard must fit on screen.
-    @State private var keyboardVisible = false
     /// Whether the session has any file changes — the diff toolbar button only
     /// appears when there is something to show (the top bar is tight on space).
     @State private var hasDiff = false
-    /// Reading-mode collapse of the question dock, updated continuously from the
-    /// list's scroll position (0 = newest/full dock, 1 = deep-in-history/pill).
-    /// A reference model so a per-frame scroll update re-renders only the dock,
-    /// never the composer accessory.
-    @State private var reading = ReadingMode()
-    /// Bumped by the question pill to scroll the list back to the newest message.
-    @State private var returnToBottomSignal = 0
     @AppStorage("composer.providerID") private var providerID = ""
     @AppStorage("composer.modelID") private var modelID = ""
 
@@ -78,9 +68,9 @@ struct SessionView: View {
                                revision: store.revision,
                                onRevert: { revertTarget = $0 },
                                onLoadOlder: { Task { await loadOlder() } },
-                               onKeyboardVisible: { keyboardVisible = $0 },
-                               onCollapseProgress: { reading.collapseProgress = $0 },
-                               returnToBottomSignal: returnToBottomSignal,
+                               pendingQuestions: store.pendingQuestions,
+                               onQuestionReply: { request, answers in Task { await handleQuestionReply(request, answers) } },
+                               onQuestionReject: { request in Task { await handleQuestionReject(request) } },
                                showTyping: showThinking && !isStuck,
                                barRevision: barRevision) {
                     bottomBar
@@ -263,16 +253,13 @@ struct SessionView: View {
     private var barRevision: Int {
         var h = Hasher()
         h.combine(runningTools.map(\.id))
-        h.combine(keyboardVisible)
-        // NOT the collapse progress: it drives a leaf @Observable the dock reads
-        // directly, so the accessory must NOT rebuild as it scrubs (that would
-        // churn the composer every scroll frame). Only `keyboardVisible` gates it.
         h.combine(isStreaming)
         h.combine(isStuck)
         h.combine(store.revertMessageID)
         h.combine(store.todos.count)
         h.combine(store.pendingPermissions.map(\.id))
-        h.combine(store.pendingQuestions.map(\.id))
+        // Questions are NOT in the accessory anymore (they're the list footer), so
+        // a new/answered question doesn't need to rebuild the composer bar.
         h.combine(fileAttachments.count)
         h.combine(providers.count)
         h.combine(commands.count)
@@ -329,30 +316,10 @@ struct SessionView: View {
                     Task { await handleReply(request, reply) }
                 }
             }
-            ForEach(store.pendingQuestions) { request in
-                // Reading mode: as the user scrolls up into history the dock —
-                // which would otherwise cover the transcript — collapses
-                // CONTINUOUSLY into a one-line pill, tracking the scroll (not a
-                // threshold). Tapping the pill returns to the newest message where
-                // the full dock lives. The dock and pill both stay in the tree
-                // (only height/opacity animate), so the accessory's structure is
-                // constant and the keyboard-hosted composer is never torn down.
-                //
-                // `compact` shrinks the questions viewport while the keyboard is up
-                // (accessory + keyboard must fit the screen — a full-height
-                // questionnaire wedged the keyboard presentation, the frozen-phone
-                // bug) and disables the collapse (reading happens keyboard-down).
-                CollapsibleQuestionDock(
-                    request: request,
-                    reading: reading,
-                    compact: keyboardVisible,
-                    onReply: { answers in Task { await handleQuestionReply(request, answers) } },
-                    onReject: { Task { await handleQuestionReject(request) } },
-                    onExpand: {
-                        withAnimation(.easeOut(duration: 0.28)) { reading.collapseProgress = 0 }
-                        returnToBottomSignal += 1
-                    })
-            }
+            // NOTE: the question dock is NOT here — it rides the transcript as the
+            // list footer (see `SessionContent.pendingQuestions` / `SessionFooter`),
+            // so scrolling up moves it away with the content instead of the
+            // messages sliding under a fixed dock and overlapping it.
             if !runningTools.isEmpty {
                 // "Background processes" strip (like Claude's): long tools emit
                 // no chat text for minutes, and busy-with-no-output otherwise

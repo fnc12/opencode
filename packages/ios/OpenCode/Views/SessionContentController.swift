@@ -78,33 +78,82 @@ final class SessionContentController: UIViewController {
         didSet { coordinator.receive(messages, table: table) }
     }
 
-    /// Thinking indicator shown as the table's footer — i.e. right after the last
-    /// message, where the reply will stream in — not a fixed overlay that lands on
-    /// top of an existing message.
-    var showTyping: Bool = false {
-        didSet { if showTyping != oldValue { updateTypingFooter() } }
+    /// The list's FOOTER — rendered right after the last message and scrolling
+    /// WITH the content (a UITableView footer, not a fixed overlay): a pending
+    /// question dock and/or the "thinking" indicator. Putting the question dock
+    /// here (instead of pinned above the composer) is the whole point — it rides
+    /// the transcript's end, so scrolling up moves it away with the content
+    /// instead of the transcript sliding under it and the two overlapping.
+    var pendingQuestions: [QuestionRequest] = [] {
+        didSet { if pendingQuestions.map(\.id) != oldValue.map(\.id) { rebuildFooter() } }
     }
-    private var typingFooterHost: UIViewController?
-    private func updateTypingFooter() {
-        guard showTyping else { table.tableFooterView = nil; typingFooterHost = nil; return }
-        let host = UIHostingController(rootView:
-            HStack { TypingIndicator(); Spacer() }
-                .padding(.horizontal, 16).padding(.vertical, 10))
+    var showTyping: Bool = false {
+        didSet { if showTyping != oldValue { rebuildFooter() } }
+    }
+    /// Wired from SwiftUI: answer / skip a footer question.
+    var onQuestionReply: ((QuestionRequest, [[String]]) -> Void)?
+    var onQuestionReject: ((QuestionRequest) -> Void)?
+
+    private var footerHost: UIHostingController<SessionFooter>?
+
+    /// Rebuild the hosted footer only when WHICH questions are pending (or the
+    /// typing flag) changes — never on a plain message delta — so the dock's own
+    /// selection state survives a streaming update.
+    private func rebuildFooter() {
+        // Tear down the previous host (a11y + responder chain) before swapping.
+        if let old = footerHost {
+            old.willMove(toParent: nil)
+            old.view.removeFromSuperview()
+            old.removeFromParent()
+            footerHost = nil
+        }
+        guard !pendingQuestions.isEmpty || showTyping else {
+            coordinator.setFooter(view: nil, show: false)
+            return
+        }
+        let host = UIHostingController(rootView: SessionFooter(
+            questions: pendingQuestions,
+            showTyping: showTyping,
+            onReply: { [weak self] req, ans in self?.onQuestionReply?(req, ans) },
+            onReject: { [weak self] req in self?.onQuestionReject?(req) }))
         host.view.backgroundColor = .clear
-        let width = table.bounds.width > 0 ? table.bounds.width : UIScreen.main.bounds.width
-        let height = host.view.systemLayoutSizeFitting(
-            CGSize(width: width, height: 0),
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel).height
-        host.view.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        host.view.isAccessibilityElement = true
-        host.view.accessibilityIdentifier = "typing.indicator"
-        table.tableFooterView = host.view
-        typingFooterHost = host
-        // Keep the fresh indicator on screen when the user is at the bottom.
+        // A proper child VC so the dock's SwiftUI accessibility is vended (a view
+        // hosted only as a subview — e.g. a `tableFooterView` — renders but exposes
+        // nothing to VoiceOver / XCUITest). Its view is mounted into the transcript's
+        // last row (see `FooterHostCell`), so it scrolls WITH the messages.
+        addChild(host)
+        footerHost = host
+        host.didMove(toParent: self)
+        measureFooter()
+        coordinator.setFooter(view: host.view, show: true)
+        // Keep the footer on screen when the user is at the newest message.
         if coordinator.isPinnedToBottom {
             DispatchQueue.main.async { [weak self] in self?.scrollToBottom(animated: false) }
             reassertBottomSoon()
+        }
+    }
+
+    /// Measure the footer's exact height (deterministic — the dock has no inner
+    /// scroll) and hand it to the coordinator, which returns it as the row's exact
+    /// height so `contentSize` stays stable and pin-to-bottom is precise.
+    private func measureFooter() {
+        guard let host = footerHost else { return }
+        let width = table.bounds.width > 0 ? table.bounds.width : UIScreen.main.bounds.width
+        let h = host.view.systemLayoutSizeFitting(
+            CGSize(width: width, height: 0),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel).height
+        if h > 0 { coordinator.footerHeight = h }
+    }
+
+    private var lastFooterWidth: CGFloat = 0
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Re-measure on a width change (rotation): the dock's height depends on
+        // wrapped text width.
+        if footerHost != nil, table.bounds.width > 0, abs(table.bounds.width - lastFooterWidth) > 0.5 {
+            lastFooterWidth = table.bounds.width
+            measureFooter()
         }
     }
     private func scrollToBottom(animated: Bool = true) {
@@ -148,22 +197,7 @@ final class SessionContentController: UIViewController {
     /// unreliable during dismissal. Tall docks collapse while this is true.
     var onKeyboardVisible: ((Bool) -> Void)?
 
-    /// Wired from SwiftUI: reports the reading-mode collapse progress (0 = at the
-    /// newest message with the full dock, 1 = deep in history with the one-line
-    /// pill) so the dock animates its collapse in step with the scroll. Pushed
-    /// straight through — the value drives a leaf `@Observable` the dock reads, not
-    /// SwiftUI @State feeding the accessory rebuild, so a per-frame update only
-    /// re-renders the dock, and it fires from a UIKit scroll callback (not inside a
-    /// SwiftUI update), so no dispatch hop is needed.
-    var onCollapseProgress: ((CGFloat) -> Void)? {
-        didSet {
-            coordinator.onCollapseProgressChange = { [weak self] progress in
-                self?.onCollapseProgress?(progress)
-            }
-        }
-    }
-
-    /// Scrolls back to the newest message and re-pins (the reading-mode pill tap).
+    /// Scrolls back to the newest message and re-pins.
     func returnToBottom() {
         coordinator.returnToBottom(table)
     }
@@ -236,6 +270,7 @@ final class SessionContentController: UIViewController {
         table.keyboardDismissMode = .interactive
         table.estimatedRowHeight = 120
         table.register(MessageCell.self, forCellReuseIdentifier: MessageCell.reuseID)
+        table.register(FooterHostCell.self, forCellReuseIdentifier: FooterHostCell.reuseID)
         table.delegate = coordinator
         table.onLayout = { [weak coordinator] in coordinator?.tableDidLayout() }
         coordinator.makeDataSource(for: table)
@@ -323,6 +358,7 @@ final class SessionContentController: UIViewController {
         becomeFirstResponder() // dock the accessory when no field is focused
     }
 
+
     /// Inset the table by how much the keyboard (which includes the accessory bar)
     /// overlaps the view, and shift the content by the same delta so the viewport
     /// rides with the keyboard from any position. Idempotent (delta is derived
@@ -396,11 +432,12 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     /// Reports real-keyboard visibility so tall docks can collapse while typing.
     var onKeyboardVisible: ((Bool) -> Void)?
 
-    /// Reports the reading-mode collapse progress (0 = newest/full dock,
-    /// 1 = deep-in-history/pill) so the dock collapses in step with the scroll.
-    var onCollapseProgress: ((CGFloat) -> Void)? = nil
-    /// Bump to command a scroll back to the newest message (pill tap).
-    var returnToBottomSignal: Int = 0
+    /// Pending question(s) rendered in the list FOOTER (after the last message),
+    /// so they scroll with the transcript instead of floating over it.
+    var pendingQuestions: [QuestionRequest] = []
+    /// Answer / skip a footer question.
+    var onQuestionReply: ((QuestionRequest, [[String]]) -> Void)? = nil
+    var onQuestionReject: ((QuestionRequest) -> Void)? = nil
     /// Shows a "thinking" indicator as the last row (in the message flow, where
     /// the reply will appear) while the agent works but hasn't streamed text yet.
     var showTyping: Bool = false
@@ -429,9 +466,10 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
         controller.onKeyboardVisible = onKeyboardVisible
-        controller.onCollapseProgress = onCollapseProgress
-        context.coordinator.lastReturnSignal = returnToBottomSignal
+        controller.onQuestionReply = onQuestionReply
+        controller.onQuestionReject = onQuestionReject
         controller.messages = messages
+        controller.pendingQuestions = pendingQuestions
         controller.showTyping = showTyping
         return controller
     }
@@ -447,12 +485,12 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.onRevert = onRevert
         controller.onLoadOlder = onLoadOlder
         controller.onKeyboardVisible = onKeyboardVisible
-        controller.onCollapseProgress = onCollapseProgress
-        if context.coordinator.lastReturnSignal != returnToBottomSignal {
-            context.coordinator.lastReturnSignal = returnToBottomSignal
-            controller.returnToBottom()
-        }
+        controller.onQuestionReply = onQuestionReply
+        controller.onQuestionReject = onQuestionReject
+        // Assign messages BEFORE questions: the footer's pin-to-bottom must run
+        // against the freshly-applied rows, not the previous content size.
         controller.messages = messages
+        controller.pendingQuestions = pendingQuestions
         controller.showTyping = showTyping
     }
 
@@ -461,6 +499,30 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     @MainActor final class Coordinator {
         var host: UIHostingController<Bar>?
         var lastBarRevision: Int = 0
-        var lastReturnSignal: Int = 0
+    }
+}
+
+/// The list's footer content: pending question dock(s) and/or the thinking
+/// indicator — everything that belongs right AFTER the newest message and should
+/// scroll with it. Hosted by `SessionContentController` as the table's footer.
+struct SessionFooter: View {
+    let questions: [QuestionRequest]
+    let showTyping: Bool
+    let onReply: (QuestionRequest, [[String]]) -> Void
+    let onReject: (QuestionRequest) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(questions) { question in
+                QuestionDock(request: question,
+                             onReply: { onReply(question, $0) },
+                             onReject: { onReject(question) })
+            }
+            if showTyping {
+                HStack { TypingIndicator(); Spacer() }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .accessibilityIdentifier("typing.indicator")
+            }
+        }
     }
 }
