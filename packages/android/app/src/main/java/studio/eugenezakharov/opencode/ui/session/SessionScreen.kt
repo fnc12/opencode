@@ -126,6 +126,30 @@ fun SessionScreen(
     var showShareMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
+    // While this session is on screen (RESUMED), suppress its own foreground
+    // pushes (e.g. "session finished") — the user is already looking at it.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, session.id) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME ->
+                    studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId = session.id
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE ->
+                    if (studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId == session.id) {
+                        studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId = null
+                    }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId == session.id) {
+                studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId = null
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -288,19 +312,25 @@ fun SessionScreen(
                 state.isBusy && a != null && a.completed == null &&
                     System.currentTimeMillis() - a.created > 180_000
             }
-            if (state.isBusy && !streaming) {
+            // Fade the progress indicator IN/OUT rather than popping it — so hitting
+            // Stop eases the dots away instead of vanishing them. Mirrors iOS.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = state.isBusy && !streaming,
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+                modifier = Modifier.align(Alignment.BottomStart),
+            ) {
                 if (stuck) {
                     Text(
                         "⚠ This turn looks stuck — tap ■ to cancel",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
                             .padding(start = 16.dp, bottom = 12.dp)
                             .testTag("session.stuck"),
                     )
                 } else {
-                    TypingDots(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 10.dp))
+                    TypingDots(Modifier.padding(start = 16.dp, bottom = 10.dp))
                 }
             }
         }
