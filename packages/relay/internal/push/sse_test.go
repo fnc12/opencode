@@ -62,6 +62,36 @@ func TestScannerDetectsQuestionEvents(t *testing.T) {
 	}
 }
 
+func TestScannerEnrichesWithTitleAndPreview(t *testing.T) {
+	s := &Scanner{}
+	stream := "" +
+		// learn the session title
+		`data: {"payload":{"type":"session.updated","properties":{"info":{"id":"s1","title":"Fix the parser"}}}}` + "\n\n" +
+		// stream some answer text (snapshots)
+		`data: {"payload":{"type":"message.part.updated","properties":{"sessionID":"s1","part":{"type":"text","text":"Done — I split the tokenizer\nand added a test."}}}}` + "\n\n" +
+		// a permission mid-turn carries the title too
+		`data: {"payload":{"type":"permission.v2.asked","properties":{"id":"per_1","sessionID":"s1"}}}` + "\n\n" +
+		// idle carries title + the answer preview
+		`data: {"payload":{"type":"session.idle","properties":{"sessionID":"s1"}}}` + "\n\n"
+
+	got := s.Feed([]byte(stream))
+	want := []Event{
+		{SessionID: "s1", Kind: KindPermission, Title: "Fix the parser"},
+		{SessionID: "s1", Kind: KindIdle, Title: "Fix the parser", Preview: "Done — I split the tokenizer and added a test."},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+
+	// After idle the answer text is forgotten (next turn starts fresh), but the
+	// title persists.
+	got2 := s.Feed([]byte(`data: {"payload":{"type":"session.idle","properties":{"sessionID":"s1"}}}` + "\n\n"))
+	want2 := []Event{{SessionID: "s1", Kind: KindIdle, Title: "Fix the parser", Preview: ""}}
+	if !reflect.DeepEqual(got2, want2) {
+		t.Fatalf("after-idle got %#v want %#v", got2, want2)
+	}
+}
+
 func TestScannerHandlesSplitChunks(t *testing.T) {
 	s := &Scanner{}
 	full := `data: {"payload":{"type":"session.idle","properties":{"sessionID":"abc"}}}` + "\n\n"

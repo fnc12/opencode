@@ -251,16 +251,23 @@ func (s *Server) watchEvents(ctx context.Context, conn *tunnel.Conn) {
 					Kind:      ev.Kind,
 					DeepLink:  "opencode://session/" + ev.SessionID,
 				}
+				// Prefer the session's own name as the title so you can tell WHICH
+				// session it is; fall back to a generic label until one is known.
 				switch ev.Kind {
 				case push.KindPermission:
-					n.Title = "Permission needed"
-					n.Body = "Your OpenCode agent is waiting for you to allow an action."
+					n.Title = titleOr(ev.Title, "Permission needed")
+					n.Body = "The agent is waiting for you to allow an action."
 				case push.KindQuestion:
-					n.Title = "The agent has a question"
-					n.Body = "Your OpenCode agent is waiting for your answer."
-				default:
-					n.Title = "Session finished"
-					n.Body = "Your OpenCode agent finished the task."
+					n.Title = titleOr(ev.Title, "The agent has a question")
+					n.Body = "The agent is waiting for your answer."
+				default: // idle / finished
+					n.Title = titleOr(ev.Title, "Session finished")
+					// Body: the start of the last answer, if we saw one.
+					if ev.Preview != "" {
+						n.Body = ev.Preview
+					} else {
+						n.Body = "The agent finished the task."
+					}
 				}
 				s.dispatcher.Notify(ctx, n)
 			}
@@ -270,6 +277,14 @@ func (s *Server) watchEvents(ctx context.Context, conn *tunnel.Conn) {
 			return
 		}
 	}
+}
+
+// titleOr returns the session's own name, or a fallback when it isn't known yet.
+func titleOr(name, fallback string) string {
+	if name != "" {
+		return name
+	}
+	return fallback
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {
