@@ -9,9 +9,14 @@ final class CodeBlockView: UIView {
     nonisolated static let padV: CGFloat = 10
 
     private let scroll = UIScrollView()
-    private let label = UILabel()
+    private let textView = UITextView()
+    private let code: NSAttributedString
 
-    init(code: NSAttributedString) {
+    /// `selectable` turns on native character selection + the copy menu (the
+    /// message detail screen). In the transcript list it stays off, so a tap on a
+    /// code row still opens the message detail instead of starting a selection.
+    init(code: NSAttributedString, selectable: Bool = false) {
+        self.code = code
         super.init(frame: .zero)
         backgroundColor = .tertiarySystemFill
         layer.cornerRadius = 8
@@ -22,11 +27,18 @@ final class CodeBlockView: UIView {
         scroll.showsVerticalScrollIndicator = false
         scroll.alwaysBounceHorizontal = false
 
-        label.numberOfLines = 0
-        label.lineBreakMode = .byClipping // no wrapping — each source line stays one line
-        label.attributedText = code
+        textView.isEditable = false
+        textView.isSelectable = selectable
+        textView.isUserInteractionEnabled = selectable // off ⇒ taps pass to the cell
+        textView.isScrollEnabled = false               // the outer scroll pans long lines
+        textView.backgroundColor = .clear
+        textView.textContainerInset = .zero
+        textView.textContainer.lineFragmentPadding = 0
+        textView.textContainer.lineBreakMode = .byClipping // no wrapping — each line stays one line
+        textView.dataDetectorTypes = []
+        textView.attributedText = code
 
-        scroll.addSubview(label)
+        scroll.addSubview(textView)
         addSubview(scroll)
     }
 
@@ -37,12 +49,12 @@ final class CodeBlockView: UIView {
         super.layoutSubviews()
         scroll.frame = bounds
         let big = CGFloat.greatestFiniteMagnitude
-        let contentW = ceil(label.attributedText?.boundingRect(
+        let contentW = ceil(code.boundingRect(
             with: CGSize(width: big, height: big),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).width ?? 0)
+            options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil).width)
         let w = max(contentW, bounds.width - Self.padH * 2)
         let h = bounds.height - Self.padV * 2
-        label.frame = CGRect(x: Self.padH, y: Self.padV, width: w, height: h)
+        textView.frame = CGRect(x: Self.padH, y: Self.padV, width: w, height: h)
         scroll.contentSize = CGSize(width: w + Self.padH * 2, height: bounds.height)
     }
 

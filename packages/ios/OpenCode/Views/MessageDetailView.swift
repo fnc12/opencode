@@ -76,8 +76,7 @@ struct MessageDetailView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
                         case .code(let code):
-                            CodeBlockRepresentable(code: code)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            CodeBlock(code: code)
 
                         case .tool(let title, let tool):
                             VStack(alignment: .leading, spacing: 6) {
@@ -205,9 +204,40 @@ struct MessageDetailView: View {
 /// SwiftUI detail screen, sized to its computed height.
 private struct CodeBlockRepresentable: UIViewRepresentable {
     let code: NSAttributedString
-    func makeUIView(context: Context) -> CodeBlockView { CodeBlockView(code: code) }
+    func makeUIView(context: Context) -> CodeBlockView { CodeBlockView(code: code, selectable: true) }
     func updateUIView(_ view: CodeBlockView, context: Context) {}
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: CodeBlockView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? UIScreen.main.bounds.width, height: CodeBlockView.height(for: code))
+    }
+}
+
+/// A fenced code block on the detail screen: syntax-highlighted, character-
+/// selectable, with a one-tap "copy the whole block" button (à la the web UI).
+private struct CodeBlock: View {
+    let code: NSAttributedString
+    @State private var copied = false
+
+    var body: some View {
+        CodeBlockRepresentable(code: code)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    UIPasteboard.general.string = code.string
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.easeOut(duration: 0.15)) { copied = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                        withAnimation { copied = false }
+                    }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(copied ? Color.green : Color.secondary)
+                        .padding(6)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+                }
+                .padding(6)
+                .accessibilityIdentifier("code.copy")
+                .accessibilityLabel("Copy code")
+            }
     }
 }
