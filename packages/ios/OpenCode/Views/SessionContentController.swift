@@ -90,6 +90,11 @@ final class SessionContentController: UIViewController {
     var showTyping: Bool = false {
         didSet { if showTyping != oldValue { rebuildFooter() } }
     }
+    /// The "background processes" strip — moved OUT of the composer accessory to
+    /// here so its live spinner never animates inside the keyboard window.
+    var runningTools: [RunningTool] = [] {
+        didSet { if runningTools.map(\.id) != oldValue.map(\.id) { rebuildFooter() } }
+    }
     /// Wired from SwiftUI: answer / skip a footer question.
     var onQuestionReply: ((QuestionRequest, [[String]]) -> Void)?
     var onQuestionReject: ((QuestionRequest) -> Void)?
@@ -100,22 +105,34 @@ final class SessionContentController: UIViewController {
     /// typing flag) changes — never on a plain message delta — so the dock's own
     /// selection state survives a streaming update.
     private func rebuildFooter() {
-        // Tear down the previous host (a11y + responder chain) before swapping.
-        if let old = footerHost {
-            old.willMove(toParent: nil)
-            old.view.removeFromSuperview()
-            old.removeFromParent()
-            footerHost = nil
-        }
-        guard !pendingQuestions.isEmpty || showTyping else {
+        guard !pendingQuestions.isEmpty || showTyping || !runningTools.isEmpty else {
+            if let old = footerHost {
+                old.willMove(toParent: nil)
+                old.view.removeFromSuperview()
+                old.removeFromParent()
+                footerHost = nil
+            }
             coordinator.setFooter(view: nil, show: false)
             return
         }
-        let host = UIHostingController(rootView: SessionFooter(
+        let content = SessionFooter(
             questions: pendingQuestions,
             showTyping: showTyping,
+            runningTools: runningTools,
             onReply: { [weak self] req, ans in self?.onQuestionReply?(req, ans) },
-            onReject: { [weak self] req in self?.onQuestionReject?(req) }))
+            onReject: { [weak self] req in self?.onQuestionReject?(req) })
+
+        // Already shown → UPDATE the hosted content in place. Recreating the host
+        // on every running-tool change would flicker the strip and drop the dock's
+        // selection state; reassigning rootView keeps both.
+        if let host = footerHost {
+            host.rootView = content
+            measureFooter()
+            coordinator.setFooter(view: host.view, show: true)
+            return
+        }
+
+        let host = UIHostingController(rootView: content)
         host.view.backgroundColor = .clear
         // A proper child VC so the dock's SwiftUI accessibility is vended (a view
         // hosted only as a subview — e.g. a `tableFooterView` — renders but exposes
@@ -441,6 +458,8 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     /// Shows a "thinking" indicator as the last row (in the message flow, where
     /// the reply will appear) while the agent works but hasn't streamed text yet.
     var showTyping: Bool = false
+    /// The "background processes" strip, in the footer (not the accessory).
+    var runningTools: [RunningTool] = []
     /// Changes only when the bar's *inputs* change (busy state, docks, pickers) —
     /// NOT on every streamed message delta. The hosted composer is only rebuilt
     /// when this changes, so a fast stream doesn't churn the accessory (which was
@@ -471,6 +490,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.messages = messages
         controller.pendingQuestions = pendingQuestions
         controller.showTyping = showTyping
+        controller.runningTools = runningTools
         return controller
     }
 
@@ -492,6 +512,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         controller.messages = messages
         controller.pendingQuestions = pendingQuestions
         controller.showTyping = showTyping
+        controller.runningTools = runningTools
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -508,6 +529,7 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
 struct SessionFooter: View {
     let questions: [QuestionRequest]
     let showTyping: Bool
+    var runningTools: [RunningTool] = []
     let onReply: (QuestionRequest, [[String]]) -> Void
     let onReject: (QuestionRequest) -> Void
 
@@ -522,6 +544,12 @@ struct SessionFooter: View {
                 HStack { TypingIndicator(); Spacer() }
                     .padding(.horizontal, 16).padding(.vertical, 10)
                     .accessibilityIdentifier("typing.indicator")
+            }
+            if !runningTools.isEmpty {
+                // "Background processes" strip — here (footer) rather than the
+                // composer accessory, so its live spinner never animates inside the
+                // keyboard window and can't wedge an interactive keyboard dismiss.
+                RunningToolsPill(tools: runningTools)
             }
         }
     }

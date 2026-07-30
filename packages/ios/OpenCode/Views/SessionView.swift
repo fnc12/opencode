@@ -72,6 +72,7 @@ struct SessionView: View {
                                onQuestionReply: { request, answers in Task { await handleQuestionReply(request, answers) } },
                                onQuestionReject: { request in Task { await handleQuestionReject(request) } },
                                showTyping: showThinking && !isStuck,
+                               runningTools: runningTools,
                                barRevision: barRevision) {
                     bottomBar
                 }
@@ -256,7 +257,11 @@ struct SessionView: View {
 
     private var barRevision: Int {
         var h = Hasher()
-        h.combine(runningTools.map(\.id))
+        // NOT runningTools: the "background processes" strip lives in the list
+        // footer now, not the accessory — so a tool starting/stopping mid-turn no
+        // longer rebuilds (and briefly tears down) the keyboard-hosted composer,
+        // which wedged the keyboard on an interactive dismiss (the frozen-phone
+        // class of bug). Keep the accessory's structure stable while typing.
         h.combine(isStreaming)
         h.combine(isStuck)
         h.combine(store.revertMessageID)
@@ -324,12 +329,10 @@ struct SessionView: View {
             // list footer (see `SessionContent.pendingQuestions` / `SessionFooter`),
             // so scrolling up moves it away with the content instead of the
             // messages sliding under a fixed dock and overlapping it.
-            if !runningTools.isEmpty {
-                // "Background processes" strip (like Claude's): long tools emit
-                // no chat text for minutes, and busy-with-no-output otherwise
-                // reads as a hang. Absent entirely when nothing runs.
-                RunningToolsPill(tools: runningTools)
-            }
+            // NOTE: the "background processes" strip is NOT here either — it's in
+            // the list footer (see `SessionFooter`), so its live spinner never
+            // animates inside the keyboard-hosted accessory (that wedged the
+            // interactive keyboard dismiss).
             if isStuck {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
