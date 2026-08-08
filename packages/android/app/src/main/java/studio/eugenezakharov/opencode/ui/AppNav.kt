@@ -6,7 +6,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,8 +36,15 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
 
     LaunchedEffect(Unit) { appViewModel.autoConnectIfPossible() }
 
-    var selectedProject by remember { mutableStateOf<Project?>(null) }
-    var selectedSession by remember { mutableStateOf<Session?>(null) }
+    // rememberSaveable (not plain remember) so the selected project/session
+    // survive an Activity recreation — screen rotation used to reset them to null,
+    // dumping the user back on the Projects screen mid-navigation.
+    var selectedProject by rememberSaveable(stateSaver = jsonNavSaver<Project>()) {
+        mutableStateOf<Project?>(null)
+    }
+    var selectedSession by rememberSaveable(stateSaver = jsonNavSaver<Session>()) {
+        mutableStateOf<Session?>(null)
+    }
 
     // Deep-link from a tapped push: resolve the session by id (the push carries
     // only the id) and navigate to it, selecting its project so Back walks
@@ -95,6 +106,15 @@ fun AppNav(appViewModel: AppViewModel = viewModel()) {
         }
     }
 }
+
+private val navJson = Json { ignoreUnknownKeys = true }
+
+/** A [Saver] that persists a nullable @Serializable nav selection as JSON in the
+ *  saved-instance-state Bundle, so it survives Activity recreation (rotation). */
+private inline fun <reified T> jsonNavSaver(): Saver<T?, String> = Saver(
+    save = { value -> value?.let { navJson.encodeToString(it) } ?: "" },
+    restore = { s -> if (s.isEmpty()) null else runCatching { navJson.decodeFromString<T>(s) }.getOrNull() },
+)
 
 @Composable
 private fun SessionDestination(
