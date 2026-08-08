@@ -63,4 +63,109 @@ final class MessageRenderingTests: XCTestCase {
         """
         XCTAssertTrue(try decode(assistantMessage(parts: parts)).hasRenderableContent)
     }
+
+    // MARK: image attachments (viewable screenshots in the transcript)
+
+    /// A tiny valid PNG as a `data:` URL — the shape the server sends for a
+    /// pasted screenshot (pixels embedded, no fetch).
+    @MainActor private func pngDataURL() -> String {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 3))
+        let image = renderer.image { ctx in
+            UIColor.systemTeal.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: 4, height: 3))
+        }
+        let b64 = image.pngData()!.base64EncodedString()
+        return "data:image/png;base64,\(b64)"
+    }
+
+    @MainActor func testDecodesImageDataURL() throws {
+        let image = MessageListView.Coordinator.decodeDataURLImage(pngDataURL())
+        XCTAssertNotNil(image)
+        // Decoded at scale 1, so size is the pixel dimensions (the renderer may
+        // bake in the device scale); assert the 4:3 aspect ratio survived.
+        let size = try XCTUnwrap(image).size
+        XCTAssertGreaterThan(size.width, 0)
+        XCTAssertEqual(size.width / size.height, 4.0 / 3.0, accuracy: 0.01)
+    }
+
+    @MainActor func testImageAttachmentFromImageMime() {
+        let file = FileRefContent(filename: "shot.png", url: pngDataURL(), mime: "image/png")
+        XCTAssertNotNil(MessageListView.Coordinator.imageAttachment(file))
+    }
+
+    @MainActor func testImageAttachmentInfersImageFromDataURLWithoutMime() {
+        let file = FileRefContent(filename: "shot.png", url: pngDataURL(), mime: nil)
+        XCTAssertNotNil(MessageListView.Coordinator.imageAttachment(file))
+    }
+
+    @MainActor func testNonImageFileIsNotAnAttachmentImage() {
+        // A code-reference file part (what `@file:line` mentions look like) is not
+        // an image and must fall back to the text chip.
+        let file = FileRefContent(filename: "main.swift", url: "file:///main.swift", mime: "text/x-swift")
+        XCTAssertNil(MessageListView.Coordinator.imageAttachment(file))
+    }
+
+    @MainActor func testMalformedDataURLDecodesToNil() {
+        XCTAssertNil(MessageListView.Coordinator.decodeDataURLImage("data:image/png;base64,not$$base64!!"))
+        XCTAssertNil(MessageListView.Coordinator.decodeDataURLImage("data:image/png,rawnotbase64"))
+        XCTAssertNil(MessageListView.Coordinator.decodeDataURLImage("https://example.com/a.png"))
+    }
+
+    // MARK: image renders in the cell (view layer, deterministic — no server)
+
+    @MainActor private func image(_ w: CGFloat, _ h: CGFloat) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: w, height: h)).image { ctx in
+            UIColor.systemTeal.setFill(); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        }
+    }
+
+    /// Recursively finds the first UIButton carrying the given accessibility id.
+    @MainActor private func button(in view: UIView, id: String) -> UIButton? {
+        for sub in view.subviews {
+            if let b = sub as? UIButton, b.accessibilityIdentifier == id { return b }
+            if let found = button(in: sub, id: id) { return found }
+        }
+        return nil
+    }
+
+    /// An `.image` block must render a real, tappable image button sized to the
+    /// computed block height — and tapping it must fire `onSelectImage` (which
+    /// opens the full-screen viewer). Guards the "can't view the screenshot" fix.
+    @MainActor func testImageBlockRendersTappableImageInCell() {
+        let img = image(400, 300)
+        let rendered = RenderedMessage(
+            roleText: "You", roleColor: .systemBlue, metaText: nil,
+            blocks: [.image(img)], bubbleColor: .clear)
+        let width: CGFloat = 390
+
+        let cell = MessageCell(style: .default, reuseIdentifier: nil)
+        var tapped: UIImage?
+        cell.onSelectImage = { tapped = $0 }
+        cell.configure(rendered)
+        cell.frame = CGRect(x: 0, y: 0, width: width,
+                            height: MessageMetrics.height(for: rendered, cellWidth: width))
+        cell.setNeedsLayout(); cell.layoutIfNeeded()
+
+        let imageButton = button(in: cell.contentView, id: "message.image")
+        XCTAssertNotNil(imageButton, "an image block must render as a tappable image, not a text chip")
+        XCTAssertEqual(imageButton?.currentImage?.size, img.size, "the button shows the attachment image")
+        XCTAssertEqual(imageButton?.bounds.height ?? 0,
+                       MessageMetrics.blockHeight(.image(img), cellWidth: width), accuracy: 1,
+                       "the image is laid out at the computed (aspect-fit, capped) height")
+
+        imageButton?.sendActions(for: .touchUpInside)
+        XCTAssertEqual(tapped, img, "tapping the image opens the viewer with that image")
+    }
+
+    /// A tall screenshot's inline thumbnail is capped so it can't take over the
+    /// transcript (the full picture is available in the full-screen viewer).
+    @MainActor func testTallImageThumbnailIsCapped() {
+        let tall = image(300, 3000)
+        let h = MessageMetrics.blockHeight(.image(tall), cellWidth: 390)
+        XCTAssertEqual(h, MessageMetrics.maxImageHeight, accuracy: 0.5, "a very tall image is capped")
+
+        let wide = image(300, 60) // 5:1 — well under the cap
+        let hw = MessageMetrics.blockHeight(.image(wide), cellWidth: 390)
+        XCTAssertLessThan(hw, MessageMetrics.maxImageHeight, "a short image keeps its aspect height")
+        XCTAssertGreaterThan(hw, 0)
+    }
 }

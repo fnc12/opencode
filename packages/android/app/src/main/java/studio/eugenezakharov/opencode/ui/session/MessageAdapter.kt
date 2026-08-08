@@ -3,8 +3,12 @@ package studio.eugenezakharov.opencode.ui.session
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
+import android.util.Base64
+import android.widget.ImageView
 import android.widget.Toast
 import android.text.Layout
 import android.text.Spannable
@@ -34,6 +38,9 @@ import studio.eugenezakharov.opencode.api.models.QuestionRequest
 sealed interface MsgBlock {
     data class Text(val span: CharSequence) : MsgBlock
     data class Table(val rows: List<List<String>>) : MsgBlock
+    /** An image attachment (a pasted screenshot), decoded from the file part's
+     *  `data:` URL — shown inline and tappable for a full-screen view. */
+    data class Image(val bitmap: Bitmap) : MsgBlock
 }
 
 /** A run inside a single text part: inline-markdown body, or a lifted GFM table. */
@@ -320,6 +327,7 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
                     when (b) {
                         is MsgBlock.Text -> extra.addView(makeBodyTextView(ctx, b.span))
                         is MsgBlock.Table -> extra.addView(buildTableView(ctx, b.rows))
+                        is MsgBlock.Image -> extra.addView(makeImageView(ctx, b.bitmap))
                     }
                 }
             }
@@ -397,7 +405,13 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
                         spacer(); cur.append(toolLine(c))
                     }
                     is PartContent.Patch -> { spacer(); cur.append(patchLine(c)) }
-                    is PartContent.FileRef -> { spacer(); cur.append(fileChip(c)) }
+                    is PartContent.FileRef -> {
+                        // A pasted screenshot / image attachment renders inline
+                        // (tappable for full-screen). Non-images fall back to the chip.
+                        val bmp = imageAttachment(c)
+                        if (bmp != null) { flushText(); blocks.add(MsgBlock.Image(bmp)) }
+                        else { spacer(); cur.append(fileChip(c)) }
+                    }
                     is PartContent.Compaction -> {
                         spacer()
                         val start = cur.length
@@ -447,6 +461,32 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             when (b) {
                 is MsgBlock.Text -> b.span.toString()
                 is MsgBlock.Table -> b.rows.joinToString("\n") { it.joinToString(" | ") }
+                is MsgBlock.Image -> "🖼 image"
+            }
+        }
+
+        /** Decodes an image `file` part to a Bitmap for inline display, or null if
+         *  it isn't an image or the bytes can't be read. Attachments arrive with the
+         *  pixels embedded in a `data:image/…;base64,…` URL (no fetch needed). */
+        fun imageAttachment(file: PartContent.FileRef): Bitmap? {
+            val isImage = file.mime?.startsWith("image/") == true ||
+                file.url?.startsWith("data:image/") == true
+            val url = file.url
+            if (!isImage || url == null) return null
+            return decodeDataUrlImage(url)
+        }
+
+        /** `data:[<mime>][;base64],<payload>` → Bitmap. Only base64 data URLs are
+         *  supported (what the server sends); returns null otherwise. */
+        fun decodeDataUrlImage(url: String): Bitmap? {
+            if (!url.startsWith("data:")) return null
+            val comma = url.indexOf(',')
+            if (comma < 0 || !url.substring(0, comma).contains(";base64")) return null
+            return try {
+                val bytes = Base64.decode(url.substring(comma + 1), Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (_: IllegalArgumentException) {
+                null
             }
         }
 
@@ -549,6 +589,36 @@ private fun isNight(ctx: Context): Boolean =
 private fun bodyColor(ctx: Context): Int = if (isNight(ctx)) 0xFFE6E6E6.toInt() else 0xFF1C1C1E.toInt()
 
 /** A plain body TextView for a text block that follows a table. */
+/** An inline image attachment: an aspect-fit thumbnail capped so a tall screenshot
+ *  doesn't take over the transcript, with rounded corners and a tap that opens the
+ *  full-screen, zoomable viewer. */
+private fun makeImageView(ctx: Context, bitmap: Bitmap): android.view.View {
+    val d = ctx.resources.displayMetrics.density
+    fun px(v: Int) = (v * d).toInt()
+    return ImageView(ctx).apply {
+        setImageBitmap(bitmap)
+        adjustViewBounds = true
+        maxHeight = px(260)
+        scaleType = ImageView.ScaleType.FIT_START
+        setPadding(0, px(6), 0, 0)
+        val radius = px(10).toFloat()
+        clipToOutline = true
+        outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                // Inset the top by the padding so the rounded rect hugs the image, not the pad.
+                outline.setRoundRect(0, view.paddingTop, view.width, view.height, radius)
+            }
+        }
+        contentDescription = "Image attachment"
+        isClickable = true
+        setOnClickListener { showImageViewer(ctx, bitmap) }
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        )
+    }
+}
+
 private fun makeBodyTextView(ctx: Context, span: CharSequence): TextView {
     val d = ctx.resources.displayMetrics.density
     return TextView(ctx).apply {

@@ -160,6 +160,9 @@ struct MessageListView: UIViewRepresentable {
         /// Called when a message row is tapped — opens its detail screen, zooming
         /// from the cell's frame (in window coordinates).
         var onSelectMessageAt: ((String, CGRect) -> Void)?
+        /// Called when the user taps an inline image attachment — opens a
+        /// full-screen, zoomable viewer.
+        var onSelectImage: ((UIImage) -> Void)?
         /// Fired (on a user-driven scroll) as the list nears the top, so older
         /// history is paged in *ahead* of the user reaching the very first row —
         /// Instagram-style preload. Idempotent on the callee (guarded by an
@@ -203,6 +206,7 @@ struct MessageListView: UIViewRepresentable {
                 }
                 let cell = table.dequeueReusableCell(withIdentifier: MessageCell.reuseID, for: indexPath) as! MessageCell
                 if let entry = self?.rendered[id] { cell.configure(entry.message) }
+                cell.onSelectImage = { [weak self] image in self?.onSelectImage?(image) }
                 return cell
             }
         }
@@ -485,7 +489,14 @@ struct MessageListView: UIViewRepresentable {
                 case .patch(let patch):
                     blocks.append(.text(patchLine(patch)))
                 case .file(let file):
-                    blocks.append(.text(fileChip(file)))
+                    // A pasted screenshot / image attachment: show it inline
+                    // (tappable for a full-screen view). Non-images (or an image
+                    // we can't decode) fall back to the compact filename chip.
+                    if let image = imageAttachment(file) {
+                        blocks.append(.image(image))
+                    } else {
+                        blocks.append(.text(fileChip(file)))
+                    }
                 case .compaction(let auto):
                     let para = NSMutableParagraphStyle(); para.alignment = .center
                     blocks.append(.text(NSAttributedString(
@@ -660,6 +671,27 @@ struct MessageListView: UIViewRepresentable {
             NSAttributedString(string: "📎 \(FileRefDisplay.chip(file))", attributes: [
                 .font: UIFont.monospacedSystemFont(ofSize: bodyFont.pointSize - 1, weight: .regular),
                 .foregroundColor: UIColor.systemTeal])
+        }
+
+        /// Decodes an image `file` part to a `UIImage` for inline display, or nil
+        /// if it isn't an image or the bytes can't be read. Attachments arrive with
+        /// the pixels embedded in a `data:image/…;base64,…` URL (no fetch needed).
+        static func imageAttachment(_ file: FileRefContent) -> UIImage? {
+            let isImage = (file.mime?.hasPrefix("image/") ?? false)
+                || (file.url?.hasPrefix("data:image/") ?? false)
+            guard isImage, let url = file.url else { return nil }
+            return decodeDataURLImage(url)
+        }
+
+        /// `data:[<mime>][;base64],<payload>` → UIImage. Only base64 data URLs are
+        /// supported (what the server sends); returns nil otherwise.
+        static func decodeDataURLImage(_ url: String) -> UIImage? {
+            guard url.hasPrefix("data:"),
+                  let comma = url.firstIndex(of: ","),
+                  url[url.startIndex..<comma].contains(";base64") else { return nil }
+            let b64 = String(url[url.index(after: comma)...])
+            guard let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters) else { return nil }
+            return UIImage(data: data)
         }
 
         private static func tokenSummary(_ info: AssistantMessage) -> String {

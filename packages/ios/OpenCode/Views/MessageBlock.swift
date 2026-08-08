@@ -9,6 +9,9 @@ enum MessageBlock {
     case table(MessageTable)
     /// A fenced code block (```lang … ```), already syntax-highlighted.
     case code(NSAttributedString)
+    /// An image attachment (e.g. a pasted screenshot), decoded from the file
+    /// part's `data:` URL — shown inline and tappable for a full-screen view.
+    case image(UIImage)
 }
 
 /// A parsed markdown table: a header row plus data rows of raw cell strings.

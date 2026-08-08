@@ -310,6 +310,14 @@ final class SessionContentController: UIViewController {
         // re-sync the list inset so the composer stays glued to the bottom.
         bar.onHeightChange = { [weak self] _ in self?.syncBottomInset() }
         coordinator.onSelectMessageAt = { [weak self] id, frame in self?.presentDetail(id: id, from: frame) }
+        coordinator.onSelectImage = { [weak self] image in self?.presentImageViewer(image) }
+    }
+
+    private func presentImageViewer(_ image: UIImage) {
+        let viewer = ImageViewerController(image: image)
+        viewer.modalPresentationStyle = .overFullScreen
+        viewer.modalTransitionStyle = .crossDissolve
+        present(viewer, animated: true)
     }
 
     /// Bottom inset the list needs to clear the accessory bar, given the current
