@@ -3,6 +3,7 @@ package push
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
@@ -149,9 +150,50 @@ func (s *Scanner) idle(sid string) Event {
 	return ev
 }
 
+// Markdown-stripping patterns. A push body is plain text — bold stars, heading
+// hashes, link syntax etc. only read as noise there, so we flatten the answer to
+// prose before truncating. Best-effort (not a full parser): handles the common
+// constructs the agent actually emits.
+var (
+	mdFence   = regexp.MustCompile("(?m)^[ \t]*```.*$")   // ``` / ```lang fence lines
+	mdImage   = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`) // ![alt](url) -> alt
+	mdLink    = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)  // [text](url) -> text
+	mdRule    = regexp.MustCompile(`(?m)^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$`) // --- *** ___ (RE2: no backrefs)
+	mdHeader  = regexp.MustCompile(`(?m)^[ \t]{0,3}#{1,6}[ \t]*`)
+	mdQuote   = regexp.MustCompile(`(?m)^[ \t]*>+[ \t]?`)
+	mdListBul = regexp.MustCompile(`(?m)^[ \t]*[-*+][ \t]+`)
+	mdListNum = regexp.MustCompile(`(?m)^[ \t]*\d+\.[ \t]+`)
+	mdBold3   = regexp.MustCompile(`\*\*\*([^*]+)\*\*\*`)
+	mdBold2   = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	mdItalic  = regexp.MustCompile(`\*([^*\n]+)\*`)
+	mdUnder3  = regexp.MustCompile(`___([^_]+)___`)
+	mdUnder2  = regexp.MustCompile(`__([^_]+)__`) // only paired __ (single _ left alone: snake_case)
+	mdStrike  = regexp.MustCompile(`~~([^~]+)~~`)
+)
+
+// stripMarkdown flattens markdown to plain text for a notification body.
+func stripMarkdown(s string) string {
+	s = mdFence.ReplaceAllString(s, "")
+	s = mdImage.ReplaceAllString(s, "$1")
+	s = mdLink.ReplaceAllString(s, "$1")
+	s = mdRule.ReplaceAllString(s, "")
+	s = mdHeader.ReplaceAllString(s, "")
+	s = mdQuote.ReplaceAllString(s, "")
+	s = mdListBul.ReplaceAllString(s, "")
+	s = mdListNum.ReplaceAllString(s, "")
+	s = mdBold3.ReplaceAllString(s, "$1")
+	s = mdBold2.ReplaceAllString(s, "$1")
+	s = mdItalic.ReplaceAllString(s, "$1")
+	s = mdUnder3.ReplaceAllString(s, "$1")
+	s = mdUnder2.ReplaceAllString(s, "$1")
+	s = mdStrike.ReplaceAllString(s, "$1")
+	s = strings.ReplaceAll(s, "`", "") // any remaining inline-code backticks
+	return s
+}
+
 // preview collapses the answer to a one-line notification snippet.
 func preview(text string) string {
-	f := strings.Join(strings.Fields(text), " ")
+	f := strings.Join(strings.Fields(stripMarkdown(text)), " ")
 	const max = 140
 	if len(f) <= max {
 		return f

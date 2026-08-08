@@ -2,6 +2,7 @@ package push
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -89,6 +90,45 @@ func TestScannerEnrichesWithTitleAndPreview(t *testing.T) {
 	want2 := []Event{{SessionID: "s1", Kind: KindIdle, Title: "Fix the parser", Preview: ""}}
 	if !reflect.DeepEqual(got2, want2) {
 		t.Fatalf("after-idle got %#v want %#v", got2, want2)
+	}
+}
+
+func TestPreviewStripsMarkdown(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"bold and italic", "The **tokenizer** was *rewritten*.", "The tokenizer was rewritten."},
+		{"heading", "## Summary\nAll good.", "Summary All good."},
+		{"link", "See [the docs](https://example.com/x) for details.", "See the docs for details."},
+		{"image", "Here: ![a screenshot](data:image/png;base64,AAAA)", "Here: a screenshot"},
+		{"bullet list", "- split the tokenizer\n- added a test", "split the tokenizer added a test"},
+		{"numbered list", "1. first\n2. second", "first second"},
+		{"inline code + fence", "Run `make` then:\n```sh\nmake test\n```\nDone.", "Run make then: make test Done."},
+		{"blockquote", "> a quote line", "a quote line"},
+		{"strikethrough", "~~old~~ new", "old new"},
+		{"snake_case kept intact", "renamed to qualified_column_ref", "renamed to qualified_column_ref"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := preview(c.in); got != c.want {
+				t.Fatalf("preview(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestPreviewTruncatesAfterStripping(t *testing.T) {
+	// A long **bold** run must strip first, THEN truncate — the star markers
+	// mustn't eat into the 140-char budget.
+	long := "**" + strings.Repeat("word ", 60) + "**"
+	got := preview(long)
+	if strings.Contains(got, "*") {
+		t.Fatalf("markdown leaked into preview: %q", got)
+	}
+	if len([]rune(got)) > 141 { // 140 + ellipsis
+		t.Fatalf("preview too long (%d runes): %q", len([]rune(got)), got)
 	}
 }
 
