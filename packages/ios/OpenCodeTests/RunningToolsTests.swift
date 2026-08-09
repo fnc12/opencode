@@ -1,9 +1,11 @@
 import XCTest
 @testable import OpenCode
 
-/// Running-tools extraction against the REAL captured payload (wifi-densepose,
-/// 2026-07-26): an unfinished assistant turn with completed bash/read tools and
-/// one RUNNING `question` tool. The strip must list only the running one.
+/// Running-tools extraction against the captured wifi-densepose payload
+/// (2026-07-26), enriched with a completed `read` and a running `bash`: the
+/// "background processes" strip must list ONLY the running background tool
+/// (bash) — excluding completed tools and the `question` tool (that one is
+/// driven by the question dock, so it must not also appear in the strip).
 final class RunningToolsTests: XCTestCase {
     private func fixture() -> [MessageWithParts] {
         let url = URL(fileURLWithPath: #filePath)
@@ -15,9 +17,16 @@ final class RunningToolsTests: XCTestCase {
 
     func testExtractsOnlyRunningToolsFromUnfinishedTurn() {
         let running = RunningTools.extract(fixture())
-        XCTAssertEqual(running.count, 1, "only the running tool, not completed ones")
-        XCTAssertEqual(running.first?.name, "question")
+        XCTAssertEqual(running.count, 1, "only the running background tool — not completed ones, not the question")
+        XCTAssertEqual(running.first?.name, "bash")
         XCTAssertNotNil(running.first?.startedMS, "start time drives the elapsed label")
+    }
+
+    func testQuestionToolIsExcludedFromStrip() {
+        // The `question` tool "runs" while waiting on the user; it belongs to the
+        // question dock, not the running-processes strip (else it double-shows).
+        XCTAssertFalse(RunningTools.extract(fixture()).contains { $0.name == "question" },
+                       "the running question must not appear in the strip")
     }
 
     func testCompletedTurnHasNoRunningTools() {
