@@ -90,8 +90,9 @@ fun showImageViewer(context: Context, bitmap: Bitmap) {
     dialog.show()
 }
 
-/** Writes the bitmap to the device gallery (Pictures/OpenCode). API 29+. */
-private fun saveToGallery(context: Context, bitmap: Bitmap): Boolean {
+/** Writes the bitmap to the device gallery (Pictures/OpenCode). API 29+.
+ *  Internal so an instrumented test can verify the MediaStore write directly. */
+internal fun saveToGallery(context: Context, bitmap: Bitmap): Boolean {
     return try {
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, "opencode-${System.currentTimeMillis()}.png")
