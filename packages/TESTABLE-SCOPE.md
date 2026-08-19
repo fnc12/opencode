@@ -63,14 +63,14 @@ device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xm
 
 ## Status (2026-08-20)
 
-- **iOS testable-logic scope: 93.7%** (was 68.8%; 22 UI-shell files excluded).
+- **iOS testable-logic scope: 94.3%** (was 68.8%; 22 UI-shell files excluded).
   Render pipeline extracted to `MessageRenderer`; ServerConnection, PushManager,
   SessionStore, GrowingTextView, ToolOutputView, model layer, MessageDetailView
   all driven up with fake-server/unit/snapshot tests. Remaining in-scope gaps:
   ServerConnection (trackSessionActivity reconnect loop + defensive invalid-URL
   guards), ConnectView (interaction branches — XCUITest-only), PushManager (the
   UN delegate callbacks needing a live `UNNotification`), and small residuals.
-- **Android merged: 73.4%** (was 60.7%; UI countable via JaCoCo merge, target
+- **Android merged: 74.1%** (was 60.7%; UI countable via JaCoCo merge, target
   100%). Self-fetch screens (ProjectListScreen/SessionListScreen) + dialog
   screens (ProvidersScreen/FilePickerDialog) now instrumented — the
   NetworkOnMainThread blocker was building `ServerConnection` inside `setContent`
