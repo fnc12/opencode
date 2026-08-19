@@ -323,4 +323,52 @@ class ServerConnectionTest {
         direct().commands("/w")
         assertTrue(server.takeRequest().path!!.startsWith("/command?directory="))
     }
+
+    @Test fun messagesFullHistory() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+        direct().messages("/w", "ses_1")
+        assertTrue(server.takeRequest().path!!.startsWith("/session/ses_1/message"))
+    }
+
+    @Test fun providerAuthMethods() = runBlocking {
+        server.enqueue(MockResponse().setBody("{}"))
+        direct().providerAuthMethods()
+        assertEquals("/provider/auth", server.takeRequest().path)
+    }
+
+    @Test fun setProviderKeyPuts() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().setProviderKey("openai", "sk-123")
+        val req = server.takeRequest()
+        assertEquals("PUT", req.method)
+        assertTrue(req.path!!.contains("openai"))
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("api") && body.contains("sk-123"))
+    }
+
+    @Test fun providersParsesConfig() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"providers":[]}"""))
+        direct().providers()
+        assertEquals("/config/providers", server.takeRequest().path)
+    }
+
+    @Test fun runCommandPosts() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().runCommand("/w", "ses_1", "init")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertTrue(req.path!!.contains("/command"))
+        assertTrue(req.body.readUtf8().contains("init"))
+    }
+
+    @Test fun sendPromptPostsPromptAndModel() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().sendPrompt("/w", "ses_1", "hello there", "zai", "glm-5.2", "build")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertTrue(req.path!!.startsWith("/session/ses_1/message"))
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("hello there"))
+        assertTrue(body.contains("glm-5.2"))
+    }
 }
