@@ -1,0 +1,207 @@
+package studio.eugenezakharov.opencode
+
+import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import studio.eugenezakharov.opencode.api.ConnectionConfig
+import studio.eugenezakharov.opencode.api.ConnectionMode
+import studio.eugenezakharov.opencode.api.ServerConnection
+import java.util.Base64
+
+/**
+ * The HTTP contract of [ServerConnection] against a fake server (MockWebServer) —
+ * the "fake-server integration" layer of the test plan. No live tunnel, fully
+ * deterministic. Covers the auth-header branches (the security-critical logic),
+ * request shapes, response parsing, cursor paging, and error handling for the
+ * endpoints the whole app depends on. Mirrors the surface iOS covers in its own
+ * ServerConnection tests.
+ */
+class ServerConnectionTest {
+    private lateinit var server: MockWebServer
+
+    @Before fun setUp() { server = MockWebServer(); server.start() }
+    @After fun tearDown() { server.shutdown() }
+
+    private fun direct(password: String? = null) = ServerConnection(
+        ConnectionConfig(
+            mode = ConnectionMode.DIRECT,
+            directURL = server.url("/").toString().trimEnd('/'),
+            password = password,
+        ),
+    )
+
+    private fun relay(token: String = "tok_abc", password: String? = null) = ServerConnection(
+        ConnectionConfig(
+            mode = ConnectionMode.RELAY,
+            relayURL = server.url("/").toString().trimEnd('/'),
+            tunnelID = "tun_1",
+            token = token,
+            password = password,
+        ),
+    )
+
+    // --- auth headers (the security branches) --------------------------------
+
+    @Test fun directWithoutPasswordSendsNoAuthHeaders() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"healthy":true,"version":"1"}"""))
+        direct().health()
+        val req = server.takeRequest()
+        assertNull("no password → no Authorization", req.getHeader("Authorization"))
+        assertNull("direct mode → no tunnel token", req.getHeader("X-Tunnel-Token"))
+    }
+
+    @Test fun passwordProducesOpencodeBasicHeader() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"healthy":true,"version":"1"}"""))
+        direct(password = "hunter2").health()
+        val req = server.takeRequest()
+        val expected = "Basic " + Base64.getEncoder().encodeToString("opencode:hunter2".toByteArray())
+        // The server's Basic username is "opencode", not "admin" — a past bug 401'd everything.
+        assertEquals(expected, req.getHeader("Authorization"))
+    }
+
+    @Test fun relayModeSendsTunnelTokenHeader() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"healthy":true,"version":"1"}"""))
+        relay(token = "tok_xyz").health()
+        val req = server.takeRequest()
+        assertEquals("tok_xyz", req.getHeader("X-Tunnel-Token"))
+    }
+
+    @Test fun directModeNeverSendsTunnelToken() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"healthy":true,"version":"1"}"""))
+        direct().health()
+        assertNull(server.takeRequest().getHeader("X-Tunnel-Token"))
+    }
+
+    @Test fun relayBaseUrlIncludesTunnelPath() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+        relay().projects()
+        // Relay base = relayURL/t/{tunnelID}, so the proxied path is prefixed.
+        assertTrue(server.takeRequest().path!!.startsWith("/t/tun_1/project"))
+    }
+
+    // --- read endpoints: request shape + parsing -----------------------------
+
+    @Test fun healthParsesResponse() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"healthy":true,"version":"1.2.3"}"""))
+        val h = direct().health()
+        assertEquals("/global/health", server.takeRequest().path)
+        assertEquals(true, h.healthy)
+        assertEquals("1.2.3", h.version)
+    }
+
+    @Test fun projectsParsesList() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """[{"id":"p1","worktree":"/w","time":{"created":1.0,"updated":2.0}}]""",
+            ),
+        )
+        val p = direct().projects()
+        assertEquals("/project", server.takeRequest().path)
+        assertEquals(1, p.size)
+        assertEquals("p1", p.first().id)
+    }
+
+    @Test fun sessionsPassesDirectoryQuery() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+        direct().sessions("/srv/work")
+        assertEquals("/session?directory=%2Fsrv%2Fwork", server.takeRequest().path)
+    }
+
+    @Test fun getSessionByIdNeedsNoDirectory() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"id":"ses_9","projectID":"p","directory":"/w","time":{"created":1.0,"updated":2.0}}""",
+            ),
+        )
+        val s = direct().getSession("ses_9")
+        assertEquals("/session/ses_9", server.takeRequest().path)
+        assertEquals("ses_9", s.id)
+    }
+
+    @Test fun messagesPageReadsNextCursorHeader() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]").setHeader("X-Next-Cursor", "cur_42"))
+        val page = direct().messagesPage("/w", "ses_1", limit = 5)
+        val req = server.takeRequest()
+        assertTrue(req.path!!.contains("limit=5"))
+        assertEquals("cur_42", page.nextCursor)
+    }
+
+    @Test fun messagesPageEmptyCursorBecomesNull() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]").setHeader("X-Next-Cursor", ""))
+        // Reaching the first message: an empty cursor header must map to null (no older page).
+        assertNull(direct().messagesPage("/w", "ses_1", limit = 5).nextCursor)
+    }
+
+    @Test fun messagesPageForwardsBeforeCursor() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+        direct().messagesPage("/w", "ses_1", limit = 20, before = "cur_7")
+        assertTrue(server.takeRequest().path!!.contains("before=cur_7"))
+    }
+
+    // --- write endpoints -----------------------------------------------------
+
+    @Test fun abortPostsToAbort() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().abort("/w", "ses_1")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertTrue(req.path!!.startsWith("/session/ses_1/abort"))
+    }
+
+    @Test fun replyPermissionPostsReply() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().replyPermission("/w", "per_1", "once")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertTrue(req.path!!.contains("per_1"))
+        assertTrue(req.body.readUtf8().contains("once"))
+    }
+
+    @Test fun rejectQuestionPosts() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().rejectQuestion("/w", "que_1")
+        assertEquals("POST", server.takeRequest().method)
+    }
+
+    // --- error handling ------------------------------------------------------
+
+    @Test(expected = Exception::class)
+    fun unauthorizedThrows() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(401))
+        direct().projects()
+        Unit
+    }
+
+    @Test(expected = Exception::class)
+    fun serverErrorThrows() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(500).setBody("boom"))
+        direct().health()
+        Unit
+    }
+
+    // --- push registration (relay-only branch) -------------------------------
+
+    @Test fun registerPushTokenSkippedInDirectMode() = runBlocking {
+        // Direct mode has no relay/tunnel → must not hit the network at all.
+        assertTrue(!direct().registerPushToken("dtok"))
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test fun registerPushTokenPostsToRelayDevices() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("ok"))
+        val ok = relay().registerPushToken("dtok", provider = "fcm")
+        val req = server.takeRequest()
+        assertTrue(ok)
+        assertTrue(req.path!!.endsWith("/api/devices"))
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("tun_1"))
+        assertTrue(body.contains("dtok"))
+        assertTrue(body.contains("fcm"))
+    }
+}
