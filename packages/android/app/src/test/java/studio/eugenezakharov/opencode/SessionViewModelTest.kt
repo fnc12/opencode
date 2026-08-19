@@ -44,15 +44,22 @@ private class FakeComposerPrefs(
 class SessionViewModelTest {
     private lateinit var server: MockWebServer
 
+    private val recordedPaths = java.util.Collections.synchronizedList(mutableListOf<String>())
+
     @Before fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
+        recordedPaths.clear()
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
-            override fun dispatch(request: RecordedRequest): MockResponse =
-                MockResponse().setResponseCode(200).setBody("[]")
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                recordedPaths.add(request.path ?: "")
+                return MockResponse().setResponseCode(200).setBody("[]")
+            }
         }
         server.start()
     }
+
+    private fun sawPath(substr: String) = synchronized(recordedPaths) { recordedPaths.any { it.contains(substr) } }
 
     @After fun tearDown() {
         server.shutdown()
@@ -115,5 +122,44 @@ class SessionViewModelTest {
         assertEquals("glm-4.7-flash", prefs.modelID)
         assertEquals("zai", vm.state.value.providerID)
         assertEquals("glm-4.7-flash", vm.state.value.modelID)
+    }
+
+    @Test fun sendPostsPromptAndClearsComposer() {
+        val vm = viewModel(FakeComposerPrefs(providerID = "zai", modelID = "glm-5.2"))
+        waitFor { !vm.state.value.loading }
+        var cleared = false
+        vm.send("hello there", onCleared = { cleared = true }, restore = {})
+        assertTrue("composer must be cleared optimistically", cleared)
+        waitFor { sawPath("/session/ses_1/message") && !vm.state.value.sending }
+        assertFalse(vm.state.value.sending)
+    }
+
+    @Test fun sendIgnoredWithoutModel() {
+        // No model selected → send is a no-op (the server has no default model).
+        val vm = viewModel(FakeComposerPrefs(modelID = ""))
+        waitFor { !vm.state.value.loading }
+        var cleared = false
+        vm.send("hello", onCleared = { cleared = true }, restore = {})
+        assertFalse("send must be ignored when no model is chosen", cleared)
+    }
+
+    @Test fun abortCallsServer() {
+        val vm = viewModel(FakeComposerPrefs(modelID = "m"))
+        waitFor { !vm.state.value.loading }
+        vm.abort()
+        waitFor { sawPath("/session/ses_1/abort") }
+        assertTrue(sawPath("/session/ses_1/abort"))
+    }
+
+    @Test fun replyPermissionClearsPending() {
+        // injectTestPermission seeds a synthetic pending permission during load.
+        val vm = SessionViewModel(
+            server = connection(), session = session(),
+            prefs = FakeComposerPrefs(), streamLive = false, injectTestPermission = true,
+        )
+        waitFor { vm.state.value.pendingPermissions.isNotEmpty() }
+        val req = vm.state.value.pendingPermissions.first()
+        vm.replyPermission(req, "once")
+        assertTrue("answering clears it locally right away", vm.state.value.pendingPermissions.isEmpty())
     }
 }
