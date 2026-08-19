@@ -41,4 +41,21 @@ final class SmallModelAccessorTests: XCTestCase {
         let single: QuestionItem = decode(#"{"question":"Q","header":"H2","options":[]}"#)
         XCTAssertFalse(single.allowsMultiple)
     }
+
+    func testFileEntryIdAndDirectoryFlag() {
+        let dir: FileEntry = decode(#"{"name":"src","absolute":"/w/src","type":"directory"}"#)
+        XCTAssertEqual(dir.id, "/w/src")
+        XCTAssertTrue(dir.isDirectory)
+        let file: FileEntry = decode(#"{"name":"a.swift","absolute":"/w/a.swift","type":"file"}"#)
+        XCTAssertFalse(file.isDirectory)
+    }
+
+    func testAppRouteAndProjectHashable() {
+        let project: Project = decode(#"{"id":"p1","worktree":"/w","time":{"created":1,"updated":2},"sandboxes":[]}"#)
+        let same: Project = decode(#"{"id":"p1","worktree":"/other","time":{"created":9,"updated":9},"sandboxes":[]}"#)
+        // Project is Hashable by id, so the two routes are equal.
+        XCTAssertEqual(AppRoute.sessions(project), AppRoute.sessions(same))
+        let session: Session = decode(#"{"id":"s1","projectID":"p","directory":"/w","title":"T","version":"1","time":{"created":1,"updated":2}}"#)
+        XCTAssertNotEqual(AppRoute.sessions(project), AppRoute.session(session))
+    }
 }
