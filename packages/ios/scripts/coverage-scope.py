@@ -21,6 +21,11 @@ EXCLUDED = {
     "MessageSkeletonView.swift", "SessionTableView.swift", "QRScannerView.swift",
     "ZoomTransition.swift", "ProjectTableView.swift", "TypingIndicator.swift",
     "QuestionDock.swift", "RunningToolsPill.swift", "MessageListView.swift",
+    # The @main App scene: pure SwiftUI wiring (.task/.onOpenURL/.onChange over
+    # scenePhase) around already-tested primitives (applyPairing, connect,
+    # registerPushToken, forget). Runs only in the live app; XCUITest exercises
+    # it but that coverage cannot merge into xccov.
+    "App.swift",
 }
 
 

@@ -27,7 +27,8 @@ SessionView, ComposerView, SessionContentController, ShellView, OpenFolderSheet,
 ProvidersView, ProjectListView, DiffView, SessionListView, FilePickerSheet,
 ImageViewerController, SessionRow, MessageSkeletonView, SessionTableView,
 QRScannerView, ZoomTransition, ProjectTableView, TypingIndicator, QuestionDock,
-RunningToolsPill.
+RunningToolsPill, App (the @main scene — pure `.task`/`.onOpenURL`/`.onChange`
+wiring over already-tested primitives; runs only in the live app).
 
 Reasons by class: **big stateful screens** (SessionView/ComposerView/…) need the
 live app; **UIKit controllers/animators** (SessionContentController, ZoomTransition,
@@ -62,10 +63,17 @@ device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xm
 
 ## Status (2026-08-20)
 
-- **iOS testable-logic scope: ~84%** (was 68.8%; render pipeline extracted to
-  `MessageRenderer` → MessageListView excluded, 21 UI-shell files). Remaining
-  in-scope gaps to drive to 100%: ServerConnection (send/eventStream helpers),
-  ToolOutputView (todos/read paths), PushManager, GrowingTextView, SessionStore,
-  App, and residuals in MessageDetailView/ToolDisplay/MessageRenderer.
-- **Android merged: 60.7%** (UI countable via JaCoCo merge, so target is 100%).
-  Remaining: more instrumented screen states/interactions + Paparazzi block types.
+- **iOS testable-logic scope: 93.7%** (was 68.8%; 22 UI-shell files excluded).
+  Render pipeline extracted to `MessageRenderer`; ServerConnection, PushManager,
+  SessionStore, GrowingTextView, ToolOutputView, model layer, MessageDetailView
+  all driven up with fake-server/unit/snapshot tests. Remaining in-scope gaps:
+  ServerConnection (trackSessionActivity reconnect loop + defensive invalid-URL
+  guards), ConnectView (interaction branches — XCUITest-only), PushManager (the
+  UN delegate callbacks needing a live `UNNotification`), and small residuals.
+- **Android merged: 73.4%** (was 60.7%; UI countable via JaCoCo merge, target
+  100%). Self-fetch screens (ProjectListScreen/SessionListScreen) + dialog
+  screens (ProvidersScreen/FilePickerDialog) now instrumented — the
+  NetworkOnMainThread blocker was building `ServerConnection` inside `setContent`
+  (server.url() reverse-DNS on the main thread); fixed by hoisting it to the test
+  thread. Remaining: SessionScreenKt interaction branches, AppNavKt, ShellScreen,
+  ZoomableImageView gestures, MessageAdapter viewholder, ConnectScreen.

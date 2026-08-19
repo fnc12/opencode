@@ -167,4 +167,31 @@ final class ToolDisplayGoldenTests: XCTestCase {
         XCTAssertNil(ToolDisplay.todoRatio(nil))
         XCTAssertNil(ToolDisplay.todoRatio([]))
     }
+
+    // MARK: web tools + filename fallback (remaining describe branches)
+
+    private func tool(_ json: String) -> ToolContent {
+        let part = try! JSONDecoder().decode(MessagePart.self, from: Data(json.utf8))
+        guard case .tool(let t)? = part.content else { fatalError("expected tool") }
+        return t
+    }
+
+    func testWebfetchShowsUrl() {
+        let (label, detail) = ToolDisplay.describe(tool(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"webfetch","state":{"status":"completed","input":{"url":"https://example.com/docs/page.html"}}}"#))
+        XCTAssertEqual(label, "Webfetch")
+        XCTAssertEqual(detail, "https://example.com/docs/page.html")
+    }
+
+    func testWebsearchShowsQuery() {
+        let (label, detail) = ToolDisplay.describe(tool(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"websearch","state":{"status":"completed","input":{"query":"swift concurrency"}}}"#))
+        XCTAssertEqual(label, "Web Search")
+        XCTAssertEqual(detail, "swift concurrency")
+    }
+
+    func testFileChipFallsBackToUrlLastComponent() {
+        // No filename → the chip derives the name from the URL's last component.
+        let part = try! JSONDecoder().decode(MessagePart.self, from: Data(#"{"id":"p","sessionID":"s","messageID":"m","type":"file","url":"file:///repo/src/main.swift","mime":"text/plain"}"#.utf8))
+        guard case .file(let file)? = part.content else { return XCTFail("expected file") }
+        XCTAssertTrue(FileRefDisplay.chip(file).contains("main.swift"))
+    }
 }

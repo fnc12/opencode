@@ -121,4 +121,22 @@ final class MessageRenderPipelineTests: XCTestCase {
         let b = decode(#"{"info":{"id":"m","sessionID":"s","role":"user","time":{"created":1}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"a much longer body"}]}"#)
         XCTAssertNotEqual(MessageRenderer.signature(a), MessageRenderer.signature(b))
     }
+
+    /// The assistant branch of `signature` folds completion time, output tokens,
+    /// and error text — so a still-generating message and its finished form (or an
+    /// errored form) hash differently, letting the cell know to redraw.
+    func testAssistantSignatureFoldsCompletionTokensAndError() {
+        func msg(_ info: String) -> MessageWithParts {
+            decode(#"{"info":{\#(info)},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"hi"}]}"#)
+        }
+        let base = #""id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}"#
+        let generating = msg(base)
+        let completed = msg(#""id":"m","sessionID":"s","role":"assistant","time":{"created":1,"completed":2},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}"#)
+        let moreTokens = msg(#""id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":50,"reasoning":0,"cache":{"read":0,"write":0}}"#)
+        let errored = msg(base + #","error":{"name":"E","data":{"message":"boom"}}"#)
+        let s = MessageRenderer.signature(generating)
+        XCTAssertNotEqual(s, MessageRenderer.signature(completed), "completion time changes the signature")
+        XCTAssertNotEqual(s, MessageRenderer.signature(moreTokens), "output tokens change the signature")
+        XCTAssertNotEqual(s, MessageRenderer.signature(errored), "an error changes the signature")
+    }
 }
