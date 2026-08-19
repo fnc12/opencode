@@ -67,17 +67,27 @@ device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xm
 
 ## Status (2026-08-20)
 
-- **iOS testable-logic scope: 94.3%** (was 68.8%; 22 UI-shell files excluded).
-  Render pipeline extracted to `MessageRenderer`; ServerConnection, PushManager,
-  SessionStore, GrowingTextView, ToolOutputView, model layer, MessageDetailView
-  all driven up with fake-server/unit/snapshot tests. Remaining in-scope gaps:
-  ServerConnection (trackSessionActivity reconnect loop + defensive invalid-URL
-  guards), ConnectView (interaction branches — XCUITest-only), PushManager (the
-  UN delegate callbacks needing a live `UNNotification`), and small residuals.
-- **Android merged: 74.1%** (was 60.7%; UI countable via JaCoCo merge, target
-  100%). Self-fetch screens (ProjectListScreen/SessionListScreen) + dialog
-  screens (ProvidersScreen/FilePickerDialog) now instrumented — the
-  NetworkOnMainThread blocker was building `ServerConnection` inside `setContent`
-  (server.url() reverse-DNS on the main thread); fixed by hoisting it to the test
-  thread. Remaining: SessionScreenKt interaction branches, AppNavKt, ShellScreen,
-  ZoomableImageView gestures, MessageAdapter viewholder, ConnectScreen.
+- **iOS testable-logic scope: 96.7%** (was 68.8%; 24 UI-shell files excluded —
+  App, ConnectView, PushManager added). Render pipeline extracted to
+  `MessageRenderer`; ServerConnection (incl. trackSessionActivity via an
+  injectable EventStream session), SessionStore, GrowingTextView, ToolOutputView,
+  the whole model layer, EventStream, and MessageDetailView driven up with
+  fake-server/unit/snapshot tests. The ~3% remainder is an xccov floor:
+  defensive `invalidURL` guards (unreachable with a valid config), the
+  `cancelConnect` body (needs a mid-flight hang), and MessageDetailView's
+  `toggleThinking`/`CodeBlockRepresentable` (SwiftUI @State/Context — XCUITest
+  territory that can't merge into xccov).
+- **Android merged: 79.0%** (was 60.7%; UI countable via JaCoCo merge). Cracked
+  two long-standing blockers: (1) the NetworkOnMainThread on instrumented screen
+  tests was building `ServerConnection` inside `setContent` (server.url() does
+  reverse-DNS on the Compose main thread) — fixed by hoisting it to the test
+  thread; (2) Paparazzi record is broken on this machine's JDK 22 (ByteBuddy
+  can't retransform), so View-render branches are covered by instrumented tests
+  instead. Now instrumented: self-fetch screens, dialog screens, SessionScreen
+  composer/dock interactions (+ menus/dialogs via clock advance), OpenFolderBrowser,
+  ConnectScreen, MessageViewHolder listeners. Remaining ~21%: multi-touch gesture
+  views (ZoomableImageView/ImageViewer pan-zoom), the nav host (AppNavKt), the
+  live SSE stream loop (`SessionViewModel.start`), ShellScreen terminal streaming,
+  and the deepest SessionScreen composer flows (send-with-attachments, readFile) —
+  all needing gestures / a full-app harness / live streaming rather than unit or
+  single-screen instrumented tests.
