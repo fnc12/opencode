@@ -52,6 +52,39 @@ class AppViewModelInstrumentedTest {
         assertEquals(ConnectionMode.RELAY, vm.state.value.config.mode)
     }
 
+    @Test fun requestAndClearPendingOpenSession() {
+        val vm = vm()
+        vm.requestOpenSession("ses_9")
+        assertEquals("ses_9", vm.pendingOpenSessionId.value)
+        vm.clearPendingOpenSession()
+        org.junit.Assert.assertNull(vm.pendingOpenSessionId.value)
+    }
+
+    @Test fun disconnectClearsConnectedState() {
+        val vm = vm()
+        vm.disconnect()
+        org.junit.Assert.assertFalse(vm.state.value.connected)
+    }
+
+    @Test fun connectSucceedsAgainstHealthyServer() {
+        val mock = okhttp3.mockwebserver.MockWebServer()
+        mock.enqueue(okhttp3.mockwebserver.MockResponse().setBody("""{"healthy":true,"version":"1.2.3"}"""))
+        mock.start()
+        try {
+            val vm = vm()
+            vm.setMode(ConnectionMode.DIRECT)
+            vm.setDirectURL(mock.url("/").toString().trimEnd('/'))
+            vm.connect()
+            val deadline = System.currentTimeMillis() + 4000
+            while (System.currentTimeMillis() < deadline && !vm.state.value.connected && vm.state.value.error == null) {
+                Thread.sleep(20)
+            }
+            assertTrue("connect against a healthy server must succeed", vm.state.value.connected)
+        } finally {
+            mock.shutdown()
+        }
+    }
+
     @Test fun connectScreenRenders() {
         val vm = vm()
         compose.setContent {
