@@ -292,4 +292,58 @@ final class ServerConnectionFakeTests: XCTestCase {
         XCTAssertEqual(lastRequest.httpMethod, "DELETE")
         XCTAssertTrue(lastRequest.url!.path.contains("openai"))
     }
+
+    // --- connect / lifecycle -------------------------------------------------
+
+    func testConnectSucceedsAgainstHealthyServer() async {
+        StubURLProtocol.enqueue(body: #"{"healthy":true,"version":"1.2.3"}"#)
+        let c = direct()
+        await c.connect()
+        XCTAssertTrue(c.connected)
+        XCTAssertEqual(c.version, "1.2.3")
+        XCTAssertNil(c.error)
+    }
+
+    func testConnectFailsOnServerError() async {
+        StubURLProtocol.enqueue(500, body: "boom")
+        let c = direct()
+        await c.connect()
+        XCTAssertFalse(c.connected)
+        XCTAssertNotNil(c.error)
+    }
+
+    func testDisconnectClearsState() async {
+        StubURLProtocol.enqueue(body: #"{"healthy":true,"version":"1"}"#)
+        let c = direct()
+        await c.connect()
+        c.disconnect()
+        XCTAssertFalse(c.connected)
+        XCTAssertEqual(c.version, "")
+    }
+
+    func testApplyPairingUpdatesConfig() {
+        let c = direct()
+        XCTAssertTrue(c.applyPairing("opencode://pair?relay=https://r.example&tunnel=tun_1&token=tok_1"))
+        XCTAssertEqual(c.config.mode, .relay)
+        XCTAssertEqual(c.config.tunnelID, "tun_1")
+    }
+
+    func testApplyPairingRejectsGarbage() {
+        XCTAssertFalse(direct().applyPairing("not a pairing link"))
+    }
+
+    // --- push registration (relay-only branch) -------------------------------
+
+    func testRegisterPushTokenSkippedInDirectMode() async {
+        // Direct mode: no relay/tunnel → no request made.
+        await direct().registerPushToken("dtok")
+        XCTAssertTrue(StubURLProtocol.seen.isEmpty)
+    }
+
+    func testRegisterPushTokenPostsInRelayMode() async {
+        StubURLProtocol.enqueue(body: "ok")
+        await relay().registerPushToken("dtok")
+        XCTAssertTrue(lastRequest.url!.path.hasSuffix("/api/devices"))
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+    }
 }
