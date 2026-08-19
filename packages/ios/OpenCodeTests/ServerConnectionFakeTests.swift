@@ -458,6 +458,24 @@ final class ServerConnectionFakeTests: XCTestCase {
         XCTAssertFalse(c.connected)
     }
 
+    func testTrackSessionActivityFoldsStreamedEvents() async {
+        // An SSE frame marking ses_9 busy → the reconnect loop consumes it via the
+        // (stub-backed) event stream and updates busySessions. Covers trackSessionActivity.
+        let event = #"{"payload":{"type":"message.updated","properties":{"sessionID":"ses_9","info":{"id":"m","sessionID":"ses_9","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}}"#
+        // Terminating blank line (\n\n) is required for the SSE reader to emit the frame.
+        StubURLProtocol.enqueue(body: "data: \(event)\n\n")
+        let c = direct()
+        let task = Task { await c.trackSessionActivity() }
+        // Poll until the streamed event is folded in.
+        for _ in 0..<400 {
+            if c.busySessions.contains("ses_9") { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        task.cancel()
+        XCTAssertTrue(c.busySessions.contains("ses_9"),
+                      "a streamed assistant-generating event must mark the session busy")
+    }
+
     // --- connect / lifecycle -------------------------------------------------
 
     func testConnectSucceedsAgainstHealthyServer() async {
