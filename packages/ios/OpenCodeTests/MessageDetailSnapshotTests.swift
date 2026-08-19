@@ -83,6 +83,19 @@ final class MessageDetailSnapshotTests: XCTestCase {
         XCTAssertTrue(text.contains("Patch"), "patch note is included")
     }
 
+    func testPlainTextSkipsUnrenderedPartTypes() {
+        // A step-finish part isn't a detail block → the blocks builder's default
+        // branch skips it; the surrounding text still flattens.
+        let text = plain(#"""
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1,"completed":2},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},
+         "parts":[
+           {"id":"p0","sessionID":"s","messageID":"m","type":"step-finish"},
+           {"id":"p1","sessionID":"s","messageID":"m","type":"text","text":"After the step."}
+         ]}
+        """#)
+        XCTAssertEqual(text, "After the step.")
+    }
+
     func testPlainTextEditToolUsesDiff() {
         // An edit tool → the diff (not the output) is what gets copied.
         let text = plain(#"""

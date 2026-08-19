@@ -563,4 +563,21 @@ final class ServerConnectionFakeTests: XCTestCase {
         c.applyActivity(event(#"{"payload":{"type":"message.updated","properties":{"sessionID":"ses_3","info":{"id":"m","sessionID":"ses_3","role":"user","time":{"created":1}}}}}"#))
         XCTAssertFalse(c.busySessions.contains("ses_3"))
     }
+
+    func testActivityIgnoresUnrelatedEvent() {
+        // A non-activity event (permission asked) hits applyActivity's default case
+        // and leaves busySessions untouched.
+        let c = direct()
+        c.applyActivity(event(#"{"payload":{"type":"permission.v2.asked","properties":{"id":"per_1","sessionID":"ses_5","action":"bash","resources":["ls"]}}}"#))
+        XCTAssertTrue(c.busySessions.isEmpty)
+    }
+
+    func testMessagesPageThrowsOnHTTPError() async {
+        // The messagesPage status-guard error path.
+        StubURLProtocol.enqueue(500, body: "boom")
+        do {
+            _ = try await direct().messagesPage(directory: "/w", sessionID: "ses_1", limit: 5)
+            XCTFail("a 500 must throw")
+        } catch {}
+    }
 }
