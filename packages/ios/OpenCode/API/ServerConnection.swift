@@ -519,7 +519,7 @@ final class ServerConnection {
             let cred = Data("opencode:\(password)".utf8).base64EncodedString()
             authHeader = "Basic \(cred)"
         }
-        return EventStream(url: url, authHeader: authHeader, tunnelToken: tunnelToken)
+        return EventStream(url: url, authHeader: authHeader, tunnelToken: tunnelToken, session: session)
     }
 
     func get<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
