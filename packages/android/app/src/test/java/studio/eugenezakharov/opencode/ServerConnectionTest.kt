@@ -403,4 +403,25 @@ class ServerConnectionTest {
         assertTrue(body.contains("hello there"))
         assertTrue(body.contains("glm-5.2"))
     }
+
+    @Test fun sendPromptSerializesAttachments() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        val image = studio.eugenezakharov.opencode.api.models.PromptAttachment(
+            mime = "image/png", filename = "shot.png", url = "data:image/png;base64,aGk=",
+        )
+        val repoFile = studio.eugenezakharov.opencode.api.models.PromptAttachment(
+            mime = "text/plain", filename = "main.kt", url = "file:///w/main.kt",
+            sourcePath = "/w/main.kt", sourceContent = "fun main() {}",
+        )
+        direct().sendPrompt("/w", "ses_1", "look at these", "zai", "glm-5.2", "build",
+            attachments = listOf(image, repoFile))
+        val body = server.takeRequest().body.readUtf8()
+        // Both attachments are serialized as file parts before the text part…
+        assertTrue(body.contains("shot.png"))
+        assertTrue(body.contains("main.kt"))
+        assertTrue(body.contains("look at these"))
+        // …and the repo file carries an inline source block (path + text).
+        assertTrue(body.contains("\"source\""))
+        assertTrue(body.contains("fun main() {}"))
+    }
 }
