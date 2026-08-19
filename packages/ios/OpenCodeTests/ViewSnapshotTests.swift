@@ -97,4 +97,17 @@ final class ViewSnapshotTests: XCTestCase {
         ]
         assertSnapshot(of: rowCard(TodoSheet(todos: todos)), as: .image(layout: .sizeThatFits, traits: dark))
     }
+
+    // --- composer's growing text field ---------------------------------------
+    // Hosting it drives makeUIView/updateUIView through the real SwiftUI runtime.
+
+    func testGrowingTextEmptyShowsPlaceholder() {
+        let view = GrowingTextView(text: .constant(""), placeholder: "Message…").frame(width: 300, height: 40)
+        assertSnapshot(of: rowCard(view, width: 300), as: .image(layout: .sizeThatFits, traits: dark))
+    }
+
+    func testGrowingTextWithContentHidesPlaceholder() {
+        let view = GrowingTextView(text: .constant("Fix the parser split"), placeholder: "Message…").frame(width: 300, height: 40)
+        assertSnapshot(of: rowCard(view, width: 300), as: .image(layout: .sizeThatFits, traits: dark))
+    }
 }

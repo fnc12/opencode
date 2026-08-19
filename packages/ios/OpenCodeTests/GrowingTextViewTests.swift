@@ -1,73 +1,80 @@
 import XCTest
-import UIKit
+import SwiftUI
 @testable import OpenCode
 
-/// The composer's growing field must report the *right* height on the same pass
-/// a new line appears — the regression was a two-line entry staying one line tall
-/// (text vertically off-centre, "asymmetric") until an unrelated relayout. The
-/// height now comes from the text view's own laid-out width, so it's correct
-/// immediately, which these tests pin down.
+/// Unit coverage for the composer's auto-growing text field: the UITextView
+/// subclass's sizing math (min/cap height, scroll-at-cap, re-measure on width
+/// change) and the coordinator's change callback. makeUIView/updateUIView are
+/// covered by a hosted snapshot in ViewSnapshotTests.
 @MainActor
 final class GrowingTextViewTests: XCTestCase {
-    private func makeView(width: CGFloat, maxLines: Int = 5) -> HeightTrackingTextView {
-        let view = HeightTrackingTextView()
-        view.maxLines = maxLines
-        view.font = .preferredFont(forTextStyle: .body)
-        view.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        view.isScrollEnabled = false
-        view.frame = CGRect(x: 0, y: 0, width: width, height: 40)
-        view.layoutIfNeeded()
-        return view
+    private func makeView(maxLines: Int = 5) -> HeightTrackingTextView {
+        let v = HeightTrackingTextView()
+        v.font = .preferredFont(forTextStyle: .body)
+        v.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        v.maxLines = maxLines
+        return v
     }
 
     private var lineHeight: CGFloat { UIFont.preferredFont(forTextStyle: .body).lineHeight }
 
-    func testHeightGrowsWhenTextWrapsToSecondLine() {
-        let view = makeView(width: 220)
-
-        view.text = "hi"
-        view.layoutIfNeeded()
-        let oneLine = view.intrinsicContentSize.height
-
-        // Long enough to wrap past one line at this width.
-        view.text = String(repeating: "wrap ", count: 30)
-        view.layoutIfNeeded()
-        let wrapped = view.intrinsicContentSize.height
-
-        XCTAssertGreaterThan(wrapped, oneLine + lineHeight * 0.5,
-            "field must grow ~a line when the text wraps (one=\(oneLine) wrapped=\(wrapped))")
+    func testEmptyBeforeLayoutReportsOneLineHeight() {
+        // No width yet → the one-line floor (lineHeight + 16 insets).
+        let v = makeView()
+        XCTAssertEqual(v.intrinsicContentSize.height, lineHeight + 16, accuracy: 0.5)
     }
 
-    func testSingleLineHeightMeasuredFromOwnWidthNotScreen() {
-        // The old bug: with no SwiftUI width proposal the field measured against
-        // the full screen width, so a line that actually wraps looked like one
-        // line. Measuring from the view's own (narrow) bounds, a short string is
-        // one line — and a long string at the same width is taller.
-        let view = makeView(width: 140)
-
-        view.text = "hello"
-        view.layoutIfNeeded()
-        let oneLine = view.intrinsicContentSize.height
-
-        // One short line stays clearly under a two-line field.
-        let twoLineFloor = lineHeight * 2 + view.textContainerInset.top + view.textContainerInset.bottom
-        XCTAssertLessThan(oneLine, twoLineFloor - lineHeight * 0.5,
-            "a short string must not inflate to two lines (\(oneLine))")
-
-        view.text = "this is clearly more text than fits on a single narrow line"
-        view.layoutIfNeeded()
-        XCTAssertGreaterThan(view.intrinsicContentSize.height, oneLine + lineHeight * 0.5,
-            "wrapping text at a narrow width must be taller than one line")
+    func testSingleLineStaysAtMinHeight() {
+        let v = makeView()
+        v.frame = CGRect(x: 0, y: 0, width: 240, height: 40)
+        v.text = "hi"
+        v.layoutIfNeeded()
+        // One line of real text sits at (or a hair above) the one-line floor.
+        XCTAssertEqual(v.intrinsicContentSize.height, lineHeight + 16, accuracy: 4.0)
+        XCTAssertFalse(v.isScrollEnabled, "one line must not scroll")
     }
 
-    func testCapsAtMaxLinesThenScrolls() {
-        let view = makeView(width: 200, maxLines: 3)
-        view.text = String(repeating: "line\n", count: 12)
-        view.layoutIfNeeded()
+    func testGrowsWithMoreLinesUpToCap() {
+        let v = makeView(maxLines: 3)
+        v.frame = CGRect(x: 0, y: 0, width: 120, height: 40)
+        v.text = "one\ntwo"
+        v.layoutIfNeeded()
+        let two = v.intrinsicContentSize.height
+        XCTAssertGreaterThan(two, lineHeight + 16, "two lines must be taller than one")
 
-        let cap = lineHeight * 3 + view.textContainerInset.top + view.textContainerInset.bottom
-        XCTAssertEqual(view.intrinsicContentSize.height, cap, accuracy: 1.0,
-            "must stop growing at maxLines")
-        XCTAssertTrue(view.isScrollEnabled, "must scroll once past the cap")
+        // Far exceed the cap → clamps at capHeight and switches to scrolling.
+        v.text = Array(repeating: "line", count: 40).joined(separator: "\n")
+        v.layoutIfNeeded()
+        let capped = v.intrinsicContentSize.height
+        let capHeight = lineHeight * 3 + 16
+        XCTAssertEqual(capped, capHeight, accuracy: 1.5, "height clamps at maxLines")
+        XCTAssertTrue(v.isScrollEnabled, "beyond the cap the field scrolls")
+    }
+
+    func testWidthChangeReMeasures() {
+        let v = makeView(maxLines: 5)
+        // A sentence that wraps to two lines when narrow, one when wide.
+        v.text = "the quick brown fox jumps over the lazy dog"
+        v.frame = CGRect(x: 0, y: 0, width: 90, height: 40)
+        v.layoutIfNeeded()
+        let narrow = v.intrinsicContentSize.height
+        v.frame = CGRect(x: 0, y: 0, width: 600, height: 40)
+        v.layoutSubviews() // width change → invalidate + re-measure
+        let wide = v.intrinsicContentSize.height
+        XCTAssertGreaterThan(narrow, wide, "narrower width wraps to a taller field")
+    }
+
+    func testCoordinatorForwardsTextChange() {
+        var bound = "start"
+        let binding = Binding(get: { bound }, set: { bound = $0 })
+        let gtv = GrowingTextView(text: binding, placeholder: "Type…")
+        let coordinator = gtv.makeCoordinator()
+        let placeholder = UILabel()
+        coordinator.placeholderLabel = placeholder
+        let tv = UITextView()
+        tv.text = "edited"
+        coordinator.textViewDidChange(tv)
+        XCTAssertEqual(bound, "edited", "the binding follows the text view")
+        XCTAssertTrue(placeholder.isHidden, "placeholder hides once there's text")
     }
 }
