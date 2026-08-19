@@ -377,6 +377,87 @@ final class ServerConnectionFakeTests: XCTestCase {
         XCTAssertNil(c.config.password)
     }
 
+    // --- remaining endpoints + error-print branches --------------------------
+
+    func testMessagesFullHistory() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().messages(directory: "/w", sessionID: "ses_1")
+        XCTAssertEqual(lastRequest.url?.path, "/session/ses_1/message")
+    }
+
+    func testRunShellFallsBackToTextWhenNoToolOutput() async throws {
+        // A shell result whose parts carry only text (no tool output) → the
+        // text-join fallback branch.
+        StubURLProtocol.enqueue(body: #"""
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"just text output"}]}
+        """#)
+        let out = try await direct().runShell(directory: "/w", sessionID: "ses_1", command: "echo hi")
+        XCTAssertEqual(out, "just text output")
+    }
+
+    func testRunShellEmptyResultReturnsPlaceholder() async throws {
+        // No tool output and no visible text → the "(no output)" placeholder.
+        StubURLProtocol.enqueue(body: #"""
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[]}
+        """#)
+        let out = try await direct().runShell(directory: "/w", sessionID: "ses_1", command: "true")
+        XCTAssertEqual(out, "(no output)")
+    }
+
+    func testPostErrorBranchThrows() async {
+        // abort() uses post(); a 500 exercises the POST error-logging branch.
+        StubURLProtocol.enqueue(500, body: "kaboom")
+        do { try await direct().abort(directory: "/w", sessionID: "ses_1"); XCTFail("500 must throw") } catch {}
+    }
+
+    func testSendVerbErrorBranchThrows() async {
+        // deleteSession() uses send(); a 500 exercises that error-logging branch.
+        StubURLProtocol.enqueue(500, body: "kaboom")
+        do { try await direct().deleteSession(directory: "/w", sessionID: "ses_1"); XCTFail("500 must throw") } catch {}
+    }
+
+    func testSendForResultErrorBranchThrows() async {
+        // shareSession() uses sendForResult(); a 500 exercises its error branch.
+        StubURLProtocol.enqueue(500, body: "kaboom")
+        do { _ = try await direct().shareSession(directory: "/w", sessionID: "ses_1"); XCTFail("500 must throw") } catch {}
+    }
+
+    // --- lifecycle: Keychain-loading init + startConnect ----------------------
+
+    func testDefaultInitLoadsSavedConfig() {
+        // The no-arg init() restores whatever Keychain holds.
+        var saved = ConnectionConfig()
+        saved.mode = .direct
+        saved.directURL = "http://restored.local"
+        Keychain.saveConnection(saved)
+        defer { Keychain.clearConnection() }
+        let c = ServerConnection()
+        XCTAssertEqual(c.config.directURL, "http://restored.local")
+        XCTAssertEqual(c.config.mode, .direct)
+    }
+
+    func testStartConnectConnectsAndClearsLoading() async {
+        StubURLProtocol.enqueue(body: #"{"healthy":true,"version":"9.9"}"#)
+        let c = direct()
+        c.startConnect()
+        // Poll until the spawned connect task resolves (health succeeds).
+        for _ in 0..<400 {
+            if c.connected || c.error != nil { break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertTrue(c.connected)
+        XCTAssertEqual(c.version, "9.9")
+        XCTAssertFalse(c.loading)
+    }
+
+    func testCancelConnectWhenIdleIsNoOp() {
+        // Not loading → the guard early-returns without touching state.
+        let c = direct()
+        c.cancelConnect()
+        XCTAssertFalse(c.loading)
+        XCTAssertFalse(c.connected)
+    }
+
     // --- connect / lifecycle -------------------------------------------------
 
     func testConnectSucceedsAgainstHealthyServer() async {
