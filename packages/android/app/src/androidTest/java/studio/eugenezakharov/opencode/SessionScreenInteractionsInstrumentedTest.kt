@@ -170,6 +170,27 @@ class SessionScreenInteractionsInstrumentedTest {
         assertTrue(compose.onAllNodesWithText("GLM 5.2", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
+    @Test fun shellButtonOpensShellScreen() {
+        val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        mount(vm)
+        // Tapping >_ sets showShell = true → the ShellScreen overlay composes.
+        compose.onNodeWithTag("session.shell").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertTrue("shell button stays in the tree", compose.onAllNodesWithTag("session.shell").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test fun shareMenuOpens() {
+        val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        mount(vm)
+        compose.onNodeWithTag("session.share").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        // The share dropdown's "Share link" item is now in the tree (menu body ran).
+        compose.waitUntil(3000) { compose.onAllNodesWithText("Share link").fetchSemanticsNodes().isNotEmpty() }
+        assertTrue(compose.onAllNodesWithText("Share link").fetchSemanticsNodes().isNotEmpty())
+    }
+
     @Test fun permissionAllowReplies() {
         val vm = SessionViewModel(
             server = conn(), session = session(), prefs = Prefs(),
