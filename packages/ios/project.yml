@@ -11,6 +11,9 @@ packages:
   Highlightr:
     url: https://github.com/raspu/Highlightr
     from: "2.2.0"
+  SnapshotTesting:
+    url: https://github.com/pointfreeco/swift-snapshot-testing
+    from: "1.17.0"
 targets:
   OpenCode:
     type: application
@@ -55,6 +58,8 @@ targets:
       - OpenCodeTests
     dependencies:
       - target: OpenCode
+      - package: SnapshotTesting
+        product: SnapshotTesting
     settings:
       GENERATE_INFOPLIST_FILE: YES
       DEVELOPMENT_TEAM: QDTPG5DB79
