@@ -183,4 +183,113 @@ final class ServerConnectionFakeTests: XCTestCase {
         StubURLProtocol.enqueue(500, body: "boom")
         do { _ = try await direct().projects(); XCTFail("500 must throw") } catch {}
     }
+
+    // --- remaining read endpoints --------------------------------------------
+
+    func testSessionsList() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().sessions(directory: "/w")
+        XCTAssertEqual(lastRequest.url?.path, "/session")
+    }
+
+    func testSessionDiff() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().sessionDiff(directory: "/w", sessionID: "ses_1")
+        XCTAssertTrue(lastRequest.url!.path.hasSuffix("/session/ses_1/diff"))
+    }
+
+    func testSessionTodos() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().sessionTodos(directory: "/w", sessionID: "ses_1")
+        XCTAssertTrue(lastRequest.url!.path.hasSuffix("/session/ses_1/todo"))
+    }
+
+    func testCommands() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().commands(directory: "/w")
+        XCTAssertEqual(lastRequest.url?.path, "/command")
+    }
+
+    func testAgents() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().agents()
+        XCTAssertEqual(lastRequest.url?.path, "/agent")
+    }
+
+    func testListDirectory() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().listDirectory(path: "/w")
+        XCTAssertEqual(lastRequest.url?.path, "/file")
+        XCTAssertTrue(lastRequest.url!.query!.contains("path=."))
+    }
+
+    func testReadFile() async throws {
+        StubURLProtocol.enqueue(body: #"{"content":"hello world"}"#)
+        let text = try await direct().readFile(directory: "/w", path: "a.txt")
+        XCTAssertEqual(lastRequest.url?.path, "/file/content")
+        XCTAssertEqual(text, "hello world")
+    }
+
+    func testPermissionsList() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().permissions(directory: "/w")
+        XCTAssertEqual(lastRequest.url?.path, "/permission")
+    }
+
+    func testQuestionsList() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().questions(directory: "/w")
+        XCTAssertEqual(lastRequest.url?.path, "/question")
+    }
+
+    // --- remaining write endpoints -------------------------------------------
+
+    func testReplyPermission() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().replyPermission(directory: "/w", requestID: "per_1", reply: "once")
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertTrue(lastRequest.url!.path.contains("per_1"))
+    }
+
+    func testRejectQuestion() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().rejectQuestion(directory: "/w", requestID: "que_1")
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertTrue(lastRequest.url!.path.contains("que_1"))
+    }
+
+    func testRevertSession() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().revertSession(directory: "/w", sessionID: "ses_1", messageID: "m9")
+        XCTAssertTrue(lastRequest.url!.path.hasSuffix("/session/ses_1/revert"))
+    }
+
+    func testUnrevertSession() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().unrevertSession(directory: "/w", sessionID: "ses_1")
+        XCTAssertTrue(lastRequest.url!.path.hasSuffix("/session/ses_1/unrevert"))
+    }
+
+    func testUnshareSession() async throws {
+        StubURLProtocol.enqueue(body: #"{"id":"ses_1","projectID":"p","directory":"/w","title":"","version":"1","time":{"created":1,"updated":2}}"#)
+        _ = try await direct().unshareSession(directory: "/w", sessionID: "ses_1")
+        XCTAssertEqual(lastRequest.httpMethod, "DELETE")
+        XCTAssertTrue(lastRequest.url!.path.contains("/share"))
+    }
+
+    func testRunShellExtractsOutput() async throws {
+        StubURLProtocol.enqueue(body: #"""
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed","output":"total 0"}}]}
+        """#)
+        let out = try await direct().runShell(directory: "/w", sessionID: "ses_1", command: "ls")
+        XCTAssertTrue(lastRequest.url!.path.contains("/shell"))
+        XCTAssertEqual(out, "total 0")
+    }
+
+    func testRemoveProviderAuth() async throws {
+        StubURLProtocol.enqueue(body: "true")
+        try await direct().removeProviderAuth(providerID: "openai")
+        XCTAssertEqual(lastRequest.httpMethod, "DELETE")
+        XCTAssertTrue(lastRequest.url!.path.contains("openai"))
+    }
 }
