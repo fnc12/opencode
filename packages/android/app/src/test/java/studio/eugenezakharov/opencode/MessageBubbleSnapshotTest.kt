@@ -74,6 +74,33 @@ class MessageBubbleSnapshotTest {
         paparazzi.snapshot(bubble(msg))
     }
 
+    @Test fun reasoningBubble() {
+        // A reasoning part collapses to a "💭 Thinking" marker before the answer.
+        val msg = MessageWithParts(
+            MessageInfo.Assistant("m", "s", 1.0),
+            mutableListOf(
+                MessagePart("p1", "s", "m", "assistant", PartContent.Reasoning("Let me think about the tokenizer…"), false, false),
+                textPart("Done — split the tokenizer and added a test."),
+            ),
+        )
+        paparazzi.snapshot(bubble(msg))
+    }
+
+    @Test fun fileRefChipFallback() {
+        // A file part whose bitmap can't be decoded (layoutlib can't decode PNGs,
+        // so this exercises the non-image fallback) renders the "📎 filename"
+        // chip. The inline-image path (makeImageView) needs an instrumented test.
+        val png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAF0lEQVR4nGP8z8Dwn4GBgYGJAQ0AAA5+AgHqtAxvAAAAAElFTkSuQmCC"
+        val msg = MessageWithParts(
+            MessageInfo.Assistant("m", "s", 1.0),
+            mutableListOf(
+                MessagePart("p", "s", "m", "assistant",
+                    PartContent.FileRef(filename = "shot.png", url = png, mime = "image/png"), false, false),
+            ),
+        )
+        paparazzi.snapshot(bubble(msg))
+    }
+
     @Test fun toolRowBubble() {
         // A completed tool renders as a compact one-line row (✓ bash …).
         val msg = MessageWithParts(
