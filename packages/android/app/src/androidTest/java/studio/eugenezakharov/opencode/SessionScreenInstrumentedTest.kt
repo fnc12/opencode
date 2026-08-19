@@ -105,4 +105,56 @@ class SessionScreenInstrumentedTest {
         val hasTitle = compose.onAllNodesWithText("Fix the parser").fetchSemanticsNodes().isNotEmpty()
         org.junit.Assert.assertTrue("SessionScreen loaded state must render the title", hasTitle)
     }
+
+    private fun session() = Session(
+        id = "ses_1", projectID = "p", directory = "/w", title = "Fix the parser",
+        version = "1", time = SessionTime(created = 1.0, updated = 2.0),
+    )
+
+    private fun conn() = ServerConnection(
+        ConnectionConfig(mode = ConnectionMode.DIRECT, directURL = server.url("/").toString().trimEnd('/')),
+    )
+
+    private fun awaitLoaded(vm: SessionViewModel) {
+        val deadline = System.currentTimeMillis() + 5000
+        while (System.currentTimeMillis() < deadline && vm.state.value.loading) Thread.sleep(20)
+    }
+
+    @Test fun permissionDockRenders() {
+        val vm = SessionViewModel(
+            server = conn(), session = session(), prefs = InstrFakePrefs(),
+            streamLive = false, injectTestPermission = true,
+        )
+        awaitLoaded(vm)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.pendingPermissions.isEmpty()) Thread.sleep(20)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                SessionScreen(viewModel = vm, session = session(), onBack = {})
+            }
+        }
+        // The permission dock renders its Allow action.
+        val hasAllow = compose.onAllNodesWithText("Allow").fetchSemanticsNodes().isNotEmpty()
+        org.junit.Assert.assertTrue("permission dock must render", hasAllow)
+    }
+
+    @Test fun questionDockRenders() {
+        val vm = SessionViewModel(
+            server = conn(), session = session(), prefs = InstrFakePrefs(),
+            streamLive = false, injectTestQuestion = true,
+        )
+        awaitLoaded(vm)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.pendingQuestions.isEmpty()) Thread.sleep(20)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                SessionScreen(viewModel = vm, session = session(), onBack = {})
+            }
+        }
+        // The question dock renders the injected question's option.
+        val hasOption = compose.onAllNodesWithText("Option A").fetchSemanticsNodes().isNotEmpty()
+        org.junit.Assert.assertTrue("question dock must render", hasOption)
+    }
 }
