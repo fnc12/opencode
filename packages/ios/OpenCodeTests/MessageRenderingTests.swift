@@ -78,7 +78,7 @@ final class MessageRenderingTests: XCTestCase {
     }
 
     @MainActor func testDecodesImageDataURL() throws {
-        let image = MessageListView.Coordinator.decodeDataURLImage(pngDataURL())
+        let image = MessageRenderer.decodeDataURLImage(pngDataURL())
         XCTAssertNotNil(image)
         // Decoded at scale 1, so size is the pixel dimensions (the renderer may
         // bake in the device scale); assert the 4:3 aspect ratio survived.
@@ -89,25 +89,25 @@ final class MessageRenderingTests: XCTestCase {
 
     @MainActor func testImageAttachmentFromImageMime() {
         let file = FileRefContent(filename: "shot.png", url: pngDataURL(), mime: "image/png")
-        XCTAssertNotNil(MessageListView.Coordinator.imageAttachment(file))
+        XCTAssertNotNil(MessageRenderer.imageAttachment(file))
     }
 
     @MainActor func testImageAttachmentInfersImageFromDataURLWithoutMime() {
         let file = FileRefContent(filename: "shot.png", url: pngDataURL(), mime: nil)
-        XCTAssertNotNil(MessageListView.Coordinator.imageAttachment(file))
+        XCTAssertNotNil(MessageRenderer.imageAttachment(file))
     }
 
     @MainActor func testNonImageFileIsNotAnAttachmentImage() {
         // A code-reference file part (what `@file:line` mentions look like) is not
         // an image and must fall back to the text chip.
         let file = FileRefContent(filename: "main.swift", url: "file:///main.swift", mime: "text/x-swift")
-        XCTAssertNil(MessageListView.Coordinator.imageAttachment(file))
+        XCTAssertNil(MessageRenderer.imageAttachment(file))
     }
 
     @MainActor func testMalformedDataURLDecodesToNil() {
-        XCTAssertNil(MessageListView.Coordinator.decodeDataURLImage("data:image/png;base64,not$$base64!!"))
-        XCTAssertNil(MessageListView.Coordinator.decodeDataURLImage("data:image/png,rawnotbase64"))
-        XCTAssertNil(MessageListView.Coordinator.decodeDataURLImage("https://example.com/a.png"))
+        XCTAssertNil(MessageRenderer.decodeDataURLImage("data:image/png;base64,not$$base64!!"))
+        XCTAssertNil(MessageRenderer.decodeDataURLImage("data:image/png,rawnotbase64"))
+        XCTAssertNil(MessageRenderer.decodeDataURLImage("https://example.com/a.png"))
     }
 
     // MARK: image renders in the cell (view layer, deterministic — no server)

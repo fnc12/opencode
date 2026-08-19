@@ -1,7 +1,7 @@
 import XCTest
 @testable import OpenCode
 
-/// Exercises the whole `MessageListView.Coordinator.render` block-building
+/// Exercises the whole `MessageRenderer.render` block-building
 /// pipeline (textToBlocks, toolLine, patchLine, fileChip, reasoningBlocks, code
 /// fences, GFM tables) directly, without the UITableView — the bulk of
 /// MessageListView's logic that was near-0%.
@@ -18,7 +18,7 @@ final class MessageRenderPipelineTests: XCTestCase {
     }
 
     private func render(_ m: MessageWithParts) -> RenderedMessage {
-        MessageListView.Coordinator.render(m)
+        MessageRenderer.render(m)
     }
 
     func testUserRoleAndColor() {

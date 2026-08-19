@@ -20,7 +20,7 @@ EXCLUDED = {
     "FilePickerSheet.swift", "ImageViewerController.swift", "SessionRow.swift",
     "MessageSkeletonView.swift", "SessionTableView.swift", "QRScannerView.swift",
     "ZoomTransition.swift", "ProjectTableView.swift", "TypingIndicator.swift",
-    "QuestionDock.swift", "RunningToolsPill.swift",
+    "QuestionDock.swift", "RunningToolsPill.swift", "MessageListView.swift",
 }
 
 
