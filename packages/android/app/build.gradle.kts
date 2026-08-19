@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kover)
     alias(libs.plugins.paparazzi)
+    jacoco
 }
 
 // Code coverage (kotlinx-kover). `./gradlew :app:koverHtmlReportDebug` writes an
@@ -55,9 +56,10 @@ android {
 
     buildTypes {
         debug {
-            // Emit coverage from instrumented (androidTest) runs so Kover can merge
-            // the emulator-only paths (loaded screens, images, gestures) with the
-            // JVM unit coverage — the last mile to 100%.
+            // Emit JaCoCo coverage from BOTH unit and instrumented (androidTest)
+            // runs so the merged report (jacocoMergedReport below) counts the
+            // emulator-only paths — loaded screens, images, gestures — toward 100%.
+            enableUnitTestCoverage = true
             enableAndroidTestCoverage = true
         }
         release {
@@ -124,4 +126,37 @@ dependencies {
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.kotlinx.coroutines.test)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+// Merged coverage (unit JVM + instrumented emulator) — the authoritative number
+// for the "100% both platforms" goal, since Kover can't merge AGP's JaCoCo
+// instrumented output. Run: on a booted API-35 emulator (only one connected),
+//   ./gradlew :app:jacocoMergedReport
+// then packages/android/scripts/kover-summary.py works on the JaCoCo XML too.
+tasks.register<JacocoReport>("jacocoMergedReport") {
+    group = "verification"
+    description = "Merged unit + instrumented line/branch coverage."
+    dependsOn("testDebugUnitTest", "connectedDebugAndroidTest")
+
+    val excludes = listOf(
+        "**/databinding/**", "**/BuildConfig.*", "**/R.class", "**/R$*.class",
+        "**/MainActivity*", "**/push/ShubatMessagingService*", "**/ComposableSingletons*",
+    )
+    classDirectories.setFrom(
+        fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) { exclude(excludes) },
+    )
+    sourceDirectories.setFrom(files("src/main/java"))
+    executionData.setFrom(
+        fileTree(layout.buildDirectory) {
+            include(
+                "outputs/unit_test_code_coverage/debugUnitTest/*.exec",
+                "jacoco/testDebugUnitTest.exec",
+                "outputs/code_coverage/debugAndroidTest/connected/**/*.ec",
+            )
+        },
+    )
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
 }
