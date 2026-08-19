@@ -204,4 +204,123 @@ class ServerConnectionTest {
         assertTrue(body.contains("dtok"))
         assertTrue(body.contains("fcm"))
     }
+
+    // --- remaining endpoints: CRUD, parse, share, revert ---------------------
+
+    @Test fun sessionTodosParsesList() = runBlocking {
+        server.enqueue(MockResponse().setBody("""[{"content":"do it","status":"pending","priority":"high"}]"""))
+        val todos = direct().sessionTodos("/w", "ses_1")
+        assertTrue(server.takeRequest().path!!.startsWith("/session/ses_1/todo"))
+        assertEquals(1, todos.size)
+    }
+
+    @Test fun listDirectoryPassesDirectoryAndDotPath() = runBlocking {
+        server.enqueue(MockResponse().setBody("""[{"name":"a","type":"file","path":"/w/a","absolute":"/w/a"}]"""))
+        direct().listDirectory("/w")
+        val path = server.takeRequest().path!!
+        assertTrue(path.startsWith("/file?"))
+        assertTrue(path.contains("path=."))
+    }
+
+    @Test fun readFileReturnsContent() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"content":"hello world"}"""))
+        val text = direct().readFile("/w", "a.txt")
+        assertTrue(server.takeRequest().path!!.startsWith("/file/content"))
+        assertEquals("hello world", text)
+    }
+
+    @Test fun renameSessionPatchesTitle() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().renameSession("/w", "ses_1", "New name")
+        val req = server.takeRequest()
+        assertEquals("PATCH", req.method)
+        assertTrue(req.path!!.startsWith("/session/ses_1"))
+        assertTrue(req.body.readUtf8().contains("New name"))
+    }
+
+    @Test fun deleteSessionUsesDeleteVerb() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().deleteSession("/w", "ses_1")
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        assertTrue(req.path!!.startsWith("/session/ses_1"))
+    }
+
+    @Test fun shareSessionReturnsUpdatedSession() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"id":"ses_1","projectID":"p","directory":"/w","time":{"created":1.0,"updated":2.0},
+                    "share":{"url":"https://share/x"}}""",
+            ),
+        )
+        val s = direct().shareSession("/w", "ses_1")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        assertTrue(req.path!!.startsWith("/session/ses_1/share"))
+        assertEquals("ses_1", s.id)
+    }
+
+    @Test fun unshareSessionDeletesShare() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"id":"ses_1","projectID":"p","directory":"/w","time":{"created":1.0,"updated":2.0}}""",
+            ),
+        )
+        direct().unshareSession("/w", "ses_1")
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        assertTrue(req.path!!.contains("/share"))
+    }
+
+    @Test fun revertSessionSendsMessageId() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().revertSession("/w", "ses_1", "msg_9")
+        val req = server.takeRequest()
+        assertTrue(req.path!!.contains("/revert"))
+        assertTrue(req.body.readUtf8().contains("msg_9"))
+    }
+
+    @Test fun replyQuestionSendsNestedAnswersArray() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().replyQuestion("/w", "que_1", listOf(listOf("A"), listOf("B", "C")))
+        val req = server.takeRequest()
+        assertTrue(req.path!!.contains("que_1"))
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("answers"))
+        assertTrue(body.contains("A") && body.contains("B") && body.contains("C"))
+    }
+
+    @Test fun runShellExtractsToolOutput() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"parts":[{"type":"tool","state":{"output":"total 0"}}]}""",
+            ),
+        )
+        val out = direct().runShell("/w", "ses_1", "ls")
+        assertTrue(server.takeRequest().path!!.contains("/shell"))
+        assertEquals("total 0", out)
+    }
+
+    @Test fun runShellFallsBackWhenNoToolOutput() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"parts":[{"type":"text","text":"hi"}]}"""))
+        assertEquals("(no output)", direct().runShell("/w", "ses_1", "ls"))
+    }
+
+    @Test fun sessionDiffParsesList() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+        direct().sessionDiff("/w", "ses_1")
+        assertTrue(server.takeRequest().path!!.startsWith("/session/ses_1/diff"))
+    }
+
+    @Test fun agentsHitsAgentEndpoint() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+        direct().agents()
+        assertEquals("/agent", server.takeRequest().path)
+    }
+
+    @Test fun commandsPassesDirectory() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+        direct().commands("/w")
+        assertTrue(server.takeRequest().path!!.startsWith("/command?directory="))
+    }
 }
