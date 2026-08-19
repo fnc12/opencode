@@ -5,7 +5,14 @@ import app.cash.paparazzi.Paparazzi
 import com.android.resources.NightMode
 import org.junit.Rule
 import org.junit.Test
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.Json
+import org.junit.After
+import org.junit.Before
 import studio.eugenezakharov.opencode.api.ConnectionConfig
 import studio.eugenezakharov.opencode.api.ConnectionMode
 import studio.eugenezakharov.opencode.api.ServerConnection
@@ -14,9 +21,13 @@ import studio.eugenezakharov.opencode.api.models.MessagePart
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
 import studio.eugenezakharov.opencode.api.models.Project
+import studio.eugenezakharov.opencode.api.models.Session
+import studio.eugenezakharov.opencode.api.models.SessionTime
 import studio.eugenezakharov.opencode.ui.screens.ProjectListScreen
 import studio.eugenezakharov.opencode.ui.screens.SessionListScreen
 import studio.eugenezakharov.opencode.ui.session.MessageDetailScreen
+import studio.eugenezakharov.opencode.ui.session.SessionScreen
+import studio.eugenezakharov.opencode.ui.session.SessionViewModel
 import studio.eugenezakharov.opencode.ui.theme.OpenCodeTheme
 
 /**
@@ -27,11 +38,16 @@ import studio.eugenezakharov.opencode.ui.theme.OpenCodeTheme
  * rendering (Scaffold fills the screen). Points at an unreachable server so no
  * network is actually needed.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ScreenSnapshotTest {
     @get:Rule
     val paparazzi = Paparazzi(
         deviceConfig = DeviceConfig.PIXEL_5.copy(nightMode = NightMode.NIGHT),
     )
+
+    // A screen backed by a ViewModel needs a Main dispatcher for viewModelScope.
+    @Before fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
+    @After fun tearDown() { Dispatchers.resetMain() }
 
     private fun deadServer() = ServerConnection(
         ConnectionConfig(mode = ConnectionMode.DIRECT, directURL = "http://127.0.0.1:1"),
@@ -86,4 +102,25 @@ class ScreenSnapshotTest {
             }
         }
     }
+
+    @Test fun sessionScreenError() {
+        // The VM's load fires against an unreachable server; Paparazzi's single
+        // frame captures the initial (loading/skeleton) state — covering the
+        // Scaffold, top bar and composer of the biggest screen.
+        val session = Session(
+            id = "ses_1", projectID = "p", directory = "/w", title = "Fix the parser",
+            version = "1", time = SessionTime(created = 1.0, updated = 2.0),
+        )
+        val vm = SessionViewModel(
+            server = deadServer(), session = session,
+            prefs = FakeComposerPrefs(providerID = "zai", modelID = "glm-5.2"),
+            streamLive = false,
+        )
+        paparazzi.snapshot {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                SessionScreen(viewModel = vm, session = session, onBack = {})
+            }
+        }
+    }
+
 }

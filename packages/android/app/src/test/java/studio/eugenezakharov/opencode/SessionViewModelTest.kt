@@ -23,17 +23,6 @@ import studio.eugenezakharov.opencode.api.models.Session
 import studio.eugenezakharov.opencode.api.models.SessionTime
 import studio.eugenezakharov.opencode.ui.session.SessionViewModel
 
-/** In-memory [ComposerPrefs] so the ViewModel needs no Android Context. */
-private class FakeComposerPrefs(
-    override var providerID: String = "",
-    override var modelID: String = "",
-    override var agent: String = "build",
-) : ComposerPrefs {
-    override fun setModel(providerID: String, modelID: String) {
-        this.providerID = providerID; this.modelID = modelID
-    }
-}
-
 /**
  * [SessionViewModel] logic driven against a fake server (MockWebServer), with the
  * live SSE loop disabled (`streamLive = false`) so the initial load completes.
