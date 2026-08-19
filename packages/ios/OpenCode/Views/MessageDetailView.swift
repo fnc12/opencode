@@ -185,7 +185,9 @@ struct MessageDetailView: View {
     }
 
     /// Flattened text for the "copy all" convenience button.
-    private var plainText: String {
+    /// Internal (not private) so the flattening — which folds every block type,
+    /// including tool diffs/output — is unit-testable without driving the toolbar.
+    var plainText: String {
         blocks.compactMap { block in
             switch block {
             case .thinking(let t): return "💭 Thinking\n\n\(t)"
