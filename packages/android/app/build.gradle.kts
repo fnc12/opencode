@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kover)
+    alias(libs.plugins.paparazzi)
 }
 
 // Code coverage (kotlinx-kover). `./gradlew :app:koverHtmlReportDebug` writes an

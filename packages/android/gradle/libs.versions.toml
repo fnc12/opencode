@@ -14,6 +14,7 @@ recyclerview = "1.3.2"
 firebaseBom = "33.5.1"
 googleServices = "4.4.2"
 kover = "0.9.1"
+paparazzi = "1.3.5"
 junit = "4.13.2"
 androidxTestExtJunit = "1.2.1"
 androidxTestRunner = "1.6.2"
@@ -54,3 +55,4 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
 kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+paparazzi = { id = "app.cash.paparazzi", version.ref = "paparazzi" }
