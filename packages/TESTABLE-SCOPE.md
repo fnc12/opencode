@@ -100,9 +100,10 @@ _Latest: iOS 96.7% of testable-logic scope, Android 82.2% merged. Both suites gr
   can't retransform), so View-render branches are covered by instrumented tests
   instead. Now instrumented: self-fetch screens, dialog screens, SessionScreen
   composer/dock interactions (+ menus/dialogs via clock advance), OpenFolderBrowser,
-  ConnectScreen, MessageViewHolder listeners. Remaining ~21%: multi-touch gesture
-  views (ZoomableImageView/ImageViewer pan-zoom), the nav host (AppNavKt), the
-  live SSE stream loop (`SessionViewModel.start`), ShellScreen terminal streaming,
-  and the deepest SessionScreen composer flows (send-with-attachments, readFile) —
-  all needing gestures / a full-app harness / live streaming rather than unit or
-  single-screen instrumented tests.
+  ConnectScreen, MessageViewHolder + SessionListAdapter listeners, and the AppNav
+  host (connect → projects → deep-linked session integration test). Remaining ~18%:
+  multi-touch gesture views (ZoomableImageView/ImageViewer pan-zoom), the live SSE
+  stream loop (`SessionViewModel.start`), ShellScreen terminal streaming, and the
+  deepest SessionScreen composer flows (send-with-attachments, readFile) — all
+  needing gestures / live streaming rather than unit or single-screen instrumented
+  tests.
