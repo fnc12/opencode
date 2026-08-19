@@ -74,4 +74,51 @@ final class MessageRenderPipelineTests: XCTestCase {
         let r = render(m)
         XCTAssertTrue(r.plainText.contains("Error"), "an assistant error must be surfaced")
     }
+
+    func testCompactionMarker() {
+        let auto = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"compaction","auto":true}"#))
+        XCTAssertTrue(auto.plainText.contains("earlier context summarized"))
+        let manual = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"compaction","auto":false}"#))
+        XCTAssertTrue(manual.plainText.contains("context summarized"))
+    }
+
+    func testStepStartTitle() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"step-start","title":"Planning"}"#))
+        XCTAssertTrue(r.plainText.contains("Planning"))
+    }
+
+    func testPatchRow() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"patch","hash":"abc","files":["a.txt","b.txt"]}"#))
+        XCTAssertTrue(r.plainText.contains("Patch"))
+    }
+
+    func testToolErrorSurfacesSnippet() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"error","error":"boom failed"}}"#))
+        XCTAssertTrue(r.plainText.contains("boom failed"), "a tool error snippet must show")
+    }
+
+    func testRunningAndPendingToolMarks() {
+        for status in ["running", "pending"] {
+            let r = render(assistant(parts: "{\"id\":\"p\",\"sessionID\":\"s\",\"messageID\":\"m\",\"type\":\"tool\",\"callID\":\"c\",\"tool\":\"bash\",\"state\":{\"status\":\"\(status)\"}}"))
+            XCTAssertFalse(r.blocks.isEmpty)
+        }
+    }
+
+    func testLongTextIsChunked() {
+        // >1500 chars over many lines → boundedChunks splits into multiple blocks.
+        let long = Array(repeating: "line of some length here", count: 120).joined(separator: "\\n")
+        let r = render(assistant(parts: "{\"id\":\"p\",\"sessionID\":\"s\",\"messageID\":\"m\",\"type\":\"text\",\"text\":\"\(long)\"}"))
+        XCTAssertGreaterThanOrEqual(r.blocks.count, 2, "a very long paragraph splits into bounded chunks")
+    }
+
+    func testTokenSummaryFormatsThousands() {
+        let m = decode(#"{"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":2500,"output":1200,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"hi"}]}"#)
+        XCTAssertEqual(render(m).metaText, "2k→1k")
+    }
+
+    func testSignatureChangesWithContent() {
+        let a = decode(#"{"info":{"id":"m","sessionID":"s","role":"user","time":{"created":1}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"short"}]}"#)
+        let b = decode(#"{"info":{"id":"m","sessionID":"s","role":"user","time":{"created":1}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"a much longer body"}]}"#)
+        XCTAssertNotEqual(MessageRenderer.signature(a), MessageRenderer.signature(b))
+    }
 }
