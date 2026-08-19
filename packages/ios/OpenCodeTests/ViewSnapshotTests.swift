@@ -56,4 +56,31 @@ final class ViewSnapshotTests: XCTestCase {
     // NOTE: SessionRow is NOT snapshotted — it shows a relative "time ago" label
     // (and a spinner when busy), so its golden is non-deterministic. Its state
     // logic (busy indicator) is covered by SessionStore/list tests instead.
+
+    // --- detail-screen tool output + todo sheet ------------------------------
+
+    private func toolContent(_ json: String) -> ToolContent {
+        let part = try! JSONDecoder().decode(MessagePart.self, from: Data(json.utf8))
+        guard case .tool(let tc)? = part.content else { fatalError("expected tool") }
+        return tc
+    }
+
+    func testToolOutputDiff() {
+        let tc = toolContent(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"edit","state":{"status":"completed","output":"Edit applied.","metadata":{"diff":"@@ -1,2 +1,2 @@\n int main() {\n-  return 0;\n+  return 1;"}}}"#)
+        assertSnapshot(of: rowCard(ToolOutputView(tool: tc)), as: .image(layout: .sizeThatFits, traits: dark))
+    }
+
+    func testToolOutputPlain() {
+        let tc = toolContent(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed","output":"total 0\ndrwxr-xr-x"}}"#)
+        assertSnapshot(of: rowCard(ToolOutputView(tool: tc)), as: .image(layout: .sizeThatFits, traits: dark))
+    }
+
+    func testTodoSheet() {
+        let todos: [TodoItem] = [
+            decode(#"{"content":"Read the schema","status":"completed","priority":"high"}"#),
+            decode(#"{"content":"Rename the node","status":"in_progress","priority":"high"}"#),
+            decode(#"{"content":"Run the suite","status":"pending","priority":"medium"}"#),
+        ]
+        assertSnapshot(of: rowCard(TodoSheet(todos: todos)), as: .image(layout: .sizeThatFits, traits: dark))
+    }
 }
