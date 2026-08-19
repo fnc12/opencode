@@ -98,4 +98,60 @@ final class ModelDecodeTests: XCTestCase {
     func testToolPart() {
         if case .tool? = part(toolPart("bash")) {} else { XCTFail("tool") }
     }
+
+    func testUnknownPartTypeIsNil() {
+        // The `default: return nil` branch — an unmodeled part type.
+        XCTAssertNil(part(#"{"id":"p","sessionID":"s","messageID":"m","type":"mystery"}"#))
+    }
+
+    func testToolTimeDuration() {
+        // A tool with start+end → ToolTime.duration is end-start; nil without end.
+        guard case .tool(let withEnd)? = part(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed","time":{"start":10,"end":25}}}"#)
+        else { return XCTFail("tool with time") }
+        XCTAssertEqual(withEnd.state.time?.duration, 15)
+        guard case .tool(let noEnd)? = part(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"running","time":{"start":10}}}"#)
+        else { return XCTFail("tool running") }
+        XCTAssertNil(noEnd.state.time?.duration)
+    }
+
+    // MARK: MessageInfo branches
+
+    private func messageInfo(_ json: String) -> MessageInfo {
+        try! JSONDecoder().decode(MessageInfo.self, from: Data(json.utf8))
+    }
+
+    func testUserMessageInfoAccessors() {
+        let info = messageInfo(#"{"id":"m_u","sessionID":"ses_7","role":"user","time":{"created":1}}"#)
+        XCTAssertEqual(info.id, "m_u")
+        XCTAssertEqual(info.role, "user")
+        XCTAssertEqual(info.sessionID, "ses_7")
+    }
+
+    func testAssistantMessageInfoAccessors() {
+        let info = messageInfo(#"{"id":"m_a","sessionID":"ses_8","role":"assistant","time":{"created":1},"modelID":"m","providerID":"p","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}"#)
+        XCTAssertEqual(info.sessionID, "ses_8")
+        XCTAssertEqual(info.role, "assistant")
+    }
+
+    func testUnknownRoleThrows() {
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(MessageInfo.self,
+                                     from: Data(#"{"id":"x","sessionID":"s","role":"system","time":{"created":1}}"#.utf8)))
+    }
+
+    // MARK: AgentInfo
+
+    private func agent(_ json: String) -> AgentInfo {
+        try! JSONDecoder().decode(AgentInfo.self, from: Data(json.utf8))
+    }
+
+    func testAgentSelectability() {
+        // primary + visible → selectable; its id is its name.
+        let primary = agent(#"{"name":"build","description":"main","mode":"primary","hidden":false}"#)
+        XCTAssertEqual(primary.id, "build")
+        XCTAssertTrue(primary.selectable)
+        // subagents and hidden agents are not offered.
+        XCTAssertFalse(agent(#"{"name":"sub","mode":"subagent"}"#).selectable)
+        XCTAssertFalse(agent(#"{"name":"secret","mode":"primary","hidden":true}"#).selectable)
+    }
 }
