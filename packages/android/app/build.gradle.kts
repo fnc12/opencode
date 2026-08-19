@@ -3,6 +3,33 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kover)
+}
+
+// Code coverage (kotlinx-kover). `./gradlew :app:koverHtmlReportDebug` writes an
+// HTML report; `koverXmlReportDebug` an XML one we parse in scripts/coverage.sh.
+// We exclude generated code and pure-Android UI shells that can only be
+// exercised on a device/emulator (instrumented tests) — the JVM unit coverage
+// number then reflects the logic we CAN drive headlessly, so a gap is a real
+// missing test, not framework noise.
+kover {
+    reports {
+        filters {
+            excludes {
+                classes(
+                    "*.databinding.*",
+                    "*.BuildConfig",
+                    "*.R", "*.R$*",
+                    // Compose UI screens & FCM service are covered by instrumented /
+                    // screenshot tests, not JVM unit tests — keep them out of the
+                    // JVM coverage denominator so it measures testable logic.
+                    "studio.eugenezakharov.opencode.MainActivity*",
+                    "studio.eugenezakharov.opencode.push.ShubatMessagingService*",
+                    "*ComposableSingletons*",
+                )
+            }
+        }
+    }
 }
 
 // FCM push needs the (secret) google-services.json, which is git-ignored. Apply

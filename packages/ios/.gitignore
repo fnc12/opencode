@@ -15,3 +15,6 @@ build-dev/
 build-shubat/
 build-sim/
 build-device/
+
+# coverage artifacts
+.coverage.xcresult
