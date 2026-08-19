@@ -139,4 +139,28 @@ class ToolDisplayGoldenTest {
         assertNull(ToolDisplay.todoRatio(null))
         assertNull(ToolDisplay.todoRatio(ToolMeta(todoTotal = 0, todoCompleted = 0)))
     }
+
+    @Test fun labelForEveryTool() {
+        val cases = mapOf(
+            "read" to "Read", "list" to "List", "glob" to "Glob", "grep" to "Grep",
+            "bash" to "Shell", "shell" to "Shell", "edit" to "Edit", "write" to "Write",
+            "patch" to "Patch", "apply_patch" to "Patch", "webfetch" to "Webfetch",
+            "websearch" to "Web Search", "task" to "Agent", "todowrite" to "To-dos",
+            "todo" to "To-dos", "question" to "Questions",
+        )
+        for ((tool, label) in cases) assertEquals("label of $tool", label, ToolDisplay.label(tool))
+        // Unknown tools fall through to the raw name.
+        assertEquals("mystery", ToolDisplay.label("mystery"))
+    }
+
+    private fun tool(name: String, input: Map<String, String>) =
+        PartContent.Tool(tool = name, callID = "c", status = "completed", input = input)
+
+    @Test fun describeWebAndListAndGlobBranches() {
+        assertEquals("http://x/y" , ToolDisplay.describe(tool("webfetch", mapOf("url" to "http://x/y"))).second)
+        assertEquals("swift concurrency", ToolDisplay.describe(tool("websearch", mapOf("query" to "swift concurrency"))).second)
+        assertEquals("*.kt", ToolDisplay.describe(tool("glob", mapOf("pattern" to "*.kt"))).second)
+        // list → base() of the path (last path component).
+        assertEquals("src", ToolDisplay.describe(tool("list", mapOf("path" to "/w/src"))).second)
+    }
 }
