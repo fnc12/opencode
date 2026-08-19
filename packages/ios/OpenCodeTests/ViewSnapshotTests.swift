@@ -75,6 +75,20 @@ final class ViewSnapshotTests: XCTestCase {
         assertSnapshot(of: rowCard(ToolOutputView(tool: tc)), as: .image(layout: .sizeThatFits, traits: dark))
     }
 
+    func testToolOutputFileRead() {
+        // A file read: the `<type>file` marker makes isFileRead true → the content
+        // is syntax-highlighted by filePath extension (the `read` branch).
+        let tc = toolContent(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"read","state":{"status":"completed","input":{"filePath":"main.swift"},"output":"<type>file</type>\n<content>let x = 1\nprint(x)</content>"}}"#)
+        assertSnapshot(of: rowCard(ToolOutputView(tool: tc)), as: .image(layout: .sizeThatFits, traits: dark))
+    }
+
+    func testToolOutputTodoChecklist() {
+        // The todowrite branch renders TodoChecklist with mixed statuses (checked,
+        // in-progress dotted, open) — covers ToolOutputView's todo case + TodoChecklist.
+        let tc = toolContent(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"todowrite","state":{"status":"completed","output":"ok","metadata":{"todos":[{"content":"Parse the file","status":"completed"},{"content":"Split the parser","status":"in_progress"},{"content":"Write tests","status":"pending"}]}}}"#)
+        assertSnapshot(of: rowCard(ToolOutputView(tool: tc)), as: .image(layout: .sizeThatFits, traits: dark))
+    }
+
     func testTodoSheet() {
         let todos: [TodoItem] = [
             decode(#"{"content":"Read the schema","status":"completed","priority":"high"}"#),
