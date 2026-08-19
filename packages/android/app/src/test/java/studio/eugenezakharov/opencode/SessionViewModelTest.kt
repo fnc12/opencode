@@ -12,6 +12,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -220,5 +221,92 @@ class SessionViewModelTest {
         vm.loadOlder()
         waitFor { sawPath("before=cur_1") }
         assertTrue("loadOlder must fetch the next page with the cursor", sawPath("before=cur_1"))
+    }
+
+    @Test fun unshareHitsServerAndClearsUrl() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                recordedPaths.add(path)
+                val body = if (path.contains("/share")) {
+                    """{"id":"ses_1","projectID":"p","directory":"/w","title":"T","version":"1","time":{"created":1,"updated":2}}"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        vm.unshare()
+        waitFor { sawPath("/session/ses_1/share") }
+        assertTrue(sawPath("/session/ses_1/share"))
+        waitFor { vm.state.value.shareUrl == null }
+        assertNull(vm.state.value.shareUrl)
+    }
+
+    @Test fun shareSurfacesUrlToCallback() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                recordedPaths.add(path)
+                val body = if (path.contains("/share")) {
+                    """{"id":"ses_1","projectID":"p","directory":"/w","title":"T","version":"1","time":{"created":1,"updated":2},"share":{"url":"https://share.example/s/ses_1"}}"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        var linked: String? = null
+        vm.share(onLink = { linked = it })
+        waitFor { linked != null }
+        assertEquals("https://share.example/s/ses_1", linked)
+        assertEquals("https://share.example/s/ses_1", vm.state.value.shareUrl)
+    }
+
+    @Test fun refreshReseedsNewestPage() {
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        synchronized(recordedPaths) { recordedPaths.clear() }
+        vm.refresh()
+        waitFor { sawPath("/session/ses_1/message") }
+        assertTrue("refresh re-pulls the newest message page", sawPath("/session/ses_1/message"))
+    }
+
+    @Test fun retryReloads() {
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        synchronized(recordedPaths) { recordedPaths.clear() }
+        vm.retry()
+        // retry() flips loading on and re-runs start() → a fresh message fetch.
+        waitFor { sawPath("/session/ses_1/message") }
+        assertTrue(sawPath("/session/ses_1/message"))
+    }
+
+    @Test fun loadDiffFetchesUnifiedDiff() {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                recordedPaths.add(path)
+                val body = if (path.contains("/diff")) {
+                    """[{"file":"a.kt","patch":"@@","additions":1,"deletions":0,"status":"modified"}]"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        val diff = kotlinx.coroutines.runBlocking { vm.loadDiff() }
+        assertTrue(sawPath("/session/ses_1/diff"))
+        assertEquals("a.kt", diff.firstOrNull()?.file)
+    }
+
+    @Test fun modelLabelFallsBackToIdThenResolvesDisplayName() {
+        // Default prefs have an empty model id → the generic "Model" label.
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        assertEquals("Model", vm.modelLabel())
+        // Selecting a model (no providers loaded) → the label falls back to the id.
+        vm.selectModel("openai", "gpt-5")
+        assertEquals("gpt-5", vm.modelLabel())
     }
 }
