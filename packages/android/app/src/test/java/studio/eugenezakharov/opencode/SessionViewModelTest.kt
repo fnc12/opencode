@@ -162,4 +162,74 @@ class SessionViewModelTest {
         vm.replyPermission(req, "once")
         assertTrue("answering clears it locally right away", vm.state.value.pendingPermissions.isEmpty())
     }
+
+    @Test fun replyQuestionClearsPending() {
+        val vm = SessionViewModel(
+            server = connection(), session = session(),
+            prefs = FakeComposerPrefs(), streamLive = false, injectTestQuestion = true,
+        )
+        waitFor { vm.state.value.pendingQuestions.isNotEmpty() }
+        vm.replyQuestion(vm.state.value.pendingQuestions.first(), listOf(listOf("Option A")))
+        assertTrue(vm.state.value.pendingQuestions.isEmpty())
+    }
+
+    @Test fun rejectQuestionClearsPending() {
+        val vm = SessionViewModel(
+            server = connection(), session = session(),
+            prefs = FakeComposerPrefs(), streamLive = false, injectTestQuestion = true,
+        )
+        waitFor { vm.state.value.pendingQuestions.isNotEmpty() }
+        vm.rejectQuestion(vm.state.value.pendingQuestions.first())
+        assertTrue(vm.state.value.pendingQuestions.isEmpty())
+    }
+
+    @Test fun revertHitsServer() {
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        vm.revert("msg_9")
+        waitFor { sawPath("/session/ses_1/revert") }
+        assertTrue(sawPath("/session/ses_1/revert"))
+    }
+
+    @Test fun restoreHitsServer() {
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        vm.restore()
+        waitFor { sawPath("/session/ses_1/unrevert") }
+        assertTrue(sawPath("/session/ses_1/unrevert"))
+    }
+
+    @Test fun runCommandHitsServer() {
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        vm.runCommand("test")
+        waitFor { sawPath("/session/ses_1/command") }
+        assertTrue(sawPath("/session/ses_1/command"))
+    }
+
+    @Test fun shareHitsServer() {
+        val vm = viewModel(); waitFor { !vm.state.value.loading }
+        vm.share(onLink = {})
+        waitFor { sawPath("/session/ses_1/share") }
+        assertTrue(sawPath("/session/ses_1/share"))
+    }
+
+    @Test fun loadOlderPagesWithCursor() {
+        // A dispatcher that hands out one older page: the initial message request
+        // (no `before=`) returns a next-cursor; the paged request (with `before=`)
+        // returns the last page (no cursor).
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                recordedPaths.add(path)
+                return when {
+                    path.contains("/message") && !path.contains("before=") ->
+                        MockResponse().setResponseCode(200).setBody("[]").setHeader("X-Next-Cursor", "cur_1")
+                    else -> MockResponse().setResponseCode(200).setBody("[]")
+                }
+            }
+        }
+        val vm = viewModel()
+        waitFor { !vm.state.value.loading }
+        vm.loadOlder()
+        waitFor { sawPath("before=cur_1") }
+        assertTrue("loadOlder must fetch the next page with the cursor", sawPath("before=cur_1"))
+    }
 }
