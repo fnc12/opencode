@@ -309,4 +309,33 @@ class SessionViewModelTest {
         vm.selectModel("openai", "gpt-5")
         assertEquals("gpt-5", vm.modelLabel())
     }
+
+    @Test fun liveStreamFoldsEventsAndGoesLive() {
+        // streamLive = true → the SSE loop opens /global/event, folds a streamed
+        // message.updated into the store, and flips status to LIVE.
+        val sseEvent = """{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"stream_m","sessionID":"ses_1","role":"assistant","time":{"created":9},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}"""
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                return if (path.contains("/global/event")) {
+                    MockResponse().setResponseCode(200)
+                        .setHeader("Content-Type", "text/event-stream")
+                        .setBody("data: $sseEvent\n\n")
+                } else {
+                    MockResponse().setResponseCode(200).setBody("[]")
+                }
+            }
+        }
+        val vm = SessionViewModel(
+            server = connection(), session = session(), prefs = FakeComposerPrefs(),
+            streamLive = true, // exercise the reconnect/stream loop
+        )
+        waitFor(5000) { vm.state.value.messages.any { it.id == "stream_m" } }
+        assertTrue("a streamed message must fold into state", vm.state.value.messages.any { it.id == "stream_m" })
+        waitFor(3000) { vm.state.value.status == studio.eugenezakharov.opencode.api.SessionStore.StreamStatus.LIVE }
+        assertEquals(
+            studio.eugenezakharov.opencode.api.SessionStore.StreamStatus.LIVE,
+            vm.state.value.status,
+        )
+    }
 }
