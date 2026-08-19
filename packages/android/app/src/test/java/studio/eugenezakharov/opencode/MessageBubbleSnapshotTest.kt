@@ -54,4 +54,41 @@ class MessageBubbleSnapshotTest {
         )
         paparazzi.snapshot(bubble(msg))
     }
+
+    @Test fun tableBubble() {
+        // A GFM table is lifted into a real grid (buildTableView in MessageAdapterKt).
+        val msg = MessageWithParts(
+            MessageInfo.Assistant("m", "s", 1.0),
+            mutableListOf(textPart("| Name | Type |\n|---|---|\n| id | Int |\n| title | String |")),
+        )
+        paparazzi.snapshot(bubble(msg))
+    }
+
+    @Test fun textThenTableBubble() {
+        // Leading text (body TextView) + a trailing table (extra → makeBodyTextView
+        // path for the text run before the grid).
+        val msg = MessageWithParts(
+            MessageInfo.Assistant("m", "s", 1.0),
+            mutableListOf(textPart("Here are the columns:\n\n| Name | Type |\n|---|---|\n| id | Int |")),
+        )
+        paparazzi.snapshot(bubble(msg))
+    }
+
+    @Test fun toolRowBubble() {
+        // A completed tool renders as a compact one-line row (✓ bash …).
+        val msg = MessageWithParts(
+            MessageInfo.Assistant("m", "s", 1.0),
+            mutableListOf(
+                MessagePart(
+                    "p", "s", "m", "assistant",
+                    PartContent.Tool(
+                        tool = "bash", callID = "c", status = "completed",
+                        input = mapOf("command" to "cargo test"),
+                    ),
+                    false, false,
+                ),
+            ),
+        )
+        paparazzi.snapshot(bubble(msg))
+    }
 }
