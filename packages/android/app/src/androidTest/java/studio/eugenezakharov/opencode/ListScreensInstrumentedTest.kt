@@ -1,9 +1,11 @@
 package studio.eugenezakharov.opencode
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -129,6 +131,46 @@ class ListScreensInstrumentedTest {
         textShown("No projects yet")
         compose.onNodeWithTag("projects.providers").performClick()
         assertTrue("providers dialog opened", textShown("Providers"))
+    }
+
+    @Test fun openFolderBrowserNavigatesAndCreates() {
+        var created: Any? = null
+        serve { req ->
+            val path = req.path ?: ""
+            when {
+                req.method == "POST" && path.startsWith("/session") ->
+                    200 to """{"id":"ses_new","projectID":"p1","directory":"/srv","title":"","version":"1","time":{"created":9,"updated":9}}"""
+                path.startsWith("/project") -> 200 to "[]"
+                path.contains("directory=/srv/src") || path.contains("directory=%2Fsrv%2Fsrc") ->
+                    200 to """[{"name":"main.kt","absolute":"/srv/src/main.kt","type":"file"}]"""
+                path.startsWith("/file") ->
+                    200 to """[{"name":"src","absolute":"/srv/src","type":"directory"}]"""
+                else -> 200 to "{}"
+            }
+        }
+        val connection = conn()
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                ProjectListScreen(
+                    server = connection, onProjectClick = {},
+                    onSessionCreated = { created = it }, onDisconnect = {},
+                )
+            }
+        }
+        textShown("No projects yet")
+        compose.onNodeWithTag("projects.openFolder").performClick()
+        assertTrue("browser opened", textShown("Open folder"))
+        // Navigate into a subfolder (load(entry.absolute)).
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("dir.src").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("dir.src").performClick()
+        // Go back up (load(parentOf(path))).
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("openFolder.up").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("openFolder.up").performClick()
+        // Type a path and open it → createSession → onSessionCreated.
+        compose.onNodeWithTag("openFolder.path").performTextInput("/srv")
+        compose.onNodeWithTag("openFolder.create").performClick()
+        compose.waitUntil(5_000) { created != null }
+        assertTrue("opening a folder creates a session", created != null)
     }
 
     // --- SessionListScreen ---------------------------------------------------
