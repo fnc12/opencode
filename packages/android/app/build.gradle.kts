@@ -54,6 +54,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Emit coverage from instrumented (androidTest) runs so Kover can merge
+            // the emulator-only paths (loaded screens, images, gestures) with the
+            // JVM unit coverage — the last mile to 100%.
+            enableAndroidTestCoverage = true
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
