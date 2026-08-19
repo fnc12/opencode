@@ -122,6 +122,39 @@ final class MessageRenderPipelineTests: XCTestCase {
         XCTAssertNotEqual(MessageRenderer.signature(a), MessageRenderer.signature(b))
     }
 
+    func testCodeBlockHighlightsThenFallsBack() {
+        // A known language highlights; an unknown/empty language falls back to
+        // plain monospaced text (still carrying the source).
+        let swift = MessageRenderer.codeBlock("let x = 1", lang: "swift")
+        XCTAssertEqual(swift.string, "let x = 1")
+        let unknown = MessageRenderer.codeBlock("zzz yyy", lang: "not-a-language")
+        XCTAssertEqual(unknown.string, "zzz yyy")
+    }
+
+    func testToolLineAppendsDetail() {
+        // A bash tool with a command → the line carries the "✓ Shell  <cmd>" detail.
+        let tool = toolContent(#"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed","input":{"command":"cargo test"}}}"#)
+        let line = MessageRenderer.toolLine(tool).string
+        XCTAssertTrue(line.contains("cargo test"), "the tool detail is appended: \(line)")
+    }
+
+    func testRenderHandlesStepFinishPart() {
+        // A step-finish part is a no-op block (the `.stepFinish` break) but must not
+        // crash the pipeline; the surrounding text still renders.
+        let m = assistant(parts: #"""
+        {"id":"p0","sessionID":"s","messageID":"m","type":"step-finish"},
+        {"id":"p1","sessionID":"s","messageID":"m","type":"text","text":"After."}
+        """#)
+        let r = render(m)
+        XCTAssertTrue(r.blocks.contains { if case .text = $0 { return true }; return false })
+    }
+
+    private func toolContent(_ json: String) -> ToolContent {
+        let part = try! JSONDecoder().decode(MessagePart.self, from: Data(json.utf8))
+        guard case .tool(let t)? = part.content else { fatalError("expected tool") }
+        return t
+    }
+
     /// The assistant branch of `signature` folds completion time, output tokens,
     /// and error text — so a still-generating message and its finished form (or an
     /// errored form) hash differently, letting the cell know to redraw.
