@@ -128,7 +128,7 @@ private fun SessionDestination(
         SessionViewModel(
             server,
             session,
-            studio.eugenezakharov.opencode.api.ComposerPrefs(context),
+            studio.eugenezakharov.opencode.api.AndroidComposerPrefs(context),
             injectTestPermission = UiTestFlags.injectPermission,
             injectTestQuestion = UiTestFlags.injectQuestion,
             injectQuestionJson = UiTestFlags.injectQuestionJson,

@@ -2,24 +2,36 @@ package studio.eugenezakharov.opencode.api
 
 import android.content.Context
 
-/** Remembers the last-used model across sessions/launches (mirrors iOS @AppStorage). */
-class ComposerPrefs(context: Context) {
+/**
+ * Remembers the last-used model/agent across sessions/launches (mirrors iOS
+ * @AppStorage). An interface so tests can drive [SessionViewModel] with an
+ * in-memory fake instead of a real Context-backed SharedPreferences.
+ */
+interface ComposerPrefs {
+    var providerID: String
+    var modelID: String
+    var agent: String
+    fun setModel(providerID: String, modelID: String)
+}
+
+/** The production, SharedPreferences-backed [ComposerPrefs]. */
+class AndroidComposerPrefs(context: Context) : ComposerPrefs {
     private val prefs = context.getSharedPreferences("opencode_composer", Context.MODE_PRIVATE)
 
-    var providerID: String
+    override var providerID: String
         get() = prefs.getString(KEY_PROVIDER, "") ?: ""
         set(value) { prefs.edit().putString(KEY_PROVIDER, value).apply() }
 
-    var modelID: String
+    override var modelID: String
         get() = prefs.getString(KEY_MODEL, "") ?: ""
         set(value) { prefs.edit().putString(KEY_MODEL, value).apply() }
 
     /** The last-used agent (build / plan / custom). */
-    var agent: String
+    override var agent: String
         get() = prefs.getString(KEY_AGENT, "build") ?: "build"
         set(value) { prefs.edit().putString(KEY_AGENT, value).apply() }
 
-    fun setModel(providerID: String, modelID: String) {
+    override fun setModel(providerID: String, modelID: String) {
         prefs.edit()
             .putString(KEY_PROVIDER, providerID)
             .putString(KEY_MODEL, modelID)

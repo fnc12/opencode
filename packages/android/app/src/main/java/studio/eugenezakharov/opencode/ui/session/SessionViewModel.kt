@@ -78,6 +78,9 @@ class SessionViewModel(
     private val injectQuestionJson: String? = null,
     /** On-disk newest-page cache for cache-first paint; null in tests / no-context. */
     private val cache: studio.eugenezakharov.opencode.api.MessageCache? = null,
+    /** Unit tests set false to skip the infinite live-stream reconnect loop, so
+     *  the initial load can be awaited to completion. Always true in the app. */
+    private val streamLive: Boolean = true,
 ) : ViewModel() {
 
     private val store = SessionStore()
@@ -245,9 +248,10 @@ class SessionViewModel(
                 )
             }
 
-            // 2) Stream live with reconnect/backoff.
+            // 2) Stream live with reconnect/backoff. Unit tests disable this so the
+            // load coroutine completes (the loop is otherwise infinite by design).
             var backoffMs = 500L
-            while (isActive) {
+            while (streamLive && isActive) {
                 val stream = server.eventStream() ?: break
                 store.setStatus(SessionStore.StreamStatus.CONNECTING)
                 runCatching {
