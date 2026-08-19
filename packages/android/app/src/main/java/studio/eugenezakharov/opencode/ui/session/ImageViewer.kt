@@ -25,7 +25,9 @@ import kotlin.math.abs
 /** Opens a full-screen, zoomable viewer for an image attachment. Pinch or
  *  double-tap to zoom, drag to pan, ✕ to close, Save writes it to the gallery.
  *  Mirrors the iOS `ImageViewerController`. */
-fun showImageViewer(context: Context, bitmap: Bitmap) {
+// Returns the shown Dialog (callers ignore it; an instrumented test uses it to
+// dismiss the viewer so a leaked fullscreen window can't crash a later test).
+fun showImageViewer(context: Context, bitmap: Bitmap): Dialog {
     val d = context.resources.displayMetrics.density
     fun px(v: Int) = (v * d).toInt()
 
@@ -88,6 +90,7 @@ fun showImageViewer(context: Context, bitmap: Bitmap) {
     }
 
     dialog.show()
+    return dialog
 }
 
 /** Writes the bitmap to the device gallery (Pictures/OpenCode). API 29+.
