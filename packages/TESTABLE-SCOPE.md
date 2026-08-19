@@ -62,12 +62,12 @@ Generated code + device-only shells only: `*.databinding.*`, `BuildConfig`, `R`,
 Everything else (incl. Compose UI, adapters, view models) is countable via the
 merged report and must reach 100%.
 
-**Practical gesture/streaming ceiling** (countable, but needs harnesses beyond
-unit + single-screen instrumented tests — the Android analog of iOS's excluded
-`ImageViewerController`/`ZoomTransition`): `ImageViewer.kt`'s `ZoomableImageView`
-(pinch/pan/double-tap matrix math) needs synthesized *multi-touch* on a windowed
-Activity; `saveToGallery` needs MediaStore + storage permission; `ShellScreen`'s
-terminal needs a live PTY stream; `SessionViewModel.start`'s SSE reconnect loop
+**Practical streaming/window ceiling** (countable, but needs harnesses beyond
+unit + single-screen instrumented tests). NOTE: `ImageViewer.kt`'s
+`ZoomableImageView` gestures + `saveToGallery` are now COVERED via a real-Activity
+multi-touch harness (`createAndroidComposeRule<ComponentActivity>` +
+`dispatchTouchEvent`). Still uncovered: `ShellScreen`'s terminal needs a live PTY
+stream; `SessionViewModel.start`'s SSE reconnect loop
 is infinite by design and flakes any unit test that drives it against real
 dispatchers (a flaky test is worse than an uncovered branch); and the deepest
 `SessionScreen` composer flows
@@ -101,9 +101,9 @@ _Latest: iOS 96.7% of testable-logic scope, Android 83.3% merged. Both suites gr
   instead. Now instrumented: self-fetch screens, dialog screens, SessionScreen
   composer/dock interactions (+ menus/dialogs via clock advance), OpenFolderBrowser,
   ConnectScreen, MessageViewHolder + SessionListAdapter listeners, and the AppNav
-  host (connect → projects → deep-linked session integration test). Remaining ~18%:
-  multi-touch gesture views (ZoomableImageView/ImageViewer pan-zoom), the live SSE
-  stream loop (`SessionViewModel.start`), ShellScreen terminal streaming, and the
-  deepest SessionScreen composer flows (send-with-attachments, readFile) — all
-  needing gestures / live streaming rather than unit or single-screen instrumented
-  tests.
+  host, and the ImageViewer/ZoomableImageView gestures (pinch/pan/double-tap/
+  dismiss) via a real-Activity multi-touch harness. Remaining ~17%: the live SSE
+  stream loop (`SessionViewModel.start`), ShellScreen terminal streaming, popup
+  menu-item handlers (Copy/Revert/Rename/Delete — window-dependent), and the
+  deepest SessionScreen composer flows (send-with-attachments, readFile) — live
+  streaming / windowed popups rather than unit or single-screen instrumented tests.
