@@ -179,4 +179,36 @@ class SessionScreenInstrumentedTest {
             vm.state.value.todos.isNotEmpty(),
         )
     }
+
+    @Test fun runningToolsStripRenders() {
+        // A message with a RUNNING bash tool → the ViewModel extracts a running
+        // tool → the "background processes" strip renders above the composer.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val body = if ((request.path ?: "").contains("/message")) {
+                    """[{"info":{"id":"m1","sessionID":"ses_1","role":"assistant","time":{"created":1},
+                        "modelID":"x","providerID":"y","agent":"build","cost":0,
+                        "tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},
+                        "parts":[{"id":"p1","sessionID":"ses_1","messageID":"m1","type":"tool","callID":"c",
+                        "tool":"bash","state":{"status":"running","input":{"command":"cargo build"},"time":{"start":1}}}]}]"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = SessionViewModel(
+            server = conn(), session = session(), prefs = InstrFakePrefs(), streamLive = false,
+        )
+        awaitLoaded(vm)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.runningTools.isEmpty()) Thread.sleep(20)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                SessionScreen(viewModel = vm, session = session(), onBack = {})
+            }
+        }
+        org.junit.Assert.assertTrue("a running tool must surface in state", vm.state.value.runningTools.isNotEmpty())
+    }
 }
