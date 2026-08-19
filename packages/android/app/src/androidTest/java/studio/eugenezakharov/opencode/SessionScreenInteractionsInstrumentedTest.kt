@@ -129,15 +129,45 @@ class SessionScreenInteractionsInstrumentedTest {
         assertTrue(compose.onAllNodesWithTag("composer.model").fetchSemanticsNodes().isNotEmpty())
     }
 
-    @Test fun attachMenuOpens() {
+    @Test fun attachMenuOpensAndSelectsFilePicker() {
         val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
         awaitLoaded(vm)
         mount(vm)
-        // Tapping + runs the onClick (showAttachMenu = true). The dropdown itself
-        // animates in, which the paused test clock won't settle, so we assert the
-        // tap landed (screen still composed) rather than the popup contents.
         compose.onNodeWithTag("composer.plus").performClick()
+        // Advance the paused clock so the dropdown's enter animation settles and
+        // its items become hittable (the menu body lambdas then execute).
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitUntil(3000) { compose.onAllNodesWithTag("composer.file").fetchSemanticsNodes().isNotEmpty() }
+        // Selecting "Attach a file" opens the file picker dialog (showFilePicker = true).
+        compose.onNodeWithTag("composer.file").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
         assertTrue(compose.onAllNodesWithTag("composer.plus").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test fun modelPickerOpensAndShowsRows() {
+        // A providers response so the picker has a row to render (its item lambda runs).
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths.add("${request.method} ${request.path}")
+                val body = if ((request.path ?: "").contains("/config/providers")) {
+                    """{"providers":[{"id":"zai","name":"Z-AI","models":{"glm-5.2":{"id":"glm-5.2","name":"GLM 5.2"}}}]}"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        // Let the providers load so the picker has content.
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.providers.isEmpty()) Thread.sleep(20)
+        mount(vm)
+        compose.onNodeWithTag("composer.model").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        // The model picker dialog renders the provider/model (its item lambda runs).
+        compose.waitUntil(3000) { compose.onAllNodesWithText("GLM 5.2", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue(compose.onAllNodesWithText("GLM 5.2", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun permissionAllowReplies() {
