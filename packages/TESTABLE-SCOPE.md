@@ -62,6 +62,19 @@ Generated code + device-only shells only: `*.databinding.*`, `BuildConfig`, `R`,
 Everything else (incl. Compose UI, adapters, view models) is countable via the
 merged report and must reach 100%.
 
+**Practical gesture/streaming ceiling** (countable, but needs harnesses beyond
+unit + single-screen instrumented tests — the Android analog of iOS's excluded
+`ImageViewerController`/`ZoomTransition`): `ImageViewer.kt`'s `ZoomableImageView`
+(pinch/pan/double-tap matrix math) needs synthesized *multi-touch* on a windowed
+Activity; `saveToGallery` needs MediaStore + storage permission; `ShellScreen`'s
+terminal needs a live PTY stream; `SessionViewModel.start`'s SSE reconnect loop
+is infinite by design and flakes any unit test that drives it against real
+dispatchers (a flaky test is worse than an uncovered branch); and the deepest
+`SessionScreen` composer flows
+(send-with-attachments through the picker, `readFile` on file-attach) need
+multi-step live flows. These stay uncovered pending a dedicated Activity/gesture
+harness — they are the reason Android's merged number plateaus below 100%.
+
 Measure: `./gradlew :app:jacocoMergedReport` on a booted API-35 emulator (only one
 device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xml`.
 
