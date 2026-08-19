@@ -293,6 +293,90 @@ final class ServerConnectionFakeTests: XCTestCase {
         XCTAssertTrue(lastRequest.url!.path.contains("openai"))
     }
 
+    func testProviderAuthMethods() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        _ = try await direct().providerAuthMethods()
+        XCTAssertEqual(lastRequest.url?.path, "/provider/auth")
+    }
+
+    func testSetProviderKeyPuts() async throws {
+        StubURLProtocol.enqueue(body: "true")
+        try await direct().setProviderKey(providerID: "openai", key: "sk-123")
+        XCTAssertEqual(lastRequest.httpMethod, "PUT")
+        XCTAssertTrue(lastRequest.url!.path.contains("openai"))
+    }
+
+    func testProvidersParsesConfig() async throws {
+        StubURLProtocol.enqueue(body: #"{"providers":[]}"#)
+        _ = try await direct().providers()
+        XCTAssertEqual(lastRequest.url?.path, "/config/providers")
+    }
+
+    func testRunCommandPosts() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().runCommand(directory: "/w", sessionID: "ses_1", command: "init")
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertTrue(lastRequest.url!.path.hasSuffix("/session/ses_1/command"))
+    }
+
+    func testReplyQuestionPosts() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().replyQuestion(directory: "/w", requestID: "que_1", answers: [["A"]])
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertTrue(lastRequest.url!.path.contains("que_1"))
+    }
+
+    func testSendPromptPostsToMessage() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().sendPrompt(directory: "/w", sessionID: "ses_1", text: "hello",
+                                      providerID: "zai", modelID: "glm-5.2", agent: "build")
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertTrue(lastRequest.url!.path.hasSuffix("/session/ses_1/message"))
+    }
+
+    func testCreateSessionReturnsSession() async throws {
+        StubURLProtocol.enqueue(body: #"{"id":"ses_new","projectID":"p","directory":"/w","title":"T","version":"1","time":{"created":1,"updated":2}}"#)
+        let s = try await direct().createSession(directory: "/w", title: "T")
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertEqual(lastRequest.url?.path, "/session")
+        XCTAssertEqual(s.id, "ses_new")
+    }
+
+    func testCreateSessionServerErrorThrows() async {
+        StubURLProtocol.enqueue(422, body: "nope")
+        do {
+            _ = try await direct().createSession(directory: "/w")
+            XCTFail("422 must throw")
+        } catch {}
+    }
+
+    // --- event stream builder + decode-failure path --------------------------
+
+    func testEventStreamBuiltForDirectMode() {
+        XCTAssertNotNil(direct().eventStream(directory: ""))
+    }
+
+    func testEventStreamBuiltWithAuthAndTunnel() {
+        // Exercises the password (Basic) + tunnelToken header branches.
+        XCTAssertNotNil(relay(token: "tok_1", password: "pw").eventStream(directory: ""))
+    }
+
+    func testDecodeFailureThrows() async {
+        // Valid HTTP 200 but a body that can't decode to [Project] → the decode
+        // catch branch (the error-logging path in `get`).
+        StubURLProtocol.enqueue(body: "not json")
+        do { _ = try await direct().projects(); XCTFail("bad body must throw") } catch {}
+    }
+
+    func testForgetResetsConfigAndState() {
+        let c = direct(password: "pw")
+        c.forget()
+        XCTAssertFalse(c.connected)
+        // forget() resets to a fresh default config (mode defaults to .relay).
+        XCTAssertEqual(c.config, ConnectionConfig())
+        XCTAssertNil(c.config.password)
+    }
+
     // --- connect / lifecycle -------------------------------------------------
 
     func testConnectSucceedsAgainstHealthyServer() async {
