@@ -89,4 +89,92 @@ final class SessionStoreApplyTests: XCTestCase {
         s.apply(event(#"{"payload":{"type":"server.connected","properties":{}}}"#), sessionID: sid)
         XCTAssertEqual(s.revision, before, "an unmodeled event must not bump the revision")
     }
+
+    // --- part.removed --------------------------------------------------------
+
+    func testPartRemovedDropsPart() {
+        let s = store()
+        s.apply(event(#"""
+        {"payload":{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"msg_a","sessionID":"ses_1","role":"assistant","time":{"created":1},"modelID":"m","providerID":"p","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}}
+        """#), sessionID: sid)
+        s.apply(event(#"""
+        {"payload":{"type":"message.part.updated","properties":{"sessionID":"ses_1","part":{"id":"prt_1","sessionID":"ses_1","messageID":"msg_a","type":"text","text":"Hello"}}}}
+        """#), sessionID: sid)
+        XCTAssertEqual(s.messages.first?.parts.count, 1)
+        s.apply(event(#"""
+        {"payload":{"type":"message.part.removed","properties":{"sessionID":"ses_1","messageID":"msg_a","partID":"prt_1"}}}
+        """#), sessionID: sid)
+        XCTAssertEqual(s.messages.first?.parts.count, 0)
+    }
+
+    // --- todo.updated + session.updated (revert boundary) --------------------
+
+    func testTodoUpdatedReplacesList() {
+        let s = store()
+        s.apply(event(#"""
+        {"payload":{"type":"todo.updated","properties":{"sessionID":"ses_1","todos":[{"content":"a","status":"pending","priority":"high"},{"content":"b","status":"completed","priority":"low"}]}}}
+        """#), sessionID: sid)
+        XCTAssertEqual(s.todos.count, 2)
+    }
+
+    func testSessionUpdatedSetsRevertBoundary() {
+        let s = store()
+        s.apply(event(#"""
+        {"payload":{"type":"session.updated","properties":{"info":{"id":"ses_1","projectID":"p","directory":"/w","title":"","version":"1","time":{"created":1,"updated":2},"revert":{"messageID":"msg_9"}}}}}
+        """#), sessionID: sid)
+        XCTAssertEqual(s.revertMessageID, "msg_9")
+    }
+
+    // --- seed setters + status + isBusy --------------------------------------
+
+    func testSeedSettersPopulateState() {
+        let s = store()
+        let perm: PermissionRequest = try! JSONDecoder().decode(
+            PermissionRequest.self,
+            from: Data(#"{"id":"per_1","sessionID":"ses_1","action":"bash","resources":["ls"]}"#.utf8))
+        s.setInitialPermissions([perm])
+        XCTAssertEqual(s.pendingPermissions.count, 1)
+
+        let question: QuestionRequest = try! JSONDecoder().decode(
+            QuestionRequest.self,
+            from: Data(#"{"id":"que_1","sessionID":"ses_1","questions":[{"question":"Q","header":"H","options":[{"label":"A","description":"a"}]}]}"#.utf8))
+        s.setInitialQuestions([question])
+        XCTAssertEqual(s.pendingQuestions.count, 1)
+
+        let todo: TodoItem = try! JSONDecoder().decode(
+            TodoItem.self, from: Data(#"{"content":"x","status":"pending","priority":"high"}"#.utf8))
+        s.setInitialTodos([todo])
+        XCTAssertEqual(s.todos.count, 1)
+
+        s.setRevert("msg_5")
+        XCTAssertEqual(s.revertMessageID, "msg_5")
+        s.setRevert(nil)
+        XCTAssertNil(s.revertMessageID)
+    }
+
+    func testSetStatusIgnoresRepeatValue() {
+        let s = store()
+        XCTAssertEqual(s.status, .idle)
+        s.setStatus(.live)
+        XCTAssertEqual(s.status, .live)
+        // Same value again → the guard early-returns (no observable churn).
+        s.setStatus(.live)
+        XCTAssertEqual(s.status, .live)
+        s.setStatus(.reconnecting)
+        XCTAssertEqual(s.status, .reconnecting)
+    }
+
+    func testIsBusyWhileAssistantGenerating() {
+        let s = store()
+        // Assistant message with no completion time → busy.
+        s.apply(event(#"""
+        {"payload":{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"msg_a","sessionID":"ses_1","role":"assistant","time":{"created":1},"modelID":"m","providerID":"p","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}}
+        """#), sessionID: sid)
+        XCTAssertTrue(s.isBusy)
+        // Completed → no longer busy.
+        s.apply(event(#"""
+        {"payload":{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"msg_a","sessionID":"ses_1","role":"assistant","time":{"created":1,"completed":2},"modelID":"m","providerID":"p","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}}
+        """#), sessionID: sid)
+        XCTAssertFalse(s.isBusy)
+    }
 }

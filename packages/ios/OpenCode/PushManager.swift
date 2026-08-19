@@ -87,10 +87,14 @@ final class PushManager: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         let sid = notification.request.content.userInfo["sessionId"] as? String
-        if let sid, sid == PushManager.activeSessionID {
-            completionHandler([]) // already viewing this session — no banner/sound
-        } else {
-            completionHandler([.banner, .sound])
-        }
+        completionHandler(PushManager.presentationOptions(forSessionID: sid))
+    }
+
+    /// The foreground presentation for a push targeting `sid`: suppressed (no
+    /// banner/sound) when it's the session already on screen, otherwise a banner.
+    /// Pure, so the suppression rule is unit-testable without a `UNNotification`.
+    static func presentationOptions(forSessionID sid: String?) -> UNNotificationPresentationOptions {
+        if let sid, sid == activeSessionID { return [] }
+        return [.banner, .sound]
     }
 }
