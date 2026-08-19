@@ -62,5 +62,10 @@ device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xm
 
 ## Status (2026-08-20)
 
-- **iOS testable-logic scope: 68.8%** (2827/4107, 20 UI-shell files excluded).
-- **Android merged: 60.7%** (still climbing; UI countable, so target is 100%).
+- **iOS testable-logic scope: ~84%** (was 68.8%; render pipeline extracted to
+  `MessageRenderer` → MessageListView excluded, 21 UI-shell files). Remaining
+  in-scope gaps to drive to 100%: ServerConnection (send/eventStream helpers),
+  ToolOutputView (todos/read paths), PushManager, GrowingTextView, SessionStore,
+  App, and residuals in MessageDetailView/ToolDisplay/MessageRenderer.
+- **Android merged: 60.7%** (UI countable via JaCoCo merge, so target is 100%).
+  Remaining: more instrumented screen states/interactions + Paparazzi block types.
