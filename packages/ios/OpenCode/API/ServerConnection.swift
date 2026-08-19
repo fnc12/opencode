@@ -26,10 +26,24 @@ final class ServerConnection {
     /// delivers nothing (stale screen, stuck typing indicator).
     var foregroundNonce = 0
 
+    /// The URLSession used for every request. Defaults to `.shared` in the app;
+    /// tests inject a session backed by a stub `URLProtocol` so the whole HTTP
+    /// surface can be exercised offline and deterministically (the fake-server
+    /// layer, mirroring Android's MockWebServer).
+    @ObservationIgnored private let session: URLSession
+
     init() {
+        self.session = .shared
         if let saved = Keychain.loadConnection() {
             config = saved
         }
+    }
+
+    /// Test seam: a connection pointed at an explicit config + session (no
+    /// Keychain load). Used by the fake-server integration tests.
+    init(config: ConnectionConfig, session: URLSession = .shared) {
+        self.session = session
+        self.config = config
     }
 
     /// Starts a connect attempt, replacing any in-flight one. The UI calls this
@@ -147,7 +161,7 @@ final class ServerConnection {
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "tunnelId": config.tunnelID, "provider": "apns", "token": hexToken,
         ])
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await session.data(for: request)
     }
 
     /// Forgets the saved connection and resets state.
@@ -200,7 +214,7 @@ final class ServerConnection {
         guard let url = components.url else { throw ClientError.invalidURL }
         var request = URLRequest(url: url)
         applyAuth(to: &request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ClientError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
@@ -297,7 +311,7 @@ final class ServerConnection {
         if let title, !title.isEmpty { body["title"] = title }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let text = String(data: data, encoding: .utf8) ?? "(non-utf8)"
@@ -394,7 +408,7 @@ final class ServerConnection {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         applyAuth(to: &request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ClientError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
@@ -414,7 +428,7 @@ final class ServerConnection {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         applyAuth(to: &request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             print("❌ \(method) \(code): \(url.absoluteString)\n\(String(data: data, encoding: .utf8)?.prefix(400) ?? "")")
@@ -478,7 +492,7 @@ final class ServerConnection {
         applyAuth(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let text = String(data: data, encoding: .utf8) ?? "(non-utf8)"
@@ -520,7 +534,7 @@ final class ServerConnection {
         // The OpenCode server's password (OPENCODE_SERVER_PASSWORD) is forwarded
         // as Basic auth; in relay mode the connector passes the header through.
         applyAuth(to: &request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let body = String(data: data, encoding: .utf8) ?? "(non-utf8)"

@@ -1,0 +1,186 @@
+import XCTest
+@testable import OpenCode
+
+/// A `URLProtocol` that answers every request from a queued canned response and
+/// records the requests it saw — an in-process fake server, so the whole HTTP
+/// surface of `ServerConnection` runs offline and deterministically (the
+/// fake-server layer of the test plan, mirroring Android's MockWebServer).
+///
+/// Note: URLProtocol does not expose `httpBody` for URLSession requests (the body
+/// travels as a stream), so these tests assert on URL / method / headers /
+/// response parsing / errors. Request-body shapes are covered on the Android side.
+final class StubURLProtocol: URLProtocol {
+    struct Response { let status: Int; let headers: [String: String]; let body: Data }
+
+    /// FIFO queue of responses to hand out, and the requests seen, in order.
+    /// Tests drive this serially; the stub touches it on the URL-loading thread.
+    nonisolated(unsafe) static var queue: [Response] = []
+    nonisolated(unsafe) static var seen: [URLRequest] = []
+
+    static func reset() { queue = []; seen = [] }
+    static func enqueue(_ status: Int = 200, headers: [String: String] = [:], body: String = "") {
+        queue.append(Response(status: status, headers: headers, body: Data(body.utf8)))
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.seen.append(request)
+        let r = Self.queue.isEmpty ? Response(status: 200, headers: [:], body: Data("{}".utf8))
+                                   : Self.queue.removeFirst()
+        let response = HTTPURLResponse(url: request.url!, statusCode: r.status,
+                                       httpVersion: "HTTP/1.1", headerFields: r.headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: r.body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+
+    /// A URLSession whose only protocol is this stub.
+    static func session() -> URLSession {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [StubURLProtocol.self]
+        return URLSession(configuration: cfg)
+    }
+}
+
+@MainActor
+final class ServerConnectionFakeTests: XCTestCase {
+    override func setUp() { super.setUp(); StubURLProtocol.reset() }
+
+    private func direct(password: String? = nil) -> ServerConnection {
+        var cfg = ConnectionConfig()
+        cfg.mode = .direct
+        cfg.directURL = "http://stub.local"
+        cfg.password = password
+        return ServerConnection(config: cfg, session: StubURLProtocol.session())
+    }
+
+    private func relay(token: String = "tok_abc", password: String? = nil) -> ServerConnection {
+        var cfg = ConnectionConfig()
+        cfg.mode = .relay
+        cfg.relayURL = "http://stub.local"
+        cfg.tunnelID = "tun_1"
+        cfg.token = token
+        cfg.password = password
+        return ServerConnection(config: cfg, session: StubURLProtocol.session())
+    }
+
+    private var lastRequest: URLRequest { StubURLProtocol.seen.last! }
+
+    // --- auth headers (the security branches) --------------------------------
+
+    func testDirectWithoutPasswordSendsNoAuth() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().projects()
+        XCTAssertNil(lastRequest.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(lastRequest.value(forHTTPHeaderField: "X-Tunnel-Token"))
+    }
+
+    func testPasswordProducesOpencodeBasicHeader() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct(password: "hunter2").projects()
+        let expected = "Basic " + Data("opencode:hunter2".utf8).base64EncodedString()
+        XCTAssertEqual(lastRequest.value(forHTTPHeaderField: "Authorization"), expected)
+    }
+
+    func testRelayModeSendsTunnelToken() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await relay(token: "tok_xyz").projects()
+        XCTAssertEqual(lastRequest.value(forHTTPHeaderField: "X-Tunnel-Token"), "tok_xyz")
+    }
+
+    func testDirectModeNeverSendsTunnelToken() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().projects()
+        XCTAssertNil(lastRequest.value(forHTTPHeaderField: "X-Tunnel-Token"))
+    }
+
+    func testRelayBaseURLIncludesTunnelPath() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await relay().projects()
+        XCTAssertEqual(lastRequest.url?.path, "/t/tun_1/project")
+    }
+
+    // --- read endpoints: request shape + parsing -----------------------------
+
+    func testProjectsParsesList() async throws {
+        StubURLProtocol.enqueue(body: #"[{"id":"p1","worktree":"/w","time":{"created":1,"updated":2},"sandboxes":[]}]"#)
+        let p = try await direct().projects()
+        XCTAssertEqual(lastRequest.url?.path, "/project")
+        XCTAssertEqual(p.first?.id, "p1")
+    }
+
+    func testSessionsPassesDirectoryQuery() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().sessions(directory: "/srv/work")
+        XCTAssertEqual(lastRequest.url?.path, "/session")
+        XCTAssertTrue(lastRequest.url!.query!.contains("directory=/srv/work")
+                      || lastRequest.url!.query!.contains("directory=%2Fsrv%2Fwork"))
+    }
+
+    func testGetSessionByIdNeedsNoDirectory() async throws {
+        StubURLProtocol.enqueue(body: #"{"id":"ses_9","projectID":"p","directory":"/w","title":"","version":"1","time":{"created":1,"updated":2}}"#)
+        let s = try await direct().getSession(id: "ses_9")
+        XCTAssertEqual(lastRequest.url?.path, "/session/ses_9")
+        XCTAssertEqual(s.id, "ses_9")
+    }
+
+    func testMessagesPageReadsNextCursorHeader() async throws {
+        StubURLProtocol.enqueue(headers: ["X-Next-Cursor": "cur_42"], body: "[]")
+        let page = try await direct().messagesPage(directory: "/w", sessionID: "ses_1", limit: 5)
+        XCTAssertTrue(lastRequest.url!.query!.contains("limit=5"))
+        XCTAssertEqual(page.nextCursor, "cur_42")
+    }
+
+    func testMessagesPageForwardsBeforeCursor() async throws {
+        StubURLProtocol.enqueue(body: "[]")
+        _ = try await direct().messagesPage(directory: "/w", sessionID: "ses_1", limit: 20, before: "cur_7")
+        XCTAssertTrue(lastRequest.url!.query!.contains("before=cur_7"))
+    }
+
+    // --- write endpoints -----------------------------------------------------
+
+    func testAbortPostsToAbort() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().abort(directory: "/w", sessionID: "ses_1")
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertEqual(lastRequest.url?.path, "/session/ses_1/abort")
+    }
+
+    func testRenameSessionUsesPatch() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().renameSession(directory: "/w", sessionID: "ses_1", title: "New")
+        XCTAssertEqual(lastRequest.httpMethod, "PATCH")
+        XCTAssertEqual(lastRequest.url?.path, "/session/ses_1")
+    }
+
+    func testDeleteSessionUsesDelete() async throws {
+        StubURLProtocol.enqueue(body: "{}")
+        try await direct().deleteSession(directory: "/w", sessionID: "ses_1")
+        XCTAssertEqual(lastRequest.httpMethod, "DELETE")
+        XCTAssertEqual(lastRequest.url?.path, "/session/ses_1")
+    }
+
+    func testShareSessionReturnsUpdatedSession() async throws {
+        StubURLProtocol.enqueue(body: #"{"id":"ses_1","projectID":"p","directory":"/w","title":"","version":"1","time":{"created":1,"updated":2}}"#)
+        let s = try await direct().shareSession(directory: "/w", sessionID: "ses_1")
+        XCTAssertEqual(lastRequest.httpMethod, "POST")
+        XCTAssertEqual(lastRequest.url?.path, "/session/ses_1/share")
+        XCTAssertEqual(s.id, "ses_1")
+    }
+
+    // --- error handling ------------------------------------------------------
+
+    func testUnauthorizedThrows() async {
+        StubURLProtocol.enqueue(401)
+        do { _ = try await direct().projects(); XCTFail("401 must throw") } catch {}
+    }
+
+    func testServerErrorThrows() async {
+        StubURLProtocol.enqueue(500, body: "boom")
+        do { _ = try await direct().projects(); XCTFail("500 must throw") } catch {}
+    }
+}
