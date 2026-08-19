@@ -61,4 +61,18 @@ final class MessageCellSnapshotTests: XCTestCase {
             bubbleColor: UIColor.white.withAlphaComponent(0.06))
         assertSnapshot(of: card(rendered), as: .image)
     }
+
+    func testCodeAndTableBubble() {
+        // A code block + a table block in one bubble → exercises MessageCell's
+        // code/table height + subview builders (makeCodeBlockView / makeTableView).
+        let code = NSAttributedString(
+            string: "func f() -> Int {\n    return 42\n}",
+            attributes: [.font: CodeBlockView.font, .foregroundColor: UIColor.label])
+        let table = MessageTable(header: ["Name", "Type"], rows: [["id", "Int"], ["title", "String"]])
+        let rendered = RenderedMessage(
+            roleText: "build", roleColor: .systemGreen, metaText: "2k→1k",
+            blocks: [.text(text("Here's the function and its columns:")), .code(code), .table(table)],
+            bubbleColor: UIColor.white.withAlphaComponent(0.06))
+        assertSnapshot(of: card(rendered), as: .image)
+    }
 }
