@@ -110,7 +110,9 @@ private fun saveToGallery(context: Context, bitmap: Bitmap): Boolean {
 /** An ImageView that fits its bitmap on screen at rest and supports pinch-zoom,
  *  drag-to-pan, double-tap-to-toggle-zoom, and — at rest scale — a vertical
  *  swipe (up OR down) that drags the image away and dismisses. */
-private class ZoomableImageView(
+// Internal (not private) so an instrumented test can mount it on a real Activity
+// window and drive its gestures (pinch/pan/double-tap/dismiss) directly.
+internal class ZoomableImageView(
     context: Context,
     private val onDismiss: () -> Unit,
     private val onDragFraction: (Float) -> Unit,
