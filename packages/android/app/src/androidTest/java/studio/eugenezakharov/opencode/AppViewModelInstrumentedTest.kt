@@ -1,8 +1,15 @@
 package studio.eugenezakharov.opencode
 
 import android.app.Application
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -97,5 +104,33 @@ class AppViewModelInstrumentedTest {
             compose.onAllNodesWithText("Direct", substring = true).fetchSemanticsNodes().isNotEmpty() ||
             compose.onAllNodesWithText("Relay", substring = true).fetchSemanticsNodes().isNotEmpty()
         assertTrue("Connect screen must render its controls", hasConnect)
+    }
+
+    @Test fun connectScreenModeToggleAndFieldsAndConnect() {
+        val vm = vm()
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                // Observe state so mode toggles recompose the right field set.
+                val state by vm.state.collectAsState()
+                ConnectScreen(state = state, viewModel = vm)
+            }
+        }
+        // Switch to Direct → the direct fields (server URL / password) render.
+        compose.onNodeWithTag("connect.direct").performClick()
+        compose.waitUntil(3000) { compose.onAllNodesWithTag("connect.serverURL").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("connect.serverURL").performTextInput("http://127.0.0.1:65000")
+        compose.onNodeWithTag("connect.password").performTextInput("pw")
+        // Tapping Connect runs viewModel::connect (it'll fail against a dead port,
+        // but the onClick + field setters have all executed).
+        compose.onNodeWithTag("connect.button").performClick()
+        // Back to Relay → the relay field set renders again (setMode(RELAY)).
+        compose.onAllNodesWithText("Relay").onFirst().performClick()
+        compose.waitUntil(3000) {
+            compose.onAllNodesWithText("Relay URL", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(
+            "relay fields return after toggling back",
+            compose.onAllNodesWithText("Relay URL", substring = true).fetchSemanticsNodes().isNotEmpty(),
+        )
     }
 }
