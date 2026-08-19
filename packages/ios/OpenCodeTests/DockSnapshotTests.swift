@@ -40,4 +40,9 @@ final class DockSnapshotTests: XCTestCase {
             onTap: {})
         assertSnapshot(of: card(pill), as: .image(layout: .sizeThatFits, traits: dark))
     }
+
+    // NOTE: QuestionDock is NOT snapshotted — it has a SwiftUI entrance animation
+    // (@State appeared → opacity 0 until onAppear's withAnimation runs), which a
+    // static snapshot captures before it resolves (blank). It's covered live by
+    // QuestionDockUITests (XCUITest) instead.
 }
