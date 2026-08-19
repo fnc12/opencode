@@ -103,6 +103,33 @@ class ScreenSnapshotTest {
         }
     }
 
+    @Test fun messageDetailUser() {
+        val message = MessageWithParts(
+            MessageInfo.User("m", "s", 1.0),
+            mutableListOf(MessagePart("p", "s", "m", "user",
+                PartContent.Text("Fix the parser and **add a test**, please."), false, false)),
+        )
+        paparazzi.snapshot {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                MessageDetailScreen(message = message, onDismiss = {})
+            }
+        }
+    }
+
+    @Test fun messageDetailWithTable() {
+        val message = MessageWithParts(
+            MessageInfo.Assistant("m", "s", 1.0),
+            mutableListOf(MessagePart("p", "s", "m", "assistant",
+                PartContent.Text("Columns:\n\n| Name | Type |\n|---|---|\n| id | Int |\n| title | String |"),
+                false, false)),
+        )
+        paparazzi.snapshot {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                MessageDetailScreen(message = message, onDismiss = {})
+            }
+        }
+    }
+
     @Test fun sessionScreenError() {
         // The VM's load fires against an unreachable server; Paparazzi's single
         // frame captures the initial (loading/skeleton) state — covering the
