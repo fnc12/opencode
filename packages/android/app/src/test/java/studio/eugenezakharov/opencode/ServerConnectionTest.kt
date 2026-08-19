@@ -185,6 +185,38 @@ class ServerConnectionTest {
         Unit
     }
 
+    // Each raw helper's non-2xx branch, via a method that uses it.
+
+    @Test(expected = Exception::class)
+    fun postRawErrorThrows() = runBlocking { // abort() -> postRaw
+        server.enqueue(MockResponse().setResponseCode(500).setBody("x"))
+        direct().abort("/w", "ses_1"); Unit
+    }
+
+    @Test(expected = Exception::class)
+    fun sendRawErrorThrows() = runBlocking { // deleteSession() -> sendRaw
+        server.enqueue(MockResponse().setResponseCode(500).setBody("x"))
+        direct().deleteSession("/w", "ses_1"); Unit
+    }
+
+    @Test(expected = Exception::class)
+    fun getRawWithHeaderErrorThrows() = runBlocking { // messagesPage() -> getRawWithHeader
+        server.enqueue(MockResponse().setResponseCode(500).setBody("x"))
+        direct().messagesPage("/w", "ses_1", 5); Unit
+    }
+
+    @Test(expected = Exception::class)
+    fun postRawForResultErrorThrows() = runBlocking { // createSession() -> postRawForResult
+        server.enqueue(MockResponse().setResponseCode(500).setBody("x"))
+        direct().createSession("/w"); Unit
+    }
+
+    @Test(expected = Exception::class)
+    fun sendRawForResultErrorThrows() = runBlocking { // unshareSession() -> sendRawForResult
+        server.enqueue(MockResponse().setResponseCode(500).setBody("x"))
+        direct().unshareSession("/w", "ses_1"); Unit
+    }
+
     // --- push registration (relay-only branch) -------------------------------
 
     @Test fun registerPushTokenSkippedInDirectMode() = runBlocking {

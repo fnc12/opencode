@@ -82,4 +82,56 @@ class SessionStoreReducerTest {
         s.setRevert(null)
         assertNull(s.revertMessageID)
     }
+
+    @Test fun partDeltaAppendsStreamedText() {
+        val s = store(); addAssistant(s, "m1")
+        s.apply(event("""{"type":"message.part.updated","properties":{"sessionID":"ses_1","part":{"id":"p1","sessionID":"ses_1","messageID":"m1","type":"text","text":"Hel"}}}"""), sid)
+        s.apply(event("""{"type":"message.part.delta","properties":{"sessionID":"ses_1","messageID":"m1","partID":"p1","field":"text","delta":"lo"}}"""), sid)
+        val text = (s.messages.first().parts.first().content as? studio.eugenezakharov.opencode.api.models.PartContent.Text)?.text
+        assertEquals("Hello", text)
+    }
+
+    @Test fun partDeltaIgnoresNonTextField() {
+        val s = store(); addAssistant(s, "m1")
+        s.apply(event("""{"type":"message.part.updated","properties":{"sessionID":"ses_1","part":{"id":"p1","sessionID":"ses_1","messageID":"m1","type":"text","text":"x"}}}"""), sid)
+        s.apply(event("""{"type":"message.part.delta","properties":{"sessionID":"ses_1","messageID":"m1","partID":"p1","field":"reasoning","delta":"ignored"}}"""), sid)
+        val text = (s.messages.first().parts.first().content as? studio.eugenezakharov.opencode.api.models.PartContent.Text)?.text
+        assertEquals("x", text) // non-text delta is dropped
+    }
+
+    @Test fun todoUpdatedReplacesList() {
+        val s = store()
+        s.apply(event("""{"type":"todo.updated","properties":{"sessionID":"ses_1","todos":[{"content":"a","status":"pending","priority":"high"},{"content":"b","status":"completed","priority":"low"}]}}"""), sid)
+        assertEquals(2, s.todos.size)
+    }
+
+    @Test fun sessionUpdatedSetsRevert() {
+        val s = store()
+        s.apply(event("""{"type":"session.updated","properties":{"info":{"id":"ses_1","revert":{"messageID":"m_9"}}}}"""), sid)
+        assertEquals("m_9", s.revertMessageID)
+    }
+
+    @Test fun foreignSessionEventsAreIgnoredAcrossTypes() {
+        val s = store(); addAssistant(s, "m1")
+        // Each of these targets OTHER → the `else false` branch, no revision bump.
+        s.apply(event("""{"type":"message.part.updated","properties":{"sessionID":"OTHER","part":{"id":"p","sessionID":"OTHER","messageID":"m1","type":"text","text":"x"}}}"""), sid)
+        s.apply(event("""{"type":"todo.updated","properties":{"sessionID":"OTHER","todos":[{"content":"a","status":"pending","priority":"high"}]}}"""), sid)
+        s.apply(event("""{"type":"session.updated","properties":{"info":{"id":"OTHER","revert":{"messageID":"z"}}}}"""), sid)
+        assertEquals(0, s.messages.first().parts.size)
+        assertTrue(s.todos.isEmpty())
+        assertNull(s.revertMessageID)
+    }
+
+    @Test fun setStatusChangesAndDedupes() {
+        val s = store()
+        var changes = 0
+        s.onChange = { changes++ }
+        s.setStatus(SessionStore.StreamStatus.LIVE)
+        assertEquals(SessionStore.StreamStatus.LIVE, s.status)
+        assertEquals(1, changes)
+        s.setStatus(SessionStore.StreamStatus.LIVE) // same value → no-op, no callback
+        assertEquals(1, changes)
+        s.setStatus(SessionStore.StreamStatus.RECONNECTING)
+        assertEquals(2, changes)
+    }
 }
