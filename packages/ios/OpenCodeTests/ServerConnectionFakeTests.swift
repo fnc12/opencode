@@ -346,4 +346,38 @@ final class ServerConnectionFakeTests: XCTestCase {
         XCTAssertTrue(lastRequest.url!.path.hasSuffix("/api/devices"))
         XCTAssertEqual(lastRequest.httpMethod, "POST")
     }
+
+    // --- busy-session activity reducer ---------------------------------------
+
+    private func event(_ json: String) -> ServerEvent {
+        try! JSONDecoder().decode(ServerEvent.self, from: Data(json.utf8))
+    }
+
+    func testActivityMarksSessionBusyThenIdle() {
+        let c = direct()
+        // An assistant message with no completion time → the session is busy.
+        c.applyActivity(event(#"""
+        {"payload":{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"m","sessionID":"ses_1","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}}
+        """#))
+        XCTAssertTrue(c.busySessions.contains("ses_1"))
+        // Completed → no longer busy.
+        c.applyActivity(event(#"""
+        {"payload":{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"m","sessionID":"ses_1","role":"assistant","time":{"created":1,"completed":2},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}}
+        """#))
+        XCTAssertFalse(c.busySessions.contains("ses_1"))
+    }
+
+    func testActivityPartDeltaMarksBusy() {
+        let c = direct()
+        c.applyActivity(event(#"""
+        {"payload":{"type":"message.part.delta","properties":{"sessionID":"ses_2","messageID":"m","partID":"p","field":"text","delta":"x"}}}
+        """#))
+        XCTAssertTrue(c.busySessions.contains("ses_2"))
+    }
+
+    func testActivityIgnoresUserMessage() {
+        let c = direct()
+        c.applyActivity(event(#"{"payload":{"type":"message.updated","properties":{"sessionID":"ses_3","info":{"id":"m","sessionID":"ses_3","role":"user","time":{"created":1}}}}}"#))
+        XCTAssertFalse(c.busySessions.contains("ses_3"))
+    }
 }

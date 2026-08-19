@@ -134,7 +134,9 @@ final class ServerConnection {
         }
     }
 
-    private func applyActivity(_ event: ServerEvent) {
+    // Internal (not private) so the busy-session reducer can be unit-tested
+    // without standing up the live global event stream.
+    func applyActivity(_ event: ServerEvent) {
         switch event {
         case .messageUpdated(let sessionID, let info):
             guard case .assistant(let assistant) = info else { return }
