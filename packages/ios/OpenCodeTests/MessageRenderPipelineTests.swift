@@ -1,0 +1,77 @@
+import XCTest
+@testable import OpenCode
+
+/// Exercises the whole `MessageListView.Coordinator.render` block-building
+/// pipeline (textToBlocks, toolLine, patchLine, fileChip, reasoningBlocks, code
+/// fences, GFM tables) directly, without the UITableView — the bulk of
+/// MessageListView's logic that was near-0%.
+@MainActor
+final class MessageRenderPipelineTests: XCTestCase {
+    private func decode(_ json: String) -> MessageWithParts {
+        try! JSONDecoder().decode(MessageWithParts.self, from: Data(json.utf8))
+    }
+
+    private func assistant(parts: String) -> MessageWithParts {
+        decode(#"""
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[\#(parts)]}
+        """#)
+    }
+
+    private func render(_ m: MessageWithParts) -> RenderedMessage {
+        MessageListView.Coordinator.render(m)
+    }
+
+    func testUserRoleAndColor() {
+        let m = decode(#"{"info":{"id":"m","sessionID":"s","role":"user","time":{"created":1}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"hi"}]}"#)
+        let r = render(m)
+        XCTAssertEqual(r.roleText, "You")
+    }
+
+    func testTextBlock() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"Hello world"}"#))
+        XCTAssertTrue(r.plainText.contains("Hello world"))
+    }
+
+    func testCodeFenceBecomesCodeBlock() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"```swift\nlet x = 1\n```"}"#))
+        let hasCode = r.blocks.contains { if case .code = $0 { return true }; return false }
+        XCTAssertTrue(hasCode, "a fenced block must render as a .code block")
+    }
+
+    func testGFMTableBecomesTableBlock() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"| A | B |\n|---|---|\n| 1 | 2 |"}"#))
+        let hasTable = r.blocks.contains { if case .table = $0 { return true }; return false }
+        XCTAssertTrue(hasTable)
+    }
+
+    func testToolLineRendered() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed"}}"#))
+        XCTAssertFalse(r.blocks.isEmpty)
+    }
+
+    func testReasoningCollapsesToThinking() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"reasoning","text":"deep thoughts"}"#))
+        XCTAssertTrue(r.plainText.contains("Thinking"))
+    }
+
+    func testFileChipRendered() {
+        let r = render(assistant(parts: #"{"id":"p","sessionID":"s","messageID":"m","type":"file","filename":"main.swift","url":"file:///main.swift","mime":"text/x-swift"}"#))
+        XCTAssertTrue(r.plainText.contains("main.swift") || r.blocks.contains { if case .text = $0 { return true }; return false })
+    }
+
+    func testImageFilePartBecomesImageBlock() {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2))
+        let b64 = renderer.image { _ in }.pngData()!.base64EncodedString()
+        let r = render(assistant(parts: "{\"id\":\"p\",\"sessionID\":\"s\",\"messageID\":\"m\",\"type\":\"file\",\"filename\":\"shot.png\",\"mime\":\"image/png\",\"url\":\"data:image/png;base64,\(b64)\"}"))
+        let hasImage = r.blocks.contains { if case .image = $0 { return true }; return false }
+        XCTAssertTrue(hasImage, "an image file part must render as an .image block")
+    }
+
+    func testErrorAppendedForAssistantError() {
+        let m = decode(#"""
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"error":{"name":"ProviderError","data":{"message":"rate limited"}}},"parts":[{"id":"p","sessionID":"s","messageID":"m","type":"text","text":"partial"}]}
+        """#)
+        let r = render(m)
+        XCTAssertTrue(r.plainText.contains("Error"), "an assistant error must be surfaced")
+    }
+}

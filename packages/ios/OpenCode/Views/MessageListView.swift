@@ -472,7 +472,10 @@ struct MessageListView: UIViewRepresentable {
 
         private static let bodyFont = MessageMetrics.bodyFont
 
-        private static func render(_ message: MessageWithParts) -> RenderedMessage {
+        // Internal (not private) so unit tests can exercise the whole block-building
+        // pipeline — text/table/code/image blocks, tool/patch/file/reasoning rows —
+        // without standing up the UITableView.
+        static func render(_ message: MessageWithParts) -> RenderedMessage {
             var blocks: [MessageBlock] = []
 
             for part in message.parts {
