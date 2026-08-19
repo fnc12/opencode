@@ -26,6 +26,19 @@ EXCLUDED = {
     # registerPushToken, forget). Runs only in the live app; XCUITest exercises
     # it but that coverage cannot merge into xccov.
     "App.swift",
+    # ConnectView: the big stateful connect screen (QR scanner, paste-link, connect
+    # button). Its visual states are snapshot-tested; the only uncovered lines are
+    # SwiftUI button/callback closures whose logic (applyPairing, startConnect) is
+    # unit-tested on ServerConnection — closures xccov can't count (XCUITest-only).
+    # Same category as the SessionView/ComposerView/ProvidersView screens above.
+    "ConnectView.swift",
+    # PushManager: a UIApplicationDelegate/UNUserNotificationCenterDelegate. Its
+    # testable logic (token hex-decode, tap routing, foreground-suppression rule)
+    # is extracted + unit-tested in PushManagerTests; the lines xccov still counts
+    # are the UN delegate callbacks (didReceive/willPresent) that require a
+    # UNNotification/UNNotificationResponse — types with no public initializer —
+    # plus requestAndRegister (the live permission prompt). System-shell only.
+    "PushManager.swift",
 }
 
 

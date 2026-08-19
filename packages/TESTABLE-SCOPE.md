@@ -28,7 +28,11 @@ ProvidersView, ProjectListView, DiffView, SessionListView, FilePickerSheet,
 ImageViewerController, SessionRow, MessageSkeletonView, SessionTableView,
 QRScannerView, ZoomTransition, ProjectTableView, TypingIndicator, QuestionDock,
 RunningToolsPill, App (the @main scene — pure `.task`/`.onOpenURL`/`.onChange`
-wiring over already-tested primitives; runs only in the live app).
+wiring over already-tested primitives; runs only in the live app), ConnectView
+(big stateful connect screen — snapshot-tested visuals, interaction closures are
+XCUITest-only and their logic is unit-tested on ServerConnection), PushManager
+(UIApplicationDelegate/UN delegate — its logic is extracted + unit-tested; the
+remaining lines are UN callbacks needing an uninitializable `UNNotification`).
 
 Reasons by class: **big stateful screens** (SessionView/ComposerView/…) need the
 live app; **UIKit controllers/animators** (SessionContentController, ZoomTransition,
