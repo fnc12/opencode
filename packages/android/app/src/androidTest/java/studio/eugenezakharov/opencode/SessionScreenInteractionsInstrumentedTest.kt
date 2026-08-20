@@ -217,6 +217,9 @@ class SessionScreenInteractionsInstrumentedTest {
         advanceUntil(5000) { compose.onAllNodesWithText("Changes").fetchSemanticsNodes().isNotEmpty() }
         assertTrue("diff detail opened (Changes screen still up)",
             compose.onAllNodesWithText("Changes").fetchSemanticsNodes().isNotEmpty())
+        // The detail's Copy button puts the patch on the clipboard.
+        advanceUntil(3000) { compose.onAllNodesWithText("Copy").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithText("Copy").onFirst().performClick()
     }
 
     @Test fun multiQuestionPagerAdvancesAndSubmits() {
