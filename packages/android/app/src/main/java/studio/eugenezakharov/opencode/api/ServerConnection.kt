@@ -123,6 +123,14 @@ class ServerConnection(
         )
 
     /**
+     * Fetches one session by id (`GET /session/:id`). No directory needed — the
+     * server resolves the session's workspace from the id. Used to deep-link from
+     * a push notification, which only carries the session id. Mirrors iOS.
+     */
+    suspend fun getSession(id: String): Session =
+        get("/session/$id", Session.serializer())
+
+    /**
      * Creates a new session in a directory and returns it (`POST /session?directory=…`).
      * Works for any folder the server can see — including on a fresh server with no
      * projects yet — which is how you start work on a fresh server. An optional title
@@ -143,6 +151,41 @@ class ServerConnection(
             val body = getRaw("/session/$sessionID/message", mapOf("directory" to directory))
             MessageParsing.parseMessageList(json, body)
         }
+
+    /**
+     * One page of a session's history, newest-first-bounded. [nextCursor] (the
+     * server's `X-Next-Cursor` header) is the `before=` token for the next older
+     * page, or null once the very first message has been reached. Mirrors iOS
+     * `ServerConnection.MessagePage`.
+     */
+    data class MessagePage(
+        val messages: List<MessageWithParts>,
+        val nextCursor: String?,
+        /** The raw response body (the server's JSON array) — cached verbatim by
+         *  the caller so a reopen can paint from disk before the network returns. */
+        val raw: String,
+    )
+
+    /**
+     * Fetches the newest [limit] messages (or, with [before], the [limit] messages
+     * older than that cursor). Lets the UI open on just the latest page — a session
+     * can carry tens of MB of tool output, and pulling it all blocked the screen
+     * for tens of seconds. Mirrors iOS `ServerConnection.messagesPage`.
+     */
+    suspend fun messagesPage(
+        directory: String,
+        sessionID: String,
+        limit: Int,
+        before: String? = null,
+    ): MessagePage = withContext(Dispatchers.IO) {
+        val query = buildMap {
+            put("directory", directory)
+            put("limit", limit.toString())
+            if (before != null) put("before", before)
+        }
+        val (body, cursor) = getRawWithHeader("/session/$sessionID/message", query, "X-Next-Cursor")
+        MessagePage(MessageParsing.parseMessageList(json, body), cursor?.ifEmpty { null }, body)
+    }
 
     /** The session's current todo list (`GET /session/:id/todo`). Mirrors iOS. */
     suspend fun sessionTodos(directory: String, sessionID: String): List<studio.eugenezakharov.opencode.api.models.TodoItem> =
@@ -420,6 +463,29 @@ class ServerConnection(
                 throw ClientError.Http(response.code)
             }
             return body
+        }
+    }
+
+    /** Like [getRaw] but also returns a response header (e.g. a pagination cursor). */
+    private fun getRawWithHeader(
+        path: String,
+        query: Map<String, String>,
+        header: String,
+    ): Pair<String, String?> {
+        val httpUrl = (config.baseURL + path).toHttpUrlOrNull() ?: throw ClientError.InvalidURL
+        val urlBuilder = httpUrl.newBuilder()
+        query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
+
+        val requestBuilder = Request.Builder().url(urlBuilder.build())
+        applyAuth(requestBuilder)
+
+        client.newCall(requestBuilder.build()).execute().use { response ->
+            val body = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                System.err.println("HTTP ${response.code}: ${urlBuilder.build()}\n$body")
+                throw ClientError.Http(response.code)
+            }
+            return body to response.header(header)
         }
     }
 

@@ -8,6 +8,8 @@ final class QuestionDockUITests: XCTestCase {
     private let base = "http://127.0.0.1:4096"
     private let dir = "/mnt/data/sources/sqlite_orm"
     private let projectName = "sqlite_orm"
+    /// Server password from the runner env (public repo — no hardcoded creds).
+    private let password = ProcessInfo.processInfo.environment["OPENCODE_TEST_PASSWORD"]
 
     func testAnswerQuestionFromDock() async throws {
         let reachable = await serverReachable()
@@ -27,6 +29,11 @@ final class QuestionDockUITests: XCTestCase {
         let urlField = app.textFields["connect.serverURL"]
         XCTAssertTrue(urlField.waitForExistence(timeout: 5))
         urlField.tap(); urlField.typeText(base)
+        if let password {
+            let pwField = app.secureTextFields["connect.password"]
+            XCTAssertTrue(pwField.waitForExistence(timeout: 5))
+            pwField.tap(); pwField.typeText(password)
+        }
         app.buttons["connect.button"].tap()
 
         let project = app.staticTexts[projectName]
@@ -58,6 +65,9 @@ final class QuestionDockUITests: XCTestCase {
     private func serverReachable() async -> Bool {
         guard let url = URL(string: base + "/global/health") else { return false }
         var request = URLRequest(url: url); request.timeoutInterval = 5
+        if let password {
+            request.setValue("Basic " + Data("opencode:\(password)".utf8).base64EncodedString(), forHTTPHeaderField: "Authorization")
+        }
         return (try? await URLSession.shared.data(for: request)) != nil
     }
 
@@ -66,6 +76,9 @@ final class QuestionDockUITests: XCTestCase {
         var request = URLRequest(url: try XCTUnwrap(URL(string: "\(base)/session?directory=\(encodedDir)")))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let password {
+            request.setValue("Basic " + Data("opencode:\(password)".utf8).base64EncodedString(), forHTTPHeaderField: "Authorization")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: ["title": title])
         let (_, response) = try await URLSession.shared.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0

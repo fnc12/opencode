@@ -118,7 +118,7 @@ fun FilePickerDialog(
     }
 }
 
-private fun parentDir(p: String): String {
+internal fun parentDir(p: String): String {
     val trimmed = if (p.length > 1 && p.endsWith('/')) p.dropLast(1) else p
     val slash = trimmed.lastIndexOf('/')
     return if (slash <= 0) "/" else trimmed.substring(0, slash)

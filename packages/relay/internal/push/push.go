@@ -8,6 +8,7 @@ package push
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -31,12 +32,21 @@ type Device struct {
 type Notification struct {
 	TunnelID  string
 	SessionID string
-	Title     string
-	Body      string
+	// Kind distinguishes what happened (session finished vs permission needed).
+	// It participates in dedupe so a permission prompt and an idle signal for
+	// the same session don't suppress each other.
+	Kind  Kind
+	Title string
+	Body  string
 	// DeepLink is an app URL that opens the relevant session, e.g.
 	// opencode://session/<id>.
 	DeepLink string
 }
+
+// ErrTokenGone marks a permanently dead device token (uninstalled app,
+// rejected by every environment) — the dispatcher prunes it from the store so
+// it stops erroring on every notification.
+var ErrTokenGone = errors.New("push token gone")
 
 // Pusher delivers a Notification to a single device of its platform.
 type Pusher interface {
@@ -104,19 +114,29 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) int {
 			continue
 		}
 		if err := p.Send(ctx, dev.Token, n); err != nil {
+			if errors.Is(err, ErrTokenGone) {
+				// Dead token (uninstalled/replaced app): drop it so it stops
+				// failing on every dispatch.
+				if rmErr := d.store.Remove(n.TunnelID, dev); rmErr != nil {
+					d.log.Error("push: prune dead device", "provider", dev.Provider, "err", rmErr)
+				} else {
+					d.log.Info("push: pruned dead device", "provider", dev.Provider)
+				}
+				continue
+			}
 			d.log.Error("push: send failed", "provider", dev.Provider, "err", err)
 			continue
 		}
 		sent++
 	}
-	d.log.Info("push: dispatched", "tunnel", n.TunnelID, "session", n.SessionID, "devices", sent)
+	d.log.Info("push: dispatched", "tunnel", n.TunnelID, "session", n.SessionID, "kind", string(n.Kind), "devices", sent)
 	return sent
 }
 
 func (d *Dispatcher) duplicate(n Notification) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	key := n.TunnelID + "/" + n.SessionID
+	key := n.TunnelID + "/" + n.SessionID + "/" + string(n.Kind)
 	now := d.now()
 	if last, ok := d.recent[key]; ok && now.Sub(last) < d.dedupe {
 		return true

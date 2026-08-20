@@ -55,13 +55,13 @@ type Config struct {
 
 // Server is the relay. The zero value is not usable; call New.
 type Server struct {
-	reg         *tunnel.Registry
-	secret      string
-	log         *slog.Logger
-	store       push.Store
-	dispatcher  *push.Dispatcher
-	provision   provision.Store
-	adminSecret string
+	reg          *tunnel.Registry
+	secret       string
+	log          *slog.Logger
+	store        push.Store
+	dispatcher   *push.Dispatcher
+	provision    provision.Store
+	adminSecret  string
 	assetDir     string
 	publicURL    string
 	stripeSecret string
@@ -74,13 +74,13 @@ func New(cfg Config) *Server {
 		log = slog.Default()
 	}
 	return &Server{
-		reg:         tunnel.NewRegistry(),
-		secret:      cfg.Secret,
-		log:         log,
-		store:       cfg.Store,
-		dispatcher:  cfg.Dispatcher,
-		provision:   cfg.Provision,
-		adminSecret: cfg.AdminSecret,
+		reg:          tunnel.NewRegistry(),
+		secret:       cfg.Secret,
+		log:          log,
+		store:        cfg.Store,
+		dispatcher:   cfg.Dispatcher,
+		provision:    cfg.Provision,
+		adminSecret:  cfg.AdminSecret,
 		assetDir:     cfg.AssetDir,
 		publicURL:    cfg.PublicURL,
 		stripeSecret: cfg.StripeWebhookSecret,
@@ -242,16 +242,34 @@ func (s *Server) watchEvents(ctx context.Context, conn *tunnel.Conn) {
 			}
 			continue
 		}
-		scanner := &push.IdleScanner{}
+		scanner := &push.Scanner{}
 		for chunk := range ch {
-			for _, sid := range scanner.Feed(chunk) {
-				s.dispatcher.Notify(ctx, push.Notification{
+			for _, ev := range scanner.Feed(chunk) {
+				n := push.Notification{
 					TunnelID:  conn.TunnelID,
-					SessionID: sid,
-					Title:     "Session finished",
-					Body:      "Your OpenCode agent finished the task.",
-					DeepLink:  "opencode://session/" + sid,
-				})
+					SessionID: ev.SessionID,
+					Kind:      ev.Kind,
+					DeepLink:  "opencode://session/" + ev.SessionID,
+				}
+				// Prefer the session's own name as the title so you can tell WHICH
+				// session it is; fall back to a generic label until one is known.
+				switch ev.Kind {
+				case push.KindPermission:
+					n.Title = titleOr(ev.Title, "Permission needed")
+					n.Body = "The agent is waiting for you to allow an action."
+				case push.KindQuestion:
+					n.Title = titleOr(ev.Title, "The agent has a question")
+					n.Body = "The agent is waiting for your answer."
+				default: // idle / finished
+					n.Title = titleOr(ev.Title, "Session finished")
+					// Body: the start of the last answer, if we saw one.
+					if ev.Preview != "" {
+						n.Body = ev.Preview
+					} else {
+						n.Body = "The agent finished the task."
+					}
+				}
+				s.dispatcher.Notify(ctx, n)
 			}
 		}
 		// Stream ended; pause briefly before resubscribing.
@@ -259,6 +277,14 @@ func (s *Server) watchEvents(ctx context.Context, conn *tunnel.Conn) {
 			return
 		}
 	}
+}
+
+// titleOr returns the session's own name, or a fallback when it isn't known yet.
+func titleOr(name, fallback string) string {
+	if name != "" {
+		return name
+	}
+	return fallback
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {
@@ -327,7 +353,8 @@ func writeAck(ws *websocket.Conn, ack tunnel.RegisterAck) error {
 }
 
 var (
-	binaryNameRe = regexp.MustCompile(`^connector-(darwin|linux)-(amd64|arm64)$`)
+	// Connector binaries plus the Android beta APK (shubat.apk / shubat-<ver>.apk).
+	binaryNameRe = regexp.MustCompile(`^(connector-(darwin|linux)-(amd64|arm64)|shubat(-[A-Za-z0-9.]+)?\.apk)$`)
 	claimCodeRe  = regexp.MustCompile(`^[A-Za-z0-9-]{4,40}$`)
 )
 

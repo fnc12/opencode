@@ -13,6 +13,7 @@ import studio.eugenezakharov.opencode.api.models.ToolMeta
 import studio.eugenezakharov.opencode.ui.session.FileRefDisplay
 import studio.eugenezakharov.opencode.ui.session.PatchDisplay
 import studio.eugenezakharov.opencode.ui.session.ToolDisplay
+import studio.eugenezakharov.opencode.ui.session.filePath
 
 /**
  * Golden tests over a REAL session captured from a live OpenCode server
@@ -122,10 +123,29 @@ class ToolDisplayGoldenTest {
         assertEquals("codegen_tests_create_table.cpp:266", FileRefDisplay.chip(file))
     }
 
+    @Test fun fileChipFallsBackToUrlLastComponentThenLiteral() {
+        // No filename → lastComponent(url) (strips query + path).
+        assertEquals("main.kt", FileRefDisplay.chip(PartContent.FileRef(filename = null, url = "file:///a/b/main.kt")))
+        // No filename and no url → the literal "file".
+        assertEquals("file", FileRefDisplay.chip(PartContent.FileRef(filename = null, url = null)))
+    }
+
     @Test fun diffBadgeEdgeCases() {
         assertNull(ToolDisplay.diffBadge(null))
         assertNull(ToolDisplay.diffBadge(ToolMeta(additions = 0, deletions = 0)))
         assertEquals("+3 −0", ToolDisplay.diffBadge(ToolMeta(additions = 3, deletions = 0)))
+    }
+
+    @Test fun describeTaskToolUsesTitle() {
+        // The "task"/"question" arm returns the tool's title as detail.
+        val t = PartContent.Tool(tool = "task", callID = "c", status = "completed", title = "Sub-agent run")
+        val (_, detail) = ToolDisplay.describe(t)
+        assertEquals("Sub-agent run", detail)
+    }
+
+    @Test fun filePathReadsInputKey() {
+        assertEquals("/w/a.kt", filePath(PartContent.Tool(tool = "edit", callID = "c", status = "completed", input = mapOf("filePath" to "/w/a.kt"))))
+        assertNull(filePath(PartContent.Tool(tool = "bash", callID = "c", status = "completed")))
     }
 
     @Test fun lineRangeSpanAndSingle() {
@@ -138,5 +158,29 @@ class ToolDisplayGoldenTest {
         assertEquals("1/2", ToolDisplay.todoRatio(ToolMeta(todoTotal = 2, todoCompleted = 1)))
         assertNull(ToolDisplay.todoRatio(null))
         assertNull(ToolDisplay.todoRatio(ToolMeta(todoTotal = 0, todoCompleted = 0)))
+    }
+
+    @Test fun labelForEveryTool() {
+        val cases = mapOf(
+            "read" to "Read", "list" to "List", "glob" to "Glob", "grep" to "Grep",
+            "bash" to "Shell", "shell" to "Shell", "edit" to "Edit", "write" to "Write",
+            "patch" to "Patch", "apply_patch" to "Patch", "webfetch" to "Webfetch",
+            "websearch" to "Web Search", "task" to "Agent", "todowrite" to "To-dos",
+            "todo" to "To-dos", "question" to "Questions",
+        )
+        for ((tool, label) in cases) assertEquals("label of $tool", label, ToolDisplay.label(tool))
+        // Unknown tools fall through to the raw name.
+        assertEquals("mystery", ToolDisplay.label("mystery"))
+    }
+
+    private fun tool(name: String, input: Map<String, String>) =
+        PartContent.Tool(tool = name, callID = "c", status = "completed", input = input)
+
+    @Test fun describeWebAndListAndGlobBranches() {
+        assertEquals("http://x/y" , ToolDisplay.describe(tool("webfetch", mapOf("url" to "http://x/y"))).second)
+        assertEquals("swift concurrency", ToolDisplay.describe(tool("websearch", mapOf("query" to "swift concurrency"))).second)
+        assertEquals("*.kt", ToolDisplay.describe(tool("glob", mapOf("pattern" to "*.kt"))).second)
+        // list → base() of the path (last path component).
+        assertEquals("src", ToolDisplay.describe(tool("list", mapOf("path" to "/w/src"))).second)
     }
 }

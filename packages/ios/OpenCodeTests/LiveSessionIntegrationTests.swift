@@ -60,6 +60,49 @@ final class LiveSessionIntegrationTests: XCTestCase {
         XCTAssertTrue(store.messages.contains { if case .assistant = $0.info { return true } else { return false } })
     }
 
+    /// Exercises cursor pagination against a *real* session through the production
+    /// `ServerConnection.messagesPage` path — the newest page returns a bounded set
+    /// plus an `X-Next-Cursor`, and paging `before:` that cursor returns strictly
+    /// older, non-overlapping messages. This is the guard for the 15MB-session fix:
+    /// opening pulls one small page instead of the whole (tens-of-MB) transcript.
+    ///
+    /// Opt-in — relay mode, set:
+    ///   OPENCODE_TEST_RELAY   e.g. https://relay.shubat.org
+    ///   OPENCODE_TEST_TUNNEL  tun_…
+    ///   OPENCODE_TEST_TOKEN   the per-tunnel app token
+    ///   OPENCODE_TEST_SESSION ses_…   (an existing session with >5 messages)
+    ///   OPENCODE_TEST_DIR     that session's project directory
+    func testLivePaginationCursor() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let relay = env["OPENCODE_TEST_RELAY"], let tunnel = env["OPENCODE_TEST_TUNNEL"],
+              let token = env["OPENCODE_TEST_TOKEN"], let sessionID = env["OPENCODE_TEST_SESSION"],
+              let dir = env["OPENCODE_TEST_DIR"] else {
+            throw XCTSkip("set OPENCODE_TEST_RELAY/TUNNEL/TOKEN/SESSION/DIR to run the live pagination test")
+        }
+        let server = ServerConnection()
+        server.config = ConnectionConfig(mode: .relay, relayURL: relay, tunnelID: tunnel, token: token)
+
+        // Newest page: bounded, and there's more history behind it.
+        let first = try await server.messagesPage(directory: dir, sessionID: sessionID, limit: 5)
+        XCTAssertLessThanOrEqual(first.messages.count, 5, "the newest page is capped at the limit")
+        XCTAssertFalse(first.messages.isEmpty, "the session should have messages")
+        let cursor = try XCTUnwrap(first.nextCursor, "a session with >5 messages must hand back a next cursor")
+
+        // Older page: strictly older ids, no overlap with the newest page.
+        let older = try await server.messagesPage(directory: dir, sessionID: sessionID, limit: 5, before: cursor)
+        XCTAssertFalse(older.messages.isEmpty, "paging before the cursor returns older history")
+        let newestIDs = Set(first.messages.map(\.id))
+        let olderIDs = Set(older.messages.map(\.id))
+        XCTAssertTrue(newestIDs.isDisjoint(with: olderIDs), "older page must not repeat the newest page")
+
+        // prependOlder stitches them into one ascending transcript, deduped.
+        let store = await SessionStore()
+        await store.setInitial(first.messages)
+        await store.prependOlder(older.messages)
+        let ids = await store.messages.map(\.id)
+        XCTAssertEqual(ids.count, newestIDs.count + olderIDs.count, "no duplicates after merge")
+    }
+
     // MARK: helpers
 
     private func assistantText(_ store: SessionStore) -> String {

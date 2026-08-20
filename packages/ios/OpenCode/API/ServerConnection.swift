@@ -11,10 +11,57 @@ final class ServerConnection {
     var error: String?
     var loading = false
 
+    /// Backs an in-flight `connect()` so the UI can cancel it — e.g. the user
+    /// bails on a slow relay instead of waiting out the timeout. Not UI state.
+    @ObservationIgnored private var connectTask: Task<Void, Never>?
+
+    /// Set when the user taps a push notification: the id of the session the
+    /// notification is about. `ProjectListView` observes this and deep-links to
+    /// that session, then clears it.
+    var pendingOpenSessionID: String?
+
+    /// Bumped whenever the app returns to the foreground. Views key their live
+    /// SSE-stream tasks on this so they re-fetch state and reconnect a fresh
+    /// stream — the socket a suspended app leaves behind is often a zombie that
+    /// delivers nothing (stale screen, stuck typing indicator).
+    var foregroundNonce = 0
+
+    /// The URLSession used for every request. Defaults to `.shared` in the app;
+    /// tests inject a session backed by a stub `URLProtocol` so the whole HTTP
+    /// surface can be exercised offline and deterministically (the fake-server
+    /// layer, mirroring Android's MockWebServer).
+    @ObservationIgnored private let session: URLSession
+
     init() {
+        self.session = .shared
         if let saved = Keychain.loadConnection() {
             config = saved
         }
+    }
+
+    /// Test seam: a connection pointed at an explicit config + session (no
+    /// Keychain load). Used by the fake-server integration tests.
+    init(config: ConnectionConfig, session: URLSession = .shared) {
+        self.session = session
+        self.config = config
+    }
+
+    /// Starts a connect attempt, replacing any in-flight one. The UI calls this
+    /// (rather than awaiting `connect()` directly) so `cancelConnect()` has a
+    /// handle on the task.
+    func startConnect() {
+        guard !loading else { return }
+        connectTask = Task { await connect() }
+    }
+
+    /// Cancels an in-flight `startConnect()` — clears the spinner right away and
+    /// leaves the config untouched so the user can edit and retry.
+    func cancelConnect() {
+        guard loading else { return }
+        connectTask?.cancel()
+        connectTask = nil
+        loading = false
+        error = nil
     }
 
     /// Attempts to connect using the current config and, on success, persists it.
@@ -29,6 +76,9 @@ final class ServerConnection {
             connected = true
             Keychain.saveConnection(config)
         } catch {
+            // User-initiated cancel: `cancelConnect()` already reset the state —
+            // don't surface the cancellation as a connection error.
+            if Task.isCancelled { connected = false; return }
             self.error = error.localizedDescription
             connected = false
         }
@@ -45,6 +95,60 @@ final class ServerConnection {
     func disconnect() {
         connected = false
         version = ""
+        busySessions = []
+        pendingOpenSessionID = nil
+    }
+
+    // MARK: - Session activity (for the session list)
+
+    /// Session ids currently generating a reply, tracked off the global event bus
+    /// so the session *list* can show a live "working" indicator even for sessions
+    /// that aren't open. A session is busy while its latest assistant message has
+    /// no completion time (same signal as the open session's `isBusy`); streaming
+    /// part deltas also count, so a turn already under way when we connect still
+    /// lights up.
+    var busySessions: Set<String> = []
+
+    /// Consumes the global event stream for as long as the caller's task lives,
+    /// maintaining `busySessions`. Reconnects with backoff like the session view.
+    /// Runs app-wide (started from the project list) so the state survives
+    /// navigating between the list and an open session.
+    func trackSessionActivity() async {
+        let decoder = JSONDecoder()
+        var backoff: UInt64 = 500_000_000 // 0.5s
+        while !Task.isCancelled {
+            guard let stream = eventStream(directory: "") else { break }
+            do {
+                for try await data in stream.frames() {
+                    if Task.isCancelled { break }
+                    backoff = 500_000_000
+                    guard let event = try? decoder.decode(ServerEvent.self, from: data) else { continue }
+                    applyActivity(event)
+                }
+            } catch {
+                if Task.isCancelled { break }
+            }
+            if Task.isCancelled { break }
+            try? await Task.sleep(nanoseconds: backoff)
+            backoff = min(backoff * 2, 10_000_000_000) // cap at 10s
+        }
+    }
+
+    // Internal (not private) so the busy-session reducer can be unit-tested
+    // without standing up the live global event stream.
+    func applyActivity(_ event: ServerEvent) {
+        switch event {
+        case .messageUpdated(let sessionID, let info):
+            guard case .assistant(let assistant) = info else { return }
+            if assistant.time.completed == nil { busySessions.insert(sessionID) }
+            else { busySessions.remove(sessionID) }
+        case .partDelta(let delta):
+            // A live text/tool delta means the turn is still running — covers a
+            // session that was already generating before we subscribed.
+            busySessions.insert(delta.sessionID)
+        default:
+            break
+        }
     }
 
     /// Registers this device's APNs token with the relay so it can push when a
@@ -59,7 +163,7 @@ final class ServerConnection {
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "tunnelId": config.tunnelID, "provider": "apns", "token": hexToken,
         ])
-        _ = try? await URLSession.shared.data(for: request)
+        _ = try? await session.data(for: request)
     }
 
     /// Forgets the saved connection and resets state.
@@ -77,8 +181,48 @@ final class ServerConnection {
         try await get("/session", query: ["directory": directory])
     }
 
+    /// Fetches one session by id (`GET /session/:id`). No directory needed — the
+    /// server resolves the session's workspace from the id. Used to deep-link
+    /// from a push notification, which only carries the session id.
+    func getSession(id: String) async throws -> Session {
+        try await get("/session/\(id)")
+    }
+
     func messages(directory: String, sessionID: String) async throws -> [MessageWithParts] {
         try await get("/session/\(sessionID)/message", query: ["directory": directory])
+    }
+
+    /// One page of a session's messages, newest-last. Without `before` it returns
+    /// the newest `limit` messages; with `before` (a cursor) the next older page.
+    /// `nextCursor` (from the `X-Next-Cursor` response header) is the cursor for the
+    /// next older page, or nil at the start of history. Lets a huge session paint
+    /// its latest messages immediately instead of blocking on the whole transcript.
+    struct MessagePage {
+        let messages: [MessageWithParts]
+        let nextCursor: String?
+        /// The raw response body (the server's JSON array) — cached verbatim by
+        /// the caller so a reopen can paint from disk before the network returns.
+        let raw: Data
+    }
+
+    func messagesPage(directory: String, sessionID: String, limit: Int, before: String? = nil) async throws -> MessagePage {
+        guard var components = URLComponents(string: config.baseURL + "/session/\(sessionID)/message") else {
+            throw ClientError.invalidURL
+        }
+        var items = [URLQueryItem(name: "directory", value: directory),
+                     URLQueryItem(name: "limit", value: String(limit))]
+        if let before { items.append(URLQueryItem(name: "before", value: before)) }
+        components.queryItems = items
+        guard let url = components.url else { throw ClientError.invalidURL }
+        var request = URLRequest(url: url)
+        applyAuth(to: &request)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw ClientError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let messages = try JSONDecoder().decode([MessageWithParts].self, from: data)
+        let cursor = http.value(forHTTPHeaderField: "X-Next-Cursor")
+        return MessagePage(messages: messages, nextCursor: (cursor?.isEmpty == false) ? cursor : nil, raw: data)
     }
 
     /// The aggregate file changes for a session (`GET /session/:id/diff`) — one
@@ -169,7 +313,7 @@ final class ServerConnection {
         if let title, !title.isEmpty { body["title"] = title }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let text = String(data: data, encoding: .utf8) ?? "(non-utf8)"
@@ -266,7 +410,7 @@ final class ServerConnection {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         applyAuth(to: &request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             throw ClientError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
@@ -286,7 +430,7 @@ final class ServerConnection {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
         applyAuth(to: &request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             print("❌ \(method) \(code): \(url.absoluteString)\n\(String(data: data, encoding: .utf8)?.prefix(400) ?? "")")
@@ -350,7 +494,7 @@ final class ServerConnection {
         applyAuth(to: &request)
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let text = String(data: data, encoding: .utf8) ?? "(non-utf8)"
@@ -375,7 +519,7 @@ final class ServerConnection {
             let cred = Data("opencode:\(password)".utf8).base64EncodedString()
             authHeader = "Basic \(cred)"
         }
-        return EventStream(url: url, authHeader: authHeader, tunnelToken: tunnelToken)
+        return EventStream(url: url, authHeader: authHeader, tunnelToken: tunnelToken, session: session)
     }
 
     func get<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
@@ -392,7 +536,7 @@ final class ServerConnection {
         // The OpenCode server's password (OPENCODE_SERVER_PASSWORD) is forwarded
         // as Basic auth; in relay mode the connector passes the header through.
         applyAuth(to: &request)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let body = String(data: data, encoding: .utf8) ?? "(non-utf8)"

@@ -2,6 +2,7 @@ package push
 
 import (
 	"context"
+	"errors"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -103,3 +104,79 @@ func TestAPNsSend(t *testing.T) {
 		t.Fatalf("iss = %v", claims["iss"])
 	}
 }
+
+// A dev-signed build's SANDBOX token against a relay configured for production:
+// the first attempt 400s with BadDeviceToken and Send must fall back to the
+// sandbox environment (then remember it, skipping the failed hop next time).
+func TestAPNsSendFallsBackToOtherEnvironment(t *testing.T) {
+	keyPath, _ := writeECKey(t)
+
+	prodCalls, sandboxCalls := 0, 0
+	prod := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		prodCalls++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"reason":"BadDeviceToken"}`))
+	}))
+	defer prod.Close()
+	sandbox := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sandboxCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer sandbox.Close()
+
+	p, err := NewAPNsPusher(APNsConfig{
+		KeyPath: keyPath, KeyID: "ABC123DEFG", TeamID: "TEAM123456",
+		Topic: "com.example.app", Endpoint: prod.URL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.prod, p.sandbox = prod.URL, sandbox.URL
+
+	if err := p.Send(context.Background(), "sandboxtoken", Notification{Title: "t"}); err != nil {
+		t.Fatalf("fallback send: %v", err)
+	}
+	if prodCalls != 1 || sandboxCalls != 1 {
+		t.Fatalf("calls prod=%d sandbox=%d, want 1/1", prodCalls, sandboxCalls)
+	}
+
+	// Second send goes straight to the cached (sandbox) environment.
+	if err := p.Send(context.Background(), "sandboxtoken", Notification{Title: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	if prodCalls != 1 || sandboxCalls != 2 {
+		t.Fatalf("cached calls prod=%d sandbox=%d, want 1/2", prodCalls, sandboxCalls)
+	}
+}
+
+// A token rejected by BOTH environments is dead: Send reports ErrTokenGone so
+// the dispatcher prunes the device.
+func TestAPNsSendReportsGoneWhenBothEnvironmentsReject(t *testing.T) {
+	keyPath, _ := writeECKey(t)
+
+	bad := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"reason":"BadDeviceToken"}`))
+	})
+	prod := httptest.NewServer(bad)
+	defer prod.Close()
+	sandbox := httptest.NewServer(bad)
+	defer sandbox.Close()
+
+	p, err := NewAPNsPusher(APNsConfig{
+		KeyPath: keyPath, KeyID: "ABC123DEFG", TeamID: "TEAM123456",
+		Topic: "com.example.app", Endpoint: prod.URL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.prod, p.sandbox = prod.URL, sandbox.URL
+
+	err = p.Send(context.Background(), "deadtoken", Notification{Title: "t"})
+	if !errorsIs(err, ErrTokenGone) {
+		t.Fatalf("err = %v, want ErrTokenGone", err)
+	}
+}
+
+// tiny local alias so the test reads clearly without importing errors twice.
+func errorsIs(err, target error) bool { return errors.Is(err, target) }
