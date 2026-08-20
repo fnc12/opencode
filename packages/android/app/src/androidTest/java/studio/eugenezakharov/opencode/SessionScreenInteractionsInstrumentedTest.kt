@@ -270,6 +270,40 @@ class SessionScreenInteractionsInstrumentedTest {
         assertTrue(vm.state.value.pendingQuestions.isEmpty())
     }
 
+    @Test fun attachFileThenSendIncludesAttachment() {
+        // Full attach flow: + menu → File → pick a file → readFile stages it as a
+        // chip → send posts the prompt WITH the attachment source.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths.add("${request.method} ${request.path}")
+                val path = request.path ?: ""
+                val body = when {
+                    path.startsWith("/file/content") -> """{"content":"fun main() {}"}"""
+                    path.startsWith("/file") -> """[{"name":"main.kt","absolute":"/w/main.kt","type":"file"}]"""
+                    else -> "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        mount(vm)
+        // Open + menu → tap "File" → the file picker dialog.
+        compose.onNodeWithTag("composer.plus").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        advanceUntil(4000) { compose.onAllNodesWithTag("composer.file").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("composer.file").performClick()
+        // Pick the file → onPick reads it → it becomes a "📄 main.kt" chip.
+        advanceUntil(6000) { compose.onAllNodesWithText("main.kt", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithText("main.kt", substring = true).onFirst().performClick()
+        advanceUntil(6000) { compose.onAllNodesWithText("📄", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        // Send → the prompt POST carries the attachment's source content.
+        compose.onNodeWithTag("composer.field").performTextInput("look at this")
+        compose.onNodeWithTag("composer.send").performClick()
+        waitForPath("POST /session/ses_1/message")
+        assertTrue("send posts the message", sawPath("POST /session/ses_1/message"))
+    }
+
     @Test fun revertBannerRestores() {
         // A session with a revert boundary → the "↩ … reverted" banner shows above
         // the composer; tapping it restores (POST /unrevert).
