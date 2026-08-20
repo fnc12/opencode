@@ -128,8 +128,18 @@ class SessionViewModel(
         loadProviders()
     }
 
+    // Holds the load + live-stream coroutine so it can be cancelled deterministically
+    // (retry() replaces it; tests stop the otherwise-infinite stream loop via
+    // stopStream()). Production still runs in viewModelScope → cancelled on onCleared.
+    private var startJob: kotlinx.coroutines.Job? = null
+
+    /** Test seam: cancels the live-stream loop so an instrumented test that exercises
+     *  it doesn't leak an infinite reconnect coroutine into later tests. */
+    internal fun stopStream() { startJob?.cancel() }
+
     private fun start() {
-        viewModelScope.launch {
+        startJob?.cancel()
+        startJob = viewModelScope.launch {
             // 0) Cache-first paint: show the last-seen newest page from disk right
             // away (the skeleton is skipped once messages are non-empty), then
             // refresh from the network in parallel below.
