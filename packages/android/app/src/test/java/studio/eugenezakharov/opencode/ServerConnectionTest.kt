@@ -169,6 +169,26 @@ class ServerConnectionTest {
         assertEquals("POST", server.takeRequest().method)
     }
 
+    @Test fun removeProviderAuthDeletes() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().removeProviderAuth("anthropic")
+        val req = server.takeRequest()
+        assertEquals("DELETE", req.method)
+        assertEquals("/auth/anthropic", req.path)
+    }
+
+    @Test fun sendPromptDefaultsAgentToNull() = runBlocking {
+        // Calling without the `agent` arg exercises its `= null` default: the
+        // request still posts and omits an agent field.
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
+        direct().sendPrompt("/w", "ses_1", "hello", "anthropic", "claude")
+        val req = server.takeRequest()
+        assertEquals("POST", req.method)
+        val body = req.body.readUtf8()
+        assertTrue(body.contains("hello"))
+        assertTrue("no agent field when defaulted", !body.contains("\"agent\""))
+    }
+
     // --- error handling ------------------------------------------------------
 
     @Test(expected = Exception::class)
