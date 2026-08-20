@@ -270,6 +270,23 @@ class SessionScreenInteractionsInstrumentedTest {
         assertTrue(vm.state.value.pendingQuestions.isEmpty())
     }
 
+    @Test fun revertBannerRestores() {
+        // A session with a revert boundary → the "↩ … reverted" banner shows above
+        // the composer; tapping it restores (POST /unrevert).
+        val reverted = Session(
+            id = "ses_1", projectID = "p", directory = "/w", title = "Fix the parser",
+            version = "1", time = SessionTime(created = 1.0, updated = 2.0),
+            revert = studio.eugenezakharov.opencode.api.models.SessionRevert(messageID = "m9"),
+        )
+        val vm = SessionViewModel(server = conn(), session = reverted, prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        mount(vm)
+        compose.waitUntil(3000) { compose.onAllNodesWithText("reverted", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithText("reverted", substring = true).onFirst().performClick()
+        waitForPath("POST /session/ses_1/unrevert")
+        assertTrue("tapping the banner restores", sawPath("POST /session/ses_1/unrevert"))
+    }
+
     @Test fun commandsDialogRunsCommand() {
         // Commands loaded → the attach menu's "commands" item shows; opening the
         // dialog lists them and tapping one runs it (POST /command).
