@@ -490,6 +490,16 @@ final class ServerConnectionFakeTests: XCTestCase {
         XCTAssertFalse(c.connected)
     }
 
+    func testCancelConnectWhileLoadingClearsState() {
+        // Mid-flight (loading == true) → the body runs: clears the spinner + error.
+        let c = direct()
+        c.loading = true
+        c.error = "connecting…"
+        c.cancelConnect()
+        XCTAssertFalse(c.loading)
+        XCTAssertNil(c.error)
+    }
+
     func testTrackSessionActivityFoldsStreamedEvents() async {
         // An SSE frame marking ses_9 busy → the reconnect loop consumes it via the
         // (stub-backed) event stream and updates busySessions. Covers trackSessionActivity.

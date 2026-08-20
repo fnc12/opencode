@@ -110,6 +110,26 @@ class AppViewModelInstrumentedTest {
         assertTrue(!vm.busySessions.value.contains("ses_3"))
     }
 
+    @Test fun cancelConnectClearsMidFlightLoading() {
+        // A hanging server keeps the connect in flight (loading stays true), so
+        // cancelConnect deterministically runs its body.
+        val mock = okhttp3.mockwebserver.MockWebServer()
+        mock.enqueue(okhttp3.mockwebserver.MockResponse()
+            .setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE))
+        mock.start()
+        try {
+            val vm = vm()
+            vm.setMode(ConnectionMode.DIRECT)
+            vm.setDirectURL(mock.url("/").toString().trimEnd('/'))
+            vm.connect()
+            assertTrue("connect sets loading", vm.state.value.loading)
+            vm.cancelConnect()
+            assertTrue("cancel clears the spinner", !vm.state.value.loading)
+        } finally {
+            mock.shutdown()
+        }
+    }
+
     @Test fun disconnectClearsConnectedState() {
         val vm = vm()
         vm.disconnect()
