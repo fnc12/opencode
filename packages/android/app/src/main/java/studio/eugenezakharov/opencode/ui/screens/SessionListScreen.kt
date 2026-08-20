@@ -215,42 +215,6 @@ private fun EmptySessions(creating: Boolean, onNewSession: () -> Unit) {
     }
 }
 
-@Composable
-private fun SessionRow(session: Session, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Text(
-            session.title.ifEmpty { "Untitled" },
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-        )
-        Spacer(Modifier.padding(top = 2.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            session.summary?.let { summary ->
-                if (summary.additions > 0) {
-                    Text("+${summary.additions} ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
-                if (summary.deletions > 0) {
-                    Text("-${summary.deletions} ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-                if (summary.files > 0) {
-                    Text("${summary.files} files", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            Text(
-                relativeTime(session.time.updated),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
 /** Coarse relative-time label (ms epoch). */
 fun relativeTime(epochMillis: Double): String {
     val now = System.currentTimeMillis()
