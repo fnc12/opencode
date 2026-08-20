@@ -41,4 +41,20 @@ final class MarkdownRendererTests: XCTestCase {
         let color = s.attribute(.foregroundColor, at: linkRange.location, effectiveRange: nil) as? UIColor
         XCTAssertEqual(color, UIColor.systemBlue, "links render blue")
     }
+
+    // --- inlineAttributed (single-line, used by table cells) -----------------
+
+    func testInlineAttributedEmptyStringIsEmpty() {
+        // The empty-string guard returns an empty attributed string (table cells
+        // can be blank), without invoking the markdown parser.
+        let s = MarkdownRenderer.inlineAttributed("", font: font, color: .label)
+        XCTAssertEqual(s.string, "")
+    }
+
+    func testInlineAttributedRendersInlineMarkers() {
+        let s = MarkdownRenderer.inlineAttributed("**cell** value", font: font, color: .label)
+        XCTAssertEqual(s.string, "cell value", "inline ** markers are consumed")
+        let boldFont = s.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        XCTAssertTrue(boldFont?.fontDescriptor.symbolicTraits.contains(.traitBold) ?? false)
+    }
 }
