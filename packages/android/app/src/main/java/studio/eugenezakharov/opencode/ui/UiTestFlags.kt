@@ -22,4 +22,12 @@ object UiTestFlags {
      *  reproduce layout bugs with real captured payloads (UITEST_QUESTION_JSON). */
     @Volatile
     var injectQuestionJson: String? = null
+
+    /** When true, `SessionDestination` builds its `SessionViewModel` with the live
+     *  SSE loop disabled. The nav-flow integration test navigates into a session
+     *  but must not leave an infinite reconnect stream running (a viewModelScope
+     *  created via `remember{}` is never cleared), which would leak coroutines
+     *  across later tests in the same process. No effect in production. */
+    @Volatile
+    var disableStream: Boolean = false
 }

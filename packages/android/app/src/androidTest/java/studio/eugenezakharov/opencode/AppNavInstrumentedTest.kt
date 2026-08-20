@@ -33,6 +33,10 @@ class AppNavInstrumentedTest {
     private lateinit var server: MockWebServer
 
     @Before fun setUp() {
+        // Navigating into a session here must not leave an infinite SSE reconnect
+        // loop running (its viewModelScope is never cleared) — that leaks coroutines
+        // across later tests in the same process.
+        studio.eugenezakharov.opencode.ui.UiTestFlags.disableStream = true
         server = MockWebServer()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
@@ -52,7 +56,10 @@ class AppNavInstrumentedTest {
         server.start()
     }
 
-    @After fun tearDown() { server.shutdown() }
+    @After fun tearDown() {
+        studio.eugenezakharov.opencode.ui.UiTestFlags.disableStream = false
+        server.shutdown()
+    }
 
     private fun textShown(text: String, timeoutMs: Long = 5_000): Boolean {
         compose.waitUntil(timeoutMs) { compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }

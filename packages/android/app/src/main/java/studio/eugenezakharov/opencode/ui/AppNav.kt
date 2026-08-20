@@ -134,6 +134,7 @@ private fun SessionDestination(
             injectQuestionJson = UiTestFlags.injectQuestionJson,
             injectTestTodo = UiTestFlags.injectTodo,
             cache = studio.eugenezakharov.opencode.api.MessageCache(context),
+            streamLive = !UiTestFlags.disableStream,
         )
     }
     // Returning to the foreground re-syncs the snapshot (parity with iOS's
