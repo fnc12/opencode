@@ -94,6 +94,18 @@ class SessionScreenInteractionsInstrumentedTest {
         while (System.currentTimeMillis() < deadline && !sawPath(substr)) Thread.sleep(20)
     }
 
+    /** With the clock paused, pump it in small steps (giving background network a
+     *  chance to return) until [cond] holds or the deadline passes. */
+    private fun advanceUntil(timeoutMs: Long, cond: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (cond()) return
+            compose.mainClock.advanceTimeBy(120)
+            Thread.sleep(40)
+        }
+        assertTrue("condition not met within ${timeoutMs}ms", cond())
+    }
+
     private fun mount(vm: SessionViewModel) {
         compose.mainClock.autoAdvance = false
         compose.setContent {
@@ -192,20 +204,17 @@ class SessionScreenInteractionsInstrumentedTest {
         }
         val vm = SessionViewModel(server = conn(), session = sessionWithDiff(), prefs = Prefs(), streamLive = false)
         awaitLoaded(vm)
-        compose.mainClock.autoAdvance = false
-        compose.setContent {
-            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
-                SessionScreen(viewModel = vm, session = sessionWithDiff(), onBack = {})
-            }
-        }
-        // Open the diff screen → it loads the file list (DiffFileRow renders).
+        mount(vm) // autoAdvance = false (the connecting spinner never idles)
+        // Open the diff screen → it loads the file list over the network. With the
+        // clock paused, manually advance it while the network returns so the load
+        // effect's recomposition flushes (waitUntil would need idle; performClick
+        // would block on the spinner if autoAdvance were on).
         compose.onNodeWithTag("session.diff").performClick()
-        compose.mainClock.advanceTimeBy(1_500)
-        compose.waitUntil(5000) { compose.onAllNodesWithText("src/parser.kt").fetchSemanticsNodes().isNotEmpty() }
+        advanceUntil(8000) { compose.onAllNodesWithText("src/parser.kt").fetchSemanticsNodes().isNotEmpty() }
         assertTrue(compose.onAllNodesWithText("src/parser.kt").fetchSemanticsNodes().isNotEmpty())
         // Tap the file row → DiffFileDetail with the colored diff (coloredDiff()).
         compose.onNodeWithText("src/parser.kt").performClick()
-        compose.mainClock.advanceTimeBy(1_000)
+        advanceUntil(5000) { compose.onAllNodesWithText("Changes").fetchSemanticsNodes().isNotEmpty() }
         assertTrue("diff detail opened (Changes screen still up)",
             compose.onAllNodesWithText("Changes").fetchSemanticsNodes().isNotEmpty())
     }
@@ -259,6 +268,37 @@ class SessionScreenInteractionsInstrumentedTest {
         compose.onNodeWithTag("question.submit").performClick()
         compose.waitUntil(3000) { vm.state.value.pendingQuestions.isEmpty() }
         assertTrue(vm.state.value.pendingQuestions.isEmpty())
+    }
+
+    @Test fun commandsDialogRunsCommand() {
+        // Commands loaded → the attach menu's "commands" item shows; opening the
+        // dialog lists them and tapping one runs it (POST /command).
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths.add("${request.method} ${request.path}")
+                val body = if (request.method == "GET" && (request.path ?: "").startsWith("/command")) {
+                    """[{"name":"init","description":"Initialize the project"},{"name":"review","description":"Review changes"}]"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.commands.isEmpty()) Thread.sleep(20)
+        mount(vm)
+        compose.onNodeWithTag("composer.plus").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitUntil(3000) { compose.onAllNodesWithTag("composer.commands").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("composer.commands").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        // The commands dialog lists each command; tapping one runs it.
+        compose.waitUntil(3000) { compose.onAllNodesWithText("/init").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("/init").performClick()
+        waitForPath("POST /session/ses_1/command")
+        assertTrue("running a command POSTs it", sawPath("POST /session/ses_1/command"))
     }
 
     @Test fun todoPillOpensTasksDialog() {
