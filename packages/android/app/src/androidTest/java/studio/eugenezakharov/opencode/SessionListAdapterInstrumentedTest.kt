@@ -69,4 +69,43 @@ class SessionListAdapterInstrumentedTest {
         onView(withText("Rename")).inRoot(isPlatformPopup()).perform(click())
         assertTrue("Rename fires onRename", renamed?.id == "ses_1")
     }
+
+    /**
+     * A second submit with overlapping ids drives DiffUtil's areItemsTheSame /
+     * areContentsTheSame — the diff path is only exercised when an old list is
+     * already present (the first submit diffs against an empty list).
+     */
+    @Test fun resubmitDiffsAgainstPreviousList() {
+        lateinit var adapter: SessionListAdapter
+        lateinit var rv: RecyclerView
+        compose.activityRule.scenario.onActivity { activity ->
+            adapter = SessionListAdapter(
+                primaryColor = -1, secondaryColor = -1, addColor = -1, delColor = -1,
+                onClick = {}, onRename = {}, onDelete = {},
+            )
+            rv = RecyclerView(activity).apply {
+                layoutManager = LinearLayoutManager(activity)
+                this.adapter = adapter
+            }
+            // Seed two rows, then re-submit: ses_1 unchanged (contents same),
+            // ses_2 retitled (contents differ), ses_3 new, ses_9 dropped.
+            adapter.submit(listOf(session("ses_1"), session("ses_2"), session("ses_9")))
+            activity.setContentView(rv)
+            rv.measure(
+                View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.EXACTLY),
+            )
+            rv.layout(0, 0, 1000, 2000)
+            adapter.submit(
+                listOf(
+                    session("ses_1"),
+                    session("ses_2").copy(title = "Renamed"),
+                    session("ses_3"),
+                ),
+                busyIds = setOf("ses_1"), // busy-state change also forces a rebind
+            )
+        }
+        compose.waitForIdle()
+        assertTrue("list reflects the re-submitted rows", adapter.itemCount == 3)
+    }
 }
