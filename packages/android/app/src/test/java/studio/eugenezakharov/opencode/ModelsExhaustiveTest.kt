@@ -12,8 +12,14 @@ import studio.eugenezakharov.opencode.api.models.AgentInfo
 import studio.eugenezakharov.opencode.api.models.CommandInfo
 import studio.eugenezakharov.opencode.api.models.FileEntry
 import studio.eugenezakharov.opencode.api.models.HealthResponse
+import studio.eugenezakharov.opencode.api.models.MessageError
 import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessageParsing
+import studio.eugenezakharov.opencode.api.models.MessageWithParts
+import studio.eugenezakharov.opencode.api.models.QuestionOption
+import studio.eugenezakharov.opencode.api.models.SessionShare
+import studio.eugenezakharov.opencode.api.models.SessionSummary
+import studio.eugenezakharov.opencode.ui.session.parentDir
 import studio.eugenezakharov.opencode.api.models.PartContent
 import studio.eugenezakharov.opencode.api.models.Project
 import studio.eugenezakharov.opencode.api.models.ProviderAuthMethod
@@ -119,6 +125,59 @@ class ModelsExhaustiveTest {
         assertFalse(item.custom!!)
         assertTrue(item.allowsMultiple)
         assertEquals("first", item.options.single().description)
+    }
+
+    /**
+     * kotlinx deserialization instantiates via a synthetic constructor, so the
+     * primary Kotlin constructors (used when the app builds these directly) stay
+     * uncovered by decode-only tests. Construct each directly — full-args and,
+     * where there are optionals, a defaulted form — to hit both the primary and
+     * the `$default` bridge.
+     */
+    @Test fun directConstructionOfModels() {
+        assertEquals("a.kt", SessionFileDiff(file = "a.kt", patch = "@@", additions = 1, deletions = 2, status = "modified").file)
+        assertEquals(0, SessionFileDiff().additions) // all-defaults form
+
+        assertEquals("file", FileEntry(name = "n", path = "p", absolute = "/a/n", type = "file", ignored = false).type)
+        assertFalse(FileEntry(name = "n", absolute = "/a/n", type = "file").isDirectory) // defaulted path/ignored
+
+        assertEquals(3, SessionSummary(additions = 3, deletions = 4, files = 5).additions)
+        assertEquals(0, SessionSummary().files) // all-defaults
+
+        assertTrue(AgentInfo(name = "plan", description = "d", mode = "subagent", hidden = true).hidden)
+        assertTrue(AgentInfo(name = "build").selectable) // defaulted mode/hidden
+
+        val opt = QuestionOption(label = "A", description = "first")
+        assertEquals("first", opt.description)
+        assertEquals("", QuestionOption(label = "B").description) // defaulted
+
+        val item = QuestionItem(question = "Q", header = "H", options = listOf(opt), multiple = true, custom = false)
+        assertEquals("H|Q", item.key)
+
+        assertEquals("high", TodoItem(content = "c", status = "pending", priority = "high").priority)
+        assertNull(TodoItem(content = "c", status = "pending").priority) // defaulted priority
+
+        assertEquals("API key", ProviderAuthMethod(type = "api", label = "API key").label)
+        assertEquals("", ProviderAuthMethod(type = "oauth").label) // defaulted label
+
+        assertEquals("boom", MessageError(name = "E", message = "boom").displayText)
+        assertEquals("E", MessageError(name = "E").displayText) // defaulted message → falls back to name
+
+        assertTrue(HealthResponse(healthy = true, version = "1").healthy)
+        assertEquals("https://x", SessionShare(url = "https://x").url)
+        assertEquals("init", CommandInfo(name = "init", description = "d").name)
+        assertEquals("init", CommandInfo(name = "init").name) // defaulted description
+
+        val mwp = MessageWithParts(info = MessageInfo.User(id = "m", sessionID = "s", created = 1.0))
+        assertEquals("m", mwp.id)
+        assertFalse(mwp.hasRenderableContent) // no parts
+    }
+
+    @Test fun parentDirEdgeCases() {
+        assertEquals("/a/b", parentDir("/a/b/c"))
+        assertEquals("/a", parentDir("/a/b/")) // trailing slash trimmed first
+        assertEquals("/", parentDir("/top")) // slash at index 0 → root
+        assertEquals("/", parentDir("/")) // root stays root
     }
 
     @Test fun userAndAssistantMessageInfoFields() {
