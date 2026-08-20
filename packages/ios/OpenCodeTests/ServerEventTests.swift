@@ -66,4 +66,37 @@ final class ServerEventTests: XCTestCase {
         guard case .other(let type) = try decode(json) else { return XCTFail("expected .other") }
         XCTAssertEqual(type, "server.connected")
     }
+
+    // --- missing-field fallback branches -------------------------------------
+
+    func testSessionUpdatedWithoutInfoUsesSessionIDField() throws {
+        // No `info` object → falls back to the bare `sessionID`, revert is nil.
+        let json = #"{"payload":{"type":"session.updated","properties":{"sessionID":"ses_7"}}}"#
+        guard case .sessionUpdated(let sid, let revert) = try decode(json) else { return XCTFail("expected .sessionUpdated") }
+        XCTAssertEqual(sid, "ses_7")
+        XCTAssertNil(revert)
+    }
+
+    func testSessionUpdatedWithNeitherInfoNorIDIsEmpty() throws {
+        // Neither `info` nor `sessionID` → the `sid ?? ""` fallback yields "".
+        let json = #"{"payload":{"type":"session.updated","properties":{}}}"#
+        guard case .sessionUpdated(let sid, _) = try decode(json) else { return XCTFail("expected .sessionUpdated") }
+        XCTAssertEqual(sid, "")
+    }
+
+    func testPermissionRepliedWithoutSessionIDIsEmpty() throws {
+        // Missing `sessionID` → the `?? ""` fallback in permission.replied.
+        let json = #"{"payload":{"type":"permission.replied","properties":{"requestID":"per_1"}}}"#
+        guard case .permissionReplied(let sid, let rid) = try decode(json) else { return XCTFail("expected .permissionReplied") }
+        XCTAssertEqual(sid, "")
+        XCTAssertEqual(rid, "per_1")
+    }
+
+    func testTodoUpdatedWithoutTodosIsEmptyList() throws {
+        // Missing `todos` → the `?? []` fallback yields no items.
+        let json = #"{"payload":{"type":"todo.updated","properties":{"sessionID":"ses_1"}}}"#
+        guard case .todoUpdated(let sid, let todos) = try decode(json) else { return XCTFail("expected .todoUpdated") }
+        XCTAssertEqual(sid, "ses_1")
+        XCTAssertTrue(todos.isEmpty)
+    }
 }
