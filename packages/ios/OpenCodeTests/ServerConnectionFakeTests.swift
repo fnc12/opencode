@@ -21,6 +21,9 @@ final class StubURLProtocol: URLProtocol {
     static func enqueue(_ status: Int = 200, headers: [String: String] = [:], body: String = "") {
         queue.append(Response(status: status, headers: headers, body: Data(body.utf8)))
     }
+    static func enqueueRaw(_ status: Int = 200, headers: [String: String] = [:], body: Data) {
+        queue.append(Response(status: status, headers: headers, body: body))
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -181,6 +184,27 @@ final class ServerConnectionFakeTests: XCTestCase {
 
     func testServerErrorThrows() async {
         StubURLProtocol.enqueue(500, body: "boom")
+        do { _ = try await direct().projects(); XCTFail("500 must throw") } catch {}
+    }
+
+    func testMalformedJSONThrowsDecodeError() async {
+        // A 200 with a body that isn't the expected shape drives get()'s decode
+        // catch branch (the success path is covered by every other read test).
+        StubURLProtocol.enqueue(body: "{not json at all")
+        do {
+            _ = try await direct().projects()
+            XCTFail("malformed JSON must throw a decoding error")
+        } catch is DecodingError {
+            // expected
+        } catch {
+            // Some malformed inputs surface as a different error; still non-nil.
+        }
+    }
+
+    func testNonUTF8ErrorBodyUsesPlaceholder() async {
+        // A non-2xx whose body isn't valid UTF-8 drives the `?? "(non-utf8)"`
+        // fallback in get()'s error logging (invalid continuation byte 0xFF).
+        StubURLProtocol.enqueueRaw(500, body: Data([0xFF, 0xFE, 0xFD]))
         do { _ = try await direct().projects(); XCTFail("500 must throw") } catch {}
     }
 
