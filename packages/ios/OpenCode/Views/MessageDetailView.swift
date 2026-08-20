@@ -118,12 +118,17 @@ struct MessageDetailView: View {
 
     private func toggleThinking(_ id: String) {
         withAnimation(.easeInOut(duration: 0.2)) {
-            if expandedThinking.contains(id) {
-                expandedThinking.remove(id)
-            } else {
-                expandedThinking.insert(id)
-            }
+            expandedThinking = Self.toggled(expandedThinking, id)
         }
+    }
+
+    /// Pure toggle of `id`'s membership in the expanded-thinking set — so the
+    /// collapse/expand branch logic is unit-testable without a live @State tap
+    /// (the `withAnimation`/@State wrapper itself is XCUITest-only).
+    static func toggled(_ set: Set<String>, _ id: String) -> Set<String> {
+        var s = set
+        if s.contains(id) { s.remove(id) } else { s.insert(id) }
+        return s
     }
 
     private var blocks: [Block] {

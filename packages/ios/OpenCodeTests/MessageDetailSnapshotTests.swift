@@ -83,6 +83,16 @@ final class MessageDetailSnapshotTests: XCTestCase {
         XCTAssertTrue(text.contains("Patch"), "patch note is included")
     }
 
+    func testToggledExpandsThenCollapses() {
+        // The thinking-card toggle: absent id → inserted; present id → removed.
+        let expanded = MessageDetailView.toggled([], "t1")
+        XCTAssertTrue(expanded.contains("t1"))
+        let collapsed = MessageDetailView.toggled(expanded, "t1")
+        XCTAssertFalse(collapsed.contains("t1"))
+        // Other ids are untouched.
+        XCTAssertEqual(MessageDetailView.toggled(["a"], "b"), ["a", "b"])
+    }
+
     func testPlainTextSkipsUnrenderedPartTypes() {
         // A step-finish part isn't a detail block → the blocks builder's default
         // branch skips it; the surrounding text still flattens.
