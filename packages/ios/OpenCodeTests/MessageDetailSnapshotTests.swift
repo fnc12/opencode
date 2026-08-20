@@ -106,6 +106,17 @@ final class MessageDetailSnapshotTests: XCTestCase {
         XCTAssertEqual(text, "After the step.")
     }
 
+    func testPlainTextToolWithNoOutputIsTitleOnly() {
+        // A completed tool with no output/diff → cleanOutput is nil → the copy
+        // falls back to just the "→ title" line (the `?? "→ \(title)"` branch).
+        let text = plain(#"""
+        {"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1,"completed":2},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},
+         "parts":[{"id":"p","sessionID":"s","messageID":"m","type":"tool","callID":"c","tool":"bash","state":{"status":"completed","title":"noop"}}]}
+        """#)
+        XCTAssertTrue(text.hasPrefix("→ "), "no output → just the title line, got: \(text)")
+        XCTAssertFalse(text.contains("\n\n"), "there is no body block to separate")
+    }
+
     func testPlainTextEditToolUsesDiff() {
         // An edit tool → the diff (not the output) is what gets copied.
         let text = plain(#"""
