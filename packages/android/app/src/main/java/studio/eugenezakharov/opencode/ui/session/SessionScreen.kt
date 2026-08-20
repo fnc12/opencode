@@ -1209,8 +1209,10 @@ private fun StreamStatusBadge(status: SessionStore.StreamStatus) {
     }
 }
 
-/** Decodes a picked image Uri into a thumbnail bitmap + a JPEG data-URL attachment. */
-private suspend fun loadAttachment(
+/** Decodes a picked image Uri into a thumbnail bitmap + a JPEG data-URL attachment.
+ *  Internal so an instrumented test can drive the decode with a real image Uri
+ *  (the paste-image UI path can't easily seed the clipboard with a content Uri). */
+internal suspend fun loadAttachment(
     context: android.content.Context,
     uri: android.net.Uri,
 ): Pair<Bitmap, PromptAttachment>? = withContext(Dispatchers.IO) {
