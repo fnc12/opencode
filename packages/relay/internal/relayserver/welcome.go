@@ -28,7 +28,13 @@ func (s *Server) welcome(w http.ResponseWriter, r *http.Request) {
 	// customer id). If the webhook hasn't landed yet, show a "activating" page
 	// that reloads shortly rather than the form.
 	if code == "" {
-		if sub := r.URL.Query().Get("sub"); sub != "" && s.provision != nil {
+		// PayPal appends `subscription_id` on its return redirect; `sub` is the
+		// short alias for links we build ourselves.
+		sub := r.URL.Query().Get("subscription_id")
+		if sub == "" {
+			sub = r.URL.Query().Get("sub")
+		}
+		if sub != "" && s.provision != nil {
 			if t, ok := s.provision.GetByCustomer(sub); ok && t.ClaimCode != "" {
 				code = t.ClaimCode
 			} else {
