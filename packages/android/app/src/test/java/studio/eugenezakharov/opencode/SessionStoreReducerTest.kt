@@ -91,6 +91,21 @@ class SessionStoreReducerTest {
         assertEquals("Hello", text)
     }
 
+    @Test fun partDeltaSynthesizesPartWhenAbsent() {
+        // A delta whose part hasn't been seen yet → the store synthesizes a text part.
+        val s = store(); addAssistant(s, "m1")
+        s.apply(event("""{"type":"message.part.delta","properties":{"sessionID":"ses_1","messageID":"m1","partID":"new_p","field":"text","delta":"hi"}}"""), sid)
+        val part = s.messages.first().parts.firstOrNull()
+        assertEquals("new_p", part?.id)
+        assertEquals("hi", (part?.content as? studio.eugenezakharov.opencode.api.models.PartContent.Text)?.text)
+    }
+
+    @Test fun partDeltaForUnknownMessageIsIgnored() {
+        val s = store(); addAssistant(s, "m1")
+        s.apply(event("""{"type":"message.part.delta","properties":{"sessionID":"ses_1","messageID":"NOPE","partID":"p","field":"text","delta":"x"}}"""), sid)
+        assertTrue(s.messages.first().parts.isEmpty())
+    }
+
     @Test fun partDeltaIgnoresNonTextField() {
         val s = store(); addAssistant(s, "m1")
         s.apply(event("""{"type":"message.part.updated","properties":{"sessionID":"ses_1","part":{"id":"p1","sessionID":"ses_1","messageID":"m1","type":"text","text":"x"}}}"""), sid)
