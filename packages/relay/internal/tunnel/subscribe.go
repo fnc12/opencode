@@ -26,14 +26,17 @@ func (c *Conn) Subscribe(ctx context.Context, path string) (<-chan []byte, error
 				return
 			case <-c.closed:
 				return
-			case f, ok := <-s.frames:
-				if !ok {
-					return
-				}
+			case <-s.done:
+				return
+			case f := <-s.frames:
 				switch f.Type {
 				case TypeData:
 					select {
 					case out <- f.Payload:
+					case <-s.done:
+						// Stream was shed by the read loop while we were behind on
+						// out; stop so `defer close(out)` unblocks our reader.
+						return
 					case <-ctx.Done():
 						_ = c.write(Frame{Type: TypeCancel, StreamID: id})
 						c.removeStream(id)

@@ -4,7 +4,16 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
 )
+
+// mobileWriteWait bounds a single write to the mobile client. A backgrounded or
+// disconnected phone can leave its TCP socket half-open (no FIN), so a plain
+// Write blocks until the OS tears the connection down minutes later. Capping it
+// lets us reclaim the stream promptly instead of stalling the goroutine (and,
+// before the per-stream drop existed, the whole tunnel). A var so tests can
+// shrink it.
+var mobileWriteWait = 15 * time.Second
 
 // hopByHop headers are connection-specific and must not be forwarded.
 var hopByHop = map[string]bool{
@@ -37,6 +46,7 @@ func (c *Conn) Proxy(w http.ResponseWriter, r *http.Request, path string) {
 	}
 
 	flusher, _ := w.(http.Flusher)
+	rc := http.NewResponseController(w)
 	wroteHead := false
 	ctx := r.Context()
 
@@ -53,10 +63,12 @@ func (c *Conn) Proxy(w http.ResponseWriter, r *http.Request, path string) {
 				http.Error(w, "tunnel closed", http.StatusBadGateway)
 			}
 			return
-		case f, ok := <-s.frames:
-			if !ok {
-				return
-			}
+		case f := <-s.frames:
+			// Note: no select on s.done here. The read loop only sheds a stream
+			// whose buffer stayed full — i.e. this consumer was blocked in Write,
+			// not waiting here — and that path is unblocked by the write deadline
+			// below. Selecting on s.done would race the drain of a normally-ended
+			// stream's buffered TypeEnd/TypeData and could truncate the response.
 			switch f.Type {
 			case TypeResponseHead:
 				var rh ResponseHead
@@ -87,7 +99,14 @@ func (c *Conn) Proxy(w http.ResponseWriter, r *http.Request, path string) {
 					w.WriteHeader(http.StatusOK)
 					wroteHead = true
 				}
+				// Bound the write: a dead/backgrounded phone can block Write
+				// indefinitely, backing frames up into the shared read loop. On
+				// timeout (or any write error) tell the connector to stop the
+				// upstream request and drop the stream so nothing leaks.
+				_ = rc.SetWriteDeadline(time.Now().Add(mobileWriteWait))
 				if _, err := w.Write(f.Payload); err != nil {
+					_ = c.write(Frame{Type: TypeCancel, StreamID: id})
+					c.removeStream(id)
 					return
 				}
 				if flusher != nil {

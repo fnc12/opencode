@@ -35,9 +35,11 @@ class MainActivity : ComponentActivity() {
         UiTestFlags.injectPermission = intent?.getBooleanExtra("UITEST_PERMISSION", false) == true
         UiTestFlags.injectQuestion = intent?.getBooleanExtra("UITEST_QUESTION", false) == true
         UiTestFlags.injectTodo = intent?.getBooleanExtra("UITEST_TODO", false) == true
+        UiTestFlags.injectQuestionJson = intent?.getStringExtra("UITEST_QUESTION_JSON")
         enableEdgeToEdge()
         requestNotificationPermission()
         handlePairingIntent(intent)
+        handleOpenSessionIntent(intent)
         setContent {
             OpenCodeTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handlePairingIntent(intent)
+        handleOpenSessionIntent(intent)
     }
 
     /** Handle opencode://pair?relay=…&tunnel=…&token=… deep links. */
@@ -71,5 +74,10 @@ class MainActivity : ComponentActivity() {
         if (data.scheme == "opencode") {
             appViewModel.applyPairingAndConnect(data.toString())
         }
+    }
+
+    /** A tapped push notification carries the session id it's about; open it. */
+    private fun handleOpenSessionIntent(intent: Intent?) {
+        appViewModel.requestOpenSession(intent?.getStringExtra("sessionId"))
     }
 }

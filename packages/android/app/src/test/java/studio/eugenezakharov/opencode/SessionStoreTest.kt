@@ -8,6 +8,8 @@ import org.junit.Test
 import studio.eugenezakharov.opencode.api.ServerEvent
 import studio.eugenezakharov.opencode.api.SessionStore
 import studio.eugenezakharov.opencode.api.models.MessageInfo
+import studio.eugenezakharov.opencode.api.models.MessageParsing
+import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
 
 /**
@@ -116,6 +118,59 @@ class SessionStoreTest {
         store.setInitial(emptyList())
         val before = store.revision
         store.apply(userUpdated("msg_u", 1.0), sessionID)
+        assertTrue(store.revision > before)
+    }
+
+    // --- scroll-up pagination (prependOlder), mirrors iOS SessionStoreTests ---
+
+    /** A bare user message with a distinguishing text part, parsed the same way
+     * the REST snapshot is — so prependOlder is exercised against real models. */
+    private fun message(id: String, created: Double, text: String = ""): MessageWithParts {
+        val body = """[{"info":{"id":"$id","sessionID":"ses_1","role":"user","time":{"created":$created}},
+            "parts":[{"id":"prt_$id","sessionID":"ses_1","messageID":"$id","type":"text","text":"$text"}]}]"""
+        return MessageParsing.parseMessageList(json, body).first()
+    }
+
+    private fun textOf(m: MessageWithParts): String =
+        m.parts.firstNotNullOfOrNull { (it.content as? PartContent.Text)?.text } ?: ""
+
+    @Test
+    fun prependOlderMergesInCreationOrder() {
+        val store = SessionStore()
+        // Newest page loaded first (as on open), oldest history prepended after.
+        store.setInitial(listOf(message("m30", 30.0), message("m40", 40.0)))
+        store.prependOlder(listOf(message("m10", 10.0), message("m20", 20.0)))
+        assertEquals(listOf("m10", "m20", "m30", "m40"), store.messages.map { it.id })
+    }
+
+    @Test
+    fun prependOlderDedupesAndKeepsExisting() {
+        val store = SessionStore()
+        // The live/newest copy of m20 carries streamed text…
+        store.setInitial(listOf(message("m20", 20.0, "live"), message("m30", 30.0)))
+        // …and the older page re-includes m20 (page windows can overlap the cursor).
+        store.prependOlder(listOf(message("m10", 10.0), message("m20", 20.0, "stale")))
+        assertEquals(listOf("m10", "m20", "m30"), store.messages.map { it.id })
+        assertEquals("live", textOf(store.messages.first { it.id == "m20" }))
+    }
+
+    @Test
+    fun prependOlderNoopWhenNothingNew() {
+        val store = SessionStore()
+        store.setInitial(listOf(message("m30", 30.0)))
+        val before = store.revision
+        store.prependOlder(emptyList())                    // empty page
+        store.prependOlder(listOf(message("m30", 30.0)))   // fully-overlapping page
+        assertEquals(listOf("m30"), store.messages.map { it.id })
+        assertEquals(before, store.revision) // a no-op prepend doesn't re-render
+    }
+
+    @Test
+    fun prependOlderBumpsRevisionWhenNew() {
+        val store = SessionStore()
+        store.setInitial(listOf(message("m30", 30.0)))
+        val before = store.revision
+        store.prependOlder(listOf(message("m10", 10.0)))
         assertTrue(store.revision > before)
     }
 }

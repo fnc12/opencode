@@ -4,9 +4,11 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.PopupMenu
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
@@ -27,15 +29,26 @@ class SessionListAdapter(
 ) : RecyclerView.Adapter<SessionListAdapter.VH>() {
 
     private val items = mutableListOf<Session>()
+    private var busy: Set<String> = emptySet()
 
-    fun submit(sessions: List<Session>) {
+    private companion object {
+        // Green "Working…" label, matching the assistant role green.
+        val WORKING_COLOR = 0xFF1F9550.toInt()
+    }
+
+    fun submit(sessions: List<Session>, busyIds: Set<String> = emptySet()) {
+        val oldBusy = busy
         val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
             override fun getOldListSize() = items.size
             override fun getNewListSize() = sessions.size
             override fun areItemsTheSame(o: Int, n: Int) = items[o].id == sessions[n].id
-            override fun areContentsTheSame(o: Int, n: Int) = items[o] == sessions[n]
+            // Rebind when the row's content OR its busy state changes.
+            override fun areContentsTheSame(o: Int, n: Int) =
+                items[o] == sessions[n] &&
+                    oldBusy.contains(items[o].id) == busyIds.contains(sessions[n].id)
         })
         items.clear(); items.addAll(sessions)
+        busy = busyIds
         diff.dispatchUpdatesTo(this)
     }
 
@@ -64,22 +77,37 @@ class SessionListAdapter(
             setTextColor(primaryColor)
             maxLines = 2
         }
-        val meta = TextView(ctx).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        // Meta row: a small spinner (shown only while the session is generating)
+        // followed by the summary/time text.
+        val metaRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, px(3), 0, 0)
         }
+        val spinner = ProgressBar(ctx, null, android.R.attr.progressBarStyleSmall).apply {
+            val s = px(14)
+            layoutParams = LinearLayout.LayoutParams(s, s).apply { marginEnd = px(6) }
+            visibility = View.GONE
+        }
+        val meta = TextView(ctx).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        metaRow.addView(spinner)
+        metaRow.addView(meta)
         root.addView(title)
-        root.addView(meta)
-        return VH(root, title, meta)
+        root.addView(metaRow)
+        return VH(root, title, meta, spinner)
     }
 
-    override fun onBindViewHolder(holder: VH, position: Int) = holder.bind(items[position])
+    override fun onBindViewHolder(holder: VH, position: Int) =
+        holder.bind(items[position], busy.contains(items[position].id))
 
     inner class VH(
         itemView: LinearLayout,
         private val title: TextView,
         private val meta: TextView,
+        private val spinner: ProgressBar,
     ) : RecyclerView.ViewHolder(itemView) {
         private var current: Session? = null
 
@@ -101,9 +129,24 @@ class SessionListAdapter(
             }
         }
 
-        fun bind(session: Session) {
+        fun bind(session: Session, isBusy: Boolean) {
             current = session
             title.text = session.title.ifEmpty { "Untitled" }
+
+            // While generating, show a live spinner + "Working…" in place of the
+            // static summary/time (matches iOS).
+            if (isBusy) {
+                spinner.visibility = View.VISIBLE
+                val sb = android.text.SpannableStringBuilder()
+                val start = sb.length
+                sb.append("Working…")
+                sb.setSpan(android.text.style.ForegroundColorSpan(WORKING_COLOR), start, sb.length,
+                    android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                meta.text = sb
+                return
+            }
+
+            spinner.visibility = View.GONE
             val sb = android.text.SpannableStringBuilder()
             fun span(text: String, color: Int) {
                 val start = sb.length

@@ -11,6 +11,10 @@ struct EventStream {
     /// In relay mode, the per-tunnel token the relay requires before it will
     /// proxy the stream (`X-Tunnel-Token`); nil in direct mode.
     var tunnelToken: String? = nil
+    /// The session used to open the byte stream. Defaults to `.shared`; tests
+    /// inject a stub-backed session so `frames()` (headers, status handling, SSE
+    /// parsing) runs offline.
+    var session: URLSession = .shared
 
     func frames() -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
@@ -27,7 +31,7 @@ struct EventStream {
                         request.setValue(tunnelToken, forHTTPHeaderField: "X-Tunnel-Token")
                     }
 
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse,
                           (200...299).contains(http.statusCode) else {
                         throw ClientError.http((response as? HTTPURLResponse)?.statusCode ?? 0)

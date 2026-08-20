@@ -17,6 +17,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import studio.eugenezakharov.opencode.api.models.QuestionItem
+import studio.eugenezakharov.opencode.api.models.QuestionRequest
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
@@ -24,8 +30,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +44,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import studio.eugenezakharov.opencode.api.models.PromptAttachment
 import studio.eugenezakharov.opencode.api.models.TodoItem
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,6 +55,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -69,6 +79,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -110,8 +122,33 @@ fun SessionScreen(
     var showShell by remember { mutableStateOf(false) }
     var showTodos by remember { mutableStateOf(false) }
     var detailMessage by remember { mutableStateOf<studio.eugenezakharov.opencode.api.models.MessageWithParts?>(null) }
+    val recyclerRef = remember { mutableStateOf<RecyclerView?>(null) }
     var showShareMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // While this session is on screen (RESUMED), suppress its own foreground
+    // pushes (e.g. "session finished") — the user is already looking at it.
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, session.id) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME ->
+                    studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId = session.id
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE ->
+                    if (studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId == session.id) {
+                        studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId = null
+                    }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId == session.id) {
+                studio.eugenezakharov.opencode.push.ShubatMessagingService.activeSessionId = null
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -145,11 +182,15 @@ fun SessionScreen(
                     ) {
                         Text(">_", style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace)
                     }
-                    IconButton(
-                        onClick = { showDiff = true },
-                        modifier = Modifier.testTag("session.diff"),
-                    ) {
-                        Text("±", style = MaterialTheme.typography.titleMedium)
+                    // Only when the session actually changed files — the top
+                    // bar is tight, don't spend a slot on an empty screen.
+                    if (state.hasDiff) {
+                        IconButton(
+                            onClick = { showDiff = true },
+                            modifier = Modifier.testTag("session.diff"),
+                        ) {
+                            Text("±", style = MaterialTheme.typography.titleMedium)
+                        }
                     }
                     Box {
                         IconButton(
@@ -220,14 +261,12 @@ fun SessionScreen(
                             onReply = { reply -> viewModel.replyPermission(request, reply) },
                         )
                     }
-                    // Question docks also sit above the composer; the agent is blocked
-                    // until each is answered or skipped (#28).
-                    state.pendingQuestions.forEach { request ->
-                        QuestionDock(
-                            request = request,
-                            onReply = { answers -> viewModel.replyQuestion(request, answers) },
-                            onReject = { viewModel.rejectQuestion(request) },
-                        )
+                    // NOTE: the question dock is NOT here — it rides the transcript as
+                    // the list's LAST ROW (see MessageAdapter.setFooter / SessionFooter),
+                    // so scrolling up moves it away with the content instead of the
+                    // messages sliding under a fixed dock and overlapping it.
+                    if (state.runningTools.isNotEmpty()) {
+                        RunningToolsStrip(state.runningTools)
                     }
                     Composer(state = state, viewModel = viewModel)
                 }
@@ -236,13 +275,23 @@ fun SessionScreen(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
             when {
-                state.loading -> CircularProgressIndicator()
-                state.error != null -> CenteredMessage("Error", state.error!!)
-                state.messages.isEmpty() -> CenteredMessage("No Messages", "This session has no messages yet")
+                // A shimmering placeholder transcript reads better than a bare
+                // spinner while the newest page loads (mirrors iOS).
+                state.loading -> MessageSkeleton()
+                state.error != null -> CenteredMessage(
+                    "Error", state.error!!,
+                    actionLabel = "Retry", onAction = { viewModel.retry() },
+                )
+                state.messages.isEmpty() && state.pendingQuestions.isEmpty() ->
+                    CenteredMessage("No Messages", "This session has no messages yet")
                 else -> MessageList(
                     state,
                     onRevert = { viewModel.revert(it) },
                     onSelect = { detailMessage = it },
+                    onLoadOlder = { viewModel.loadOlder() },
+                    onQuestionReply = { request, answers -> viewModel.replyQuestion(request, answers) },
+                    onQuestionReject = { request -> viewModel.rejectQuestion(request) },
+                    recyclerRef = recyclerRef,
                 )
             }
             val last = state.messages.lastOrNull()
@@ -250,8 +299,39 @@ fun SessionScreen(
                 last.parts.any { p ->
                     p.isVisible && (p.content as? studio.eugenezakharov.opencode.api.models.PartContent.Text)?.text?.isNotBlank() == true
                 }
-            if (state.isBusy && !streaming) {
-                TypingDots(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 10.dp))
+            // A "busy" turn is likely *stuck* (e.g. an unanswered permission on an
+            // old server) when it's produced no text for a while. Re-evaluate on a
+            // 30s tick since a parked turn emits no events. Then show a cancel hint
+            // instead of endless dots — the Stop button already aborts.
+            var stuckTick by remember { mutableStateOf(0L) }
+            LaunchedEffect(state.isBusy) {
+                while (state.isBusy) { kotlinx.coroutines.delay(30_000); stuckTick = System.currentTimeMillis() }
+            }
+            val stuck = remember(stuckTick, state.isBusy, last) {
+                val a = last?.info as? studio.eugenezakharov.opencode.api.models.MessageInfo.Assistant
+                state.isBusy && a != null && a.completed == null &&
+                    System.currentTimeMillis() - a.created > 180_000
+            }
+            // Fade the progress indicator IN/OUT rather than popping it — so hitting
+            // Stop eases the dots away instead of vanishing them. Mirrors iOS.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = state.isBusy && !streaming,
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+                modifier = Modifier.align(Alignment.BottomStart),
+            ) {
+                if (stuck) {
+                    Text(
+                        "⚠ This turn looks stuck — tap ■ to cancel",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .padding(start = 16.dp, bottom = 12.dp)
+                            .testTag("session.stuck"),
+                    )
+                } else {
+                    TypingDots(Modifier.padding(start = 16.dp, bottom = 10.dp))
+                }
             }
         }
     }
@@ -478,16 +558,66 @@ private fun PermissionDock(
  * the user submits answers or skips. Blue/info styling distinguishes it from the
  * orange permission dock. Mirrors iOS `QuestionDock`.
  */
+/** The list's footer content — the pending question dock(s), rendered right after
+ *  the newest message so they scroll WITH the transcript. Hosted by
+ *  [MessageAdapter] in a `ComposeView` last row. Mirrors iOS `SessionFooter`.
+ *  Selections are hoisted in ([selectionsFor]) so they survive the ComposeView
+ *  being recycled when the footer scrolls off. */
+@Composable
+internal fun SessionFooter(
+    questions: List<QuestionRequest>,
+    selectionsFor: (QuestionRequest) -> SnapshotStateMap<String, Set<String>>,
+    onReply: (QuestionRequest, List<List<String>>) -> Unit,
+    onReject: (QuestionRequest) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        questions.forEach { request ->
+            QuestionDock(
+                request = request,
+                selections = selectionsFor(request),
+                onReply = { answers -> onReply(request, answers) },
+                onReject = { onReject(request) },
+            )
+        }
+    }
+}
+
+/**
+ * A pending agent question, riding the transcript as its last row. A single-question
+ * request lays out directly; a multi-question request is shown as SLIDES (one
+ * question per screen, à la Claude): a "N / total" counter + dots, swipe between
+ * them, and answering a single-select question auto-advances to the next.
+ * Skip/Submit stay pinned below, always reachable. `selections` is hoisted so it
+ * survives the hosting ComposeView being recycled. Mirrors iOS `QuestionDock`.
+ */
 @Composable
 private fun QuestionDock(
-    request: studio.eugenezakharov.opencode.api.models.QuestionRequest,
+    request: QuestionRequest,
+    selections: SnapshotStateMap<String, Set<String>>,
     onReply: (List<List<String>>) -> Unit,
     onReject: () -> Unit,
 ) {
-    val info = androidx.compose.ui.graphics.Color(0xFF2D7FF9)
+    val info = Color(0xFF2D7FF9)
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
-    // Selected labels per question, keyed by the question's stable key.
-    val selections = remember(request.id) { mutableStateMapOf<String, Set<String>>() }
+    val isMulti = request.questions.size > 1
+    val pagerState = rememberPagerState(pageCount = { request.questions.size })
+    val scope = rememberCoroutineScope()
+
+    val pick: (QuestionItem, String) -> Unit = { question, label ->
+        val current = selections[question.key] ?: emptySet()
+        selections[question.key] = if (question.allowsMultiple) {
+            if (label in current) current - label else current + label
+        } else {
+            setOf(label) // radio
+        }
+        // Claude-style slides: a single-select answer advances to the next question.
+        if (isMulti && !question.allowsMultiple) {
+            val idx = request.questions.indexOfFirst { it.key == question.key }
+            if (idx >= 0 && idx + 1 < request.questions.size) {
+                scope.launch { pagerState.animateScrollToPage(idx + 1) }
+            }
+        }
+    }
 
     Column(
         Modifier
@@ -497,61 +627,51 @@ private fun QuestionDock(
             .background(color = info.copy(alpha = 0.10f), shape = shape)
             .padding(12.dp),
     ) {
-        Text(
-            "? Question",
-            color = info,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.size(8.dp))
-
-        request.questions.forEach { question ->
-            if (question.header.isNotEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "? Question",
+                color = info,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.weight(1f))
+            if (isMulti) {
                 Text(
-                    question.header,
+                    "${pagerState.currentPage + 1} / ${request.questions.size}",
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.size(2.dp))
             }
-            Text(question.question, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.size(6.dp))
+        }
+        Spacer(Modifier.size(8.dp))
 
-            question.options.forEach { option ->
-                val selected = selections[question.key]?.contains(option.label) == true
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            val current = selections[question.key] ?: emptySet()
-                            selections[question.key] = if (question.allowsMultiple) {
-                                if (option.label in current) current - option.label else current + option.label
-                            } else {
-                                setOf(option.label) // radio
-                            }
-                        }
-                        .padding(vertical = 6.dp)
-                        .testTag(option.label),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (selected) "●" else "○",
-                        color = if (selected) info else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(option.label, style = MaterialTheme.typography.bodyMedium)
-                        if (option.description.isNotEmpty()) {
-                            Text(
-                                option.description,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+        if (isMulti) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp),
+                verticalAlignment = Alignment.Top,
+            ) { page ->
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    QuestionSlide(request.questions[page], selections, info, pick)
                 }
             }
+            Spacer(Modifier.size(6.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                repeat(request.questions.size) { i ->
+                    val active = i == pagerState.currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 3.dp)
+                            .size(if (active) 8.dp else 6.dp)
+                            .background(if (active) info else info.copy(alpha = 0.3f), CircleShape),
+                    )
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+        } else {
+            request.questions.firstOrNull()?.let { QuestionSlide(it, selections, info, pick) }
             Spacer(Modifier.size(8.dp))
         }
 
@@ -567,6 +687,57 @@ private fun QuestionDock(
                 enabled = canSubmit,
                 modifier = Modifier.testTag("question.submit"),
             ) { Text("Submit") }
+        }
+    }
+}
+
+/** One question inside the dock — header, prompt, and its selectable options. */
+@Composable
+private fun QuestionSlide(
+    question: QuestionItem,
+    selections: SnapshotStateMap<String, Set<String>>,
+    info: Color,
+    onPick: (QuestionItem, String) -> Unit,
+) {
+    Column {
+        if (question.header.isNotEmpty()) {
+            Text(
+                question.header,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.size(2.dp))
+        }
+        Text(question.question, style = MaterialTheme.typography.bodyMedium)
+        Spacer(Modifier.size(6.dp))
+
+        question.options.forEach { option ->
+            val selected = selections[question.key]?.contains(option.label) == true
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onPick(question, option.label) }
+                    .padding(vertical = 6.dp)
+                    .testTag(option.label),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (selected) "●" else "○",
+                    color = if (selected) info else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(option.label, style = MaterialTheme.typography.bodyMedium)
+                    if (option.description.isNotEmpty()) {
+                        Text(
+                            option.description,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -648,12 +819,23 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
 
     val agentChoices = state.agents.filter { it.selectable }.map { it.name }.ifEmpty { listOf("build", "plan") }
 
+    // Bottom inset = MAX(ime, navigationBars), NOT their sum. The IME inset already
+    // spans the nav-bar strip when the keyboard is up, so stacking
+    // .navigationBarsPadding().imePadding() double-counted it and jumped the
+    // composer (and the transcript) up. Reading WindowInsets.ime here keeps the
+    // padding animating in step with the keyboard. See [ComposerInsets].
+    val density = LocalDensity.current
+    val bottomInset = with(density) {
+        ComposerInsets.bottomInsetPx(
+            imeBottomPx = WindowInsets.ime.getBottom(this),
+            navBarBottomPx = WindowInsets.navigationBars.getBottom(this),
+        ).toDp()
+    }
     Surface(tonalElevation = 3.dp) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
+                .padding(bottom = bottomInset)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             state.sendError?.let {
@@ -740,28 +922,42 @@ private fun Composer(state: SessionUiState, viewModel: SessionViewModel) {
                 Spacer(Modifier.size(6.dp))
             }
             Row(verticalAlignment = Alignment.Bottom) {
-                IconButton(
-                    onClick = {
-                        photoPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    modifier = Modifier.testTag("composer.attach"),
-                ) {
-                    Text("📷")
-                }
-                IconButton(
-                    onClick = { showFilePicker = true },
-                    modifier = Modifier.testTag("composer.file"),
-                ) {
-                    Text("📎")
-                }
-                if (state.commands.isNotEmpty()) {
+                // Attach / command actions collapse into one "+" menu so the row
+                // isn't crowded (and stays roomy when the field grows). Matches iOS.
+                var showAttachMenu by remember { mutableStateOf(false) }
+                Box {
                     IconButton(
-                        onClick = { showCommands = true },
-                        modifier = Modifier.testTag("composer.commands"),
+                        onClick = { showAttachMenu = true },
+                        modifier = Modifier.testTag("composer.plus"),
                     ) {
-                        Text("/", style = MaterialTheme.typography.titleLarge)
+                        Text("+", style = MaterialTheme.typography.headlineSmall)
+                    }
+                    DropdownMenu(
+                        expanded = showAttachMenu,
+                        onDismissRequest = { showAttachMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("📷  Photo") },
+                            onClick = {
+                                showAttachMenu = false
+                                photoPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            modifier = Modifier.testTag("composer.attach"),
+                        )
+                        DropdownMenuItem(
+                            text = { Text("📎  File") },
+                            onClick = { showAttachMenu = false; showFilePicker = true },
+                            modifier = Modifier.testTag("composer.file"),
+                        )
+                        if (state.commands.isNotEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("/  Command") },
+                                onClick = { showAttachMenu = false; showCommands = true },
+                                modifier = Modifier.testTag("composer.commands"),
+                            )
+                        }
                     }
                 }
                 OutlinedTextField(
@@ -920,21 +1116,51 @@ private fun MessageList(
     state: SessionUiState,
     onRevert: (String) -> Unit,
     onSelect: (studio.eugenezakharov.opencode.api.models.MessageWithParts) -> Unit,
+    onLoadOlder: () -> Unit,
+    onQuestionReply: (QuestionRequest, List<List<String>>) -> Unit = { _, _ -> },
+    onQuestionReject: (QuestionRequest) -> Unit = {},
+    recyclerRef: androidx.compose.runtime.MutableState<RecyclerView?>? = null,
 ) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { context ->
             RecyclerView(context).apply {
                 layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
-                adapter = MessageAdapter().apply { this.onRevert = onRevert; this.onSelect = onSelect }
+                adapter = MessageAdapter().apply {
+                    this.onRevert = onRevert; this.onSelect = onSelect
+                    this.onQuestionReply = onQuestionReply; this.onQuestionReject = onQuestionReject
+                }
                 clipToPadding = false
                 setPadding(0, 8, 0, 8)
+                // Keep insert/remove animations (a new step slides in) but drop the
+                // change cross-fade, so a streaming text delta rebinding a row
+                // doesn't flicker on every token.
+                (itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)
+                    ?.supportsChangeAnimations = false
+                // Instagram-style preload: page in older history while the user is
+                // still ~1.5 screens from the top, so it lands before they reach it.
+                // Only fires on a real scroll (dy != 0 while dragging/settling), so
+                // the initial fill can't auto-trigger it. loadOlder() is guarded by
+                // an in-flight flag, so firing every scroll frame is safe. Inserting
+                // older rows above keeps the viewport stable — RecyclerView anchors
+                // to the first visible child across a top insert (DiffUtil-driven).
+                addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                    override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                        if (dy >= 0) return // only when scrolling up (toward older)
+                        val lm = rv.layoutManager as LinearLayoutManager
+                        val visibleThreshold = lm.childCount * 3 / 2 // ~1.5 screens of rows
+                        if (lm.findFirstVisibleItemPosition() <= visibleThreshold) onLoadOlder()
+                    }
+                })
+                recyclerRef?.value = this
             }
         },
         update = { recycler ->
             val adapter = recycler.adapter as MessageAdapter
             adapter.onRevert = onRevert
             adapter.onSelect = onSelect
+            adapter.onQuestionReply = onQuestionReply
+            adapter.onQuestionReject = onQuestionReject
             val lm = recycler.layoutManager as LinearLayoutManager
             val atBottom = lm.findLastVisibleItemPosition() >= adapter.itemCount - 2 || adapter.itemCount == 0
             // Hide messages after the revert boundary.
@@ -946,7 +1172,10 @@ private fun MessageList(
                 state.messages
             }
             val changed = adapter.submit(visible)
-            if (changed && atBottom && adapter.itemCount > 0) {
+            // The question dock is the LAST ROW (a footer), so it scrolls with the
+            // transcript; keep it on screen when the user is at the newest message.
+            val footerChanged = adapter.setFooter(state.pendingQuestions)
+            if ((changed || footerChanged) && atBottom && adapter.itemCount > 0) {
                 recycler.post { recycler.scrollToPosition(adapter.itemCount - 1) }
             }
         },
@@ -960,31 +1189,30 @@ private fun MessageList(
 private fun StreamStatusBadge(status: SessionStore.StreamStatus) {
     when (status) {
         SessionStore.StreamStatus.IDLE -> {}
+        // Just the dot — the "Live" label crowded the toolbar. The green dot alone
+        // reads as "connected".
         SessionStore.StreamStatus.LIVE -> Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "● Live",
+                "●",
                 color = androidx.compose.ui.graphics.Color(0xFF4CD964),
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.testTag("session.live"),
             )
             Spacer(Modifier.width(8.dp))
         }
+        // Spinner alone (no text) — transient anyway.
         SessionStore.StreamStatus.CONNECTING,
         SessionStore.StreamStatus.RECONNECTING -> Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                if (status == SessionStore.StreamStatus.CONNECTING) "Connecting" else "Reconnecting",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Spacer(Modifier.width(8.dp))
         }
     }
 }
 
-/** Decodes a picked image Uri into a thumbnail bitmap + a JPEG data-URL attachment. */
-private suspend fun loadAttachment(
+/** Decodes a picked image Uri into a thumbnail bitmap + a JPEG data-URL attachment.
+ *  Internal so an instrumented test can drive the decode with a real image Uri
+ *  (the paste-image UI path can't easily seed the clipboard with a content Uri). */
+internal suspend fun loadAttachment(
     context: android.content.Context,
     uri: android.net.Uri,
 ): Pair<Bitmap, PromptAttachment>? = withContext(Dispatchers.IO) {
@@ -994,4 +1222,55 @@ private suspend fun loadAttachment(
     bmp.compress(Bitmap.CompressFormat.JPEG, 70, out)
     val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     Pair(bmp, PromptAttachment("image/jpeg", "image.jpg", "data:image/jpeg;base64,$b64"))
+}
+
+
+/** One-line strip above the composer: spinner + what's running + for how long.
+ *  Shown ONLY while something actually runs (its absence means the agent is
+ *  generating text, not waiting on a process). Mirrors iOS `RunningToolsPill`. */
+@Composable
+private fun RunningToolsStrip(tools: List<studio.eugenezakharov.opencode.api.RunningTool>) {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(tools.firstOrNull()?.id) {
+        while (true) {
+            kotlinx.coroutines.delay(10_000)
+            now = System.currentTimeMillis()
+        }
+    }
+    val first = tools.first()
+    val label = buildList {
+        add(first.name)
+        first.title?.takeIf { it.isNotEmpty() }?.let { add(it.take(60)) }
+        first.startedMs?.let {
+            val s = ((now - it) / 1000).toLong().coerceAtLeast(0)
+            add(if (s < 60) "${s}s" else "${s / 60}m")
+        }
+    }.joinToString(" · ")
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .testTag("session.runningTools"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (tools.size > 1) {
+            Text(
+                "${tools.size}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }

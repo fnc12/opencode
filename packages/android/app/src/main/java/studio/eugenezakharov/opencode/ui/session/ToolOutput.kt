@@ -55,7 +55,7 @@ fun ToolOutput(tool: PartContent.Tool) {
 private val EDIT_TOOLS = setOf("edit", "write", "patch", "apply_patch")
 private val TODO_TOOLS = setOf("todowrite", "todo")
 
-private fun filePath(tool: PartContent.Tool): String? = tool.input["filePath"]
+internal fun filePath(tool: PartContent.Tool): String? = tool.input["filePath"]
 
 /** Syntax-highlighted read content with a dimmed line-number gutter. */
 @Composable

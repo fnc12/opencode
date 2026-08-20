@@ -196,7 +196,13 @@ func (c *connector) readLoop(ctx context.Context) error {
 		}
 		switch f.Type {
 		case tunnel.TypePing:
-			_ = c.write(tunnel.Frame{Type: tunnel.TypePong})
+			// A failed pong means our writes to the relay are wedged (its receive
+			// buffer filled and stopped draining). Tear the session down so the
+			// reconnect loop rebuilds it, instead of silently staying "connected"
+			// on a half-dead socket the way the old ignored-error path did.
+			if err := c.write(tunnel.Frame{Type: tunnel.TypePong}); err != nil {
+				return err
+			}
 		case tunnel.TypeRequest:
 			go c.handleRequest(ctx, f)
 		case tunnel.TypeCancel:

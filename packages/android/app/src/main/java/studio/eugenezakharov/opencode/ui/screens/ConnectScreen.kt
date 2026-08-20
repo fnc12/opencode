@@ -1,12 +1,16 @@
 package studio.eugenezakharov.opencode.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -16,6 +20,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,6 +31,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import studio.eugenezakharov.opencode.api.ConnectionMode
 import studio.eugenezakharov.opencode.ui.AppUiState
 import studio.eugenezakharov.opencode.ui.AppViewModel
@@ -35,9 +42,27 @@ fun ConnectScreen(
     state: AppUiState,
     viewModel: AppViewModel,
 ) {
+    // While a connect attempt is in flight, lock every input so the config that's
+    // being validated can't change underneath it. The user can still bail out via
+    // Cancel instead of force-killing the app to escape a timeout.
+    val loading = state.loading
+
+    // QR pairing (#14): the embedded ZXing capture activity returns the scanned
+    // string (an opencode://pair?… link, same as the paste / deep-link path) and
+    // handles the camera + its runtime permission itself.
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { viewModel.applyPairingAndConnect(it) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // Shrink the viewport by the keyboard, then make the form scrollable so
+            // a focused field (e.g. the Token field, lowest in the form) is scrolled
+            // above the keyboard instead of being covered. Compose auto-scrolls the
+            // focused text field into the scrollable viewport.
+            .imePadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -56,11 +81,13 @@ fun ConnectScreen(
                 selected = state.config.mode == ConnectionMode.RELAY,
                 onClick = { viewModel.setMode(ConnectionMode.RELAY) },
                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                enabled = !loading,
             ) { Text("Relay") }
             SegmentedButton(
                 selected = state.config.mode == ConnectionMode.DIRECT,
                 onClick = { viewModel.setMode(ConnectionMode.DIRECT) },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                enabled = !loading,
                 modifier = Modifier.testTag("connect.direct"),
             ) { Text("Direct") }
         }
@@ -70,17 +97,32 @@ fun ConnectScreen(
         when (state.config.mode) {
             ConnectionMode.RELAY -> {
                 // QR scanner pairing is deferred — paste/deep-link covers it for now.
-                // TODO(#14): add a CameraX QR scanner ("Scan pairing QR") here.
-                MonoField("Relay URL", state.config.relayURL, viewModel::setRelayURL, KeyboardType.Uri)
+                // TODO(#14): add a CameraX QR scanner ("Scan pairing QR") here — it
+                //           must also honor `enabled = !loading`.
+                MonoField("Relay URL", state.config.relayURL, viewModel::setRelayURL, KeyboardType.Uri, enabled = !loading)
                 Spacer(Modifier.height(12.dp))
-                MonoField("Tunnel ID", state.config.tunnelID, viewModel::setTunnelID)
+                MonoField("Tunnel ID", state.config.tunnelID, viewModel::setTunnelID, enabled = !loading)
                 Spacer(Modifier.height(12.dp))
-                MonoField("Token", state.config.token, viewModel::setToken, password = true)
+                MonoField("Token", state.config.token, viewModel::setToken, password = true, enabled = !loading)
+                Spacer(Modifier.height(12.dp))
+                TextButton(
+                    onClick = {
+                        scanLauncher.launch(
+                            ScanOptions()
+                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                .setPrompt("Point the camera at the pairing QR")
+                                .setBeepEnabled(false)
+                                .setOrientationLocked(false),
+                        )
+                    },
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth().testTag("connect.scanQr"),
+                ) { Text("Scan pairing QR") }
             }
             ConnectionMode.DIRECT -> {
-                MonoField("Server URL", state.config.directURL, viewModel::setDirectURL, KeyboardType.Uri, tag = "connect.serverURL")
+                MonoField("Server URL", state.config.directURL, viewModel::setDirectURL, KeyboardType.Uri, tag = "connect.serverURL", enabled = !loading)
                 Spacer(Modifier.height(12.dp))
-                MonoField("Password (optional)", state.config.password ?: "", viewModel::setPassword, password = true)
+                MonoField("Password (optional)", state.config.password ?: "", viewModel::setPassword, password = true, tag = "connect.password", enabled = !loading)
             }
         }
 
@@ -91,7 +133,7 @@ fun ConnectScreen(
             enabled = !state.loading && state.config.isComplete,
             modifier = Modifier.fillMaxWidth().testTag("connect.button"),
         ) {
-            if (state.loading) {
+            if (loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.height(20.dp),
                     color = MaterialTheme.colorScheme.onPrimary,
@@ -99,6 +141,16 @@ fun ConnectScreen(
             } else {
                 Text("Connect")
             }
+        }
+
+        // Escape hatch while connecting: cancel the request cleanly instead of
+        // waiting out the timeout (or killing the app).
+        if (loading) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = viewModel::cancelConnect,
+                modifier = Modifier.fillMaxWidth().testTag("connect.cancel"),
+            ) { Text("Cancel") }
         }
 
         state.error?.let { error ->
@@ -121,10 +173,12 @@ private fun MonoField(
     keyboardType: KeyboardType = KeyboardType.Text,
     password: Boolean = false,
     tag: String? = null,
+    enabled: Boolean = true,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
+        enabled = enabled,
         label = { Text(label) },
         singleLine = true,
         modifier = Modifier.fillMaxWidth().let { if (tag != null) it.testTag(tag) else it },

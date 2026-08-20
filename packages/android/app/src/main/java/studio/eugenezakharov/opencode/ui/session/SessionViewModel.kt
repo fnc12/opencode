@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import studio.eugenezakharov.opencode.api.ComposerPrefs
@@ -46,6 +47,14 @@ data class SessionUiState(
     val todos: List<studio.eugenezakharov.opencode.api.models.TodoItem> = emptyList(),
     val commands: List<studio.eugenezakharov.opencode.api.models.CommandInfo> = emptyList(),
     val revertMessageID: String? = null,
+    // True while an older page of history is being fetched (scroll-up pagination) —
+    // drives the top-of-list loading indicator.
+    val loadingOlder: Boolean = false,
+    // The diff toolbar button only shows when the session actually changed files.
+    val hasDiff: Boolean = false,
+    // Tools currently executing in the unfinished turn — drives the
+    // "background processes" strip above the composer.
+    val runningTools: List<studio.eugenezakharov.opencode.api.RunningTool> = emptyList(),
 )
 
 /**
@@ -65,10 +74,26 @@ class SessionViewModel(
     private val injectTestQuestion: Boolean = false,
     /** UI tests inject synthetic todos so the panel can be driven (mirrors iOS UITEST_TODO). */
     private val injectTestTodo: Boolean = false,
+    /** Raw `/question` JSON array injected by tests to reproduce layout bugs with real payloads. */
+    private val injectQuestionJson: String? = null,
+    /** On-disk newest-page cache for cache-first paint; null in tests / no-context. */
+    private val cache: studio.eugenezakharov.opencode.api.MessageCache? = null,
+    /** Unit tests set false to skip the infinite live-stream reconnect loop, so
+     *  the initial load can be awaited to completion. Always true in the app. */
+    private val streamLive: Boolean = true,
 ) : ViewModel() {
 
     private val store = SessionStore()
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Scroll-up pagination cursor state. The initial seed pulls only the newest
+    // page so a huge session (tens of MB of tool output) opens instantly; older
+    // pages stream in as the user scrolls up. [oldestCursor] is the `before=`
+    // token for the next older page; null + [reachedStart] means the very first
+    // message has been reached.
+    private var oldestCursor: String? = null
+    private var reachedStart = false
+    private var loadingOlder = false
 
     private val _state = MutableStateFlow(
         SessionUiState(
@@ -81,10 +106,14 @@ class SessionViewModel(
     val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
     init {
+        _state.update { it.copy(hasDiff = (session.summary?.files ?: 0) > 0) }
         store.onChange = {
+            val wasBusy = _state.value.isBusy
+            if (wasBusy && !store.isBusy) refreshDiffBadge() // a finished turn may have edited files
             _state.update {
                 it.copy(
                     messages = store.messages,
+                    runningTools = studio.eugenezakharov.opencode.api.RunningTools.extract(store.messages),
                     revision = store.revision,
                     status = store.status,
                     isBusy = store.isBusy,
@@ -99,29 +128,78 @@ class SessionViewModel(
         loadProviders()
     }
 
+    // Holds the load + live-stream coroutine so it can be cancelled deterministically
+    // (retry() replaces it; tests stop the otherwise-infinite stream loop via
+    // stopStream()). Production still runs in viewModelScope → cancelled on onCleared.
+    private var startJob: kotlinx.coroutines.Job? = null
+
+    /** Test seam: cancels the live-stream loop so an instrumented test that exercises
+     *  it doesn't leak an infinite reconnect coroutine into later tests. */
+    internal fun stopStream() { startJob?.cancel() }
+
     private fun start() {
-        viewModelScope.launch {
-            // 1) Seed history.
-            val seeded = runCatching { server.messages(session.directory, session.id) }
+        startJob?.cancel()
+        startJob = viewModelScope.launch {
+            // 0) Cache-first paint: show the last-seen newest page from disk right
+            // away (the skeleton is skipped once messages are non-empty), then
+            // refresh from the network in parallel below.
+            if (store.messages.isEmpty()) {
+                cache?.load(session.id)?.let { cached ->
+                    store.setInitial(cached)
+                    store.setRevert(session.revert?.messageID)
+                    _state.update { it.copy(loading = false, error = null) }
+                }
+            }
+
+            // Kick the seed fetches off CONCURRENTLY with the message page — a
+            // question already pending for this session used to wait behind messages
+            // AND permissions (serial round-trips), so on open the transcript showed
+            // and the dock only popped in seconds later. They're independent.
+            val permsDeferred = async { runCatching { server.permissions(session.directory) }.getOrNull() }
+            val questionsDeferred = async { runCatching { server.questions(session.directory) }.getOrNull() }
+            val todosDeferred = async { runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull() }
+            val commandsDeferred = async { runCatching { server.commands(session.directory) }.getOrNull() }
+
+            // 1) Seed just the newest page — not the whole transcript. A single
+            // session can carry tens of MB of tool output; fetching it all blocked
+            // the screen for 40s–2min. The newest page renders instantly and older
+            // history pages in on scroll-up. (Measured: newest-5 = 32KB/4ms vs the
+            // full history = 41MB on the pathological session.)
+            val seeded = runCatching {
+                server.messagesPage(session.directory, session.id, INITIAL_PAGE_SIZE)
+            }
             seeded.onFailure { e ->
-                _state.update { it.copy(loading = false, error = e.message ?: "Failed to load messages") }
+                // Keep any cache-painted messages on screen; only dead-end to the
+                // error view when there's nothing to show.
+                _state.update {
+                    if (store.messages.isEmpty()) {
+                        it.copy(loading = false, error = e.message ?: "Failed to load messages")
+                    } else {
+                        it.copy(loading = false)
+                    }
+                }
                 return@launch
             }
-            store.setInitial(seeded.getOrThrow())
+            val page = seeded.getOrThrow()
+            store.setInitial(page.messages)
+            oldestCursor = page.nextCursor
+            reachedStart = page.nextCursor == null
             store.setRevert(session.revert?.messageID)
+            cache?.save(session.id, page.raw) // seed the next reopen
             _state.update { it.copy(loading = false, error = null) }
 
-            // 1b) Seed any permission requests / questions already pending for this session.
-            runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
-                store.setInitialPermissions(pending.filter { it.sessionID == session.id })
-            }
-            runCatching { server.questions(session.directory) }.getOrNull()?.let { pending ->
+            // 1b) Apply the in-flight seeds. Questions first — that's the one the
+            // user is waiting to answer.
+            questionsDeferred.await()?.let { pending ->
                 store.setInitialQuestions(pending.filter { it.sessionID == session.id })
             }
-            runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let { todos ->
+            permsDeferred.await()?.let { pending ->
+                store.setInitialPermissions(pending.filter { it.sessionID == session.id })
+            }
+            todosDeferred.await()?.let { todos ->
                 store.setInitialTodos(todos)
             }
-            runCatching { server.commands(session.directory) }.getOrNull()?.let { cmds ->
+            commandsDeferred.await()?.let { cmds ->
                 _state.update { it.copy(commands = cmds) }
             }
             // UI tests inject synthetic requests (after the seeds, so they win) so the
@@ -160,6 +238,16 @@ class SessionViewModel(
                     ),
                 )
             }
+            injectQuestionJson?.let { raw ->
+                runCatching {
+                    (json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonArray)
+                        ?.firstOrNull()
+                        ?.let { it as? kotlinx.serialization.json.JsonObject }
+                        ?.let(QuestionRequest::from)
+                }.getOrNull()?.let { req ->
+                    store.setInitialQuestions(listOf(QuestionRequest(req.id, session.id, req.questions)))
+                }
+            }
             if (injectTestTodo) {
                 store.setInitialTodos(
                     listOf(
@@ -170,9 +258,10 @@ class SessionViewModel(
                 )
             }
 
-            // 2) Stream live with reconnect/backoff.
+            // 2) Stream live with reconnect/backoff. Unit tests disable this so the
+            // load coroutine completes (the loop is otherwise infinite by design).
             var backoffMs = 500L
-            while (isActive) {
+            while (streamLive && isActive) {
                 val stream = server.eventStream() ?: break
                 store.setStatus(SessionStore.StreamStatus.CONNECTING)
                 runCatching {
@@ -188,6 +277,89 @@ class SessionViewModel(
                 backoffMs = (backoffMs * 2).coerceAtMost(10_000L)
             }
         }
+    }
+
+    /**
+     * Re-sync the snapshot from the server (messages + pending
+     * permissions/questions/todos) without disturbing the live stream, which
+     * self-heals via its own backoff loop. Called when the app returns to the
+     * foreground so a gap while backgrounded doesn't leave the screen stale.
+     */
+    fun refresh() {
+        // In UI-test mode the docks are driven by injected synthetic data — don't
+        // overwrite it with (empty) server truth.
+        if (injectTestPermission || injectTestQuestion || injectTestTodo || injectQuestionJson != null) return
+        viewModelScope.launch {
+            // Re-seed just the newest page and reset the pagination cursor — a
+            // foreground refresh shouldn't re-pull the whole (possibly huge) history.
+            runCatching { server.messagesPage(session.directory, session.id, INITIAL_PAGE_SIZE) }.getOrNull()?.let {
+                store.setInitial(it.messages)
+                oldestCursor = it.nextCursor
+                reachedStart = it.nextCursor == null
+                store.setRevert(session.revert?.messageID)
+                cache?.save(session.id, it.raw)
+            }
+            runCatching { server.permissions(session.directory) }.getOrNull()?.let { pending ->
+                store.setInitialPermissions(pending.filter { it.sessionID == session.id })
+            }
+            runCatching { server.questions(session.directory) }.getOrNull()?.let { pending ->
+                store.setInitialQuestions(pending.filter { it.sessionID == session.id })
+            }
+            runCatching { server.sessionTodos(session.directory, session.id) }.getOrNull()?.let {
+                store.setInitialTodos(it)
+            }
+        }
+    }
+
+    /**
+     * Re-checks whether the session has any file changes (drives the diff
+     * toolbar button). Cheap: one `GET /session/:id` reading the summary.
+     */
+    private fun refreshDiffBadge() {
+        viewModelScope.launch {
+            runCatching { server.getSession(session.id) }.getOrNull()?.let { fresh ->
+                _state.update { it.copy(hasDiff = (fresh.summary?.files ?: 0) > 0) }
+            }
+        }
+    }
+
+    /**
+     * Pages in the next older chunk of history (scroll-up). Called by the list as
+     * it nears the top — fired ahead of the user reaching the first row so the
+     * page lands before they get there. Guarded by an in-flight flag so the many
+     * scroll events near the top collapse into one request; a null [oldestCursor]
+     * / [reachedStart] means there's nothing older to fetch. Mirrors iOS
+     * `SessionView.loadOlder`.
+     */
+    fun loadOlder() {
+        if (injectTestPermission || injectTestQuestion || injectTestTodo || injectQuestionJson != null) return
+        val cursor = oldestCursor
+        if (loadingOlder || reachedStart || cursor == null) return
+        loadingOlder = true
+        _state.update { it.copy(loadingOlder = true) }
+        viewModelScope.launch {
+            runCatching { server.messagesPage(session.directory, session.id, OLDER_PAGE_SIZE, cursor) }
+                .onSuccess { page ->
+                    store.prependOlder(page.messages)
+                    oldestCursor = page.nextCursor
+                    if (page.nextCursor == null) reachedStart = true
+                }
+            // On failure: leave the cursor untouched so the next scroll near the top
+            // retries. No user-facing error for a page fetched speculatively ahead.
+            loadingOlder = false
+            _state.update { it.copy(loadingOlder = false) }
+        }
+    }
+
+    /**
+     * Re-runs the initial load + stream after a failure (e.g. a seed that timed
+     * out on a flaky network). Wired to the Retry button so the error screen
+     * isn't a dead end. Safe because [start] returns before the stream loop on
+     * the error path, so no second stream is left running.
+     */
+    fun retry() {
+        _state.update { it.copy(loading = true, error = null) }
+        start()
     }
 
     private fun loadProviders() {
@@ -349,5 +521,13 @@ class SessionViewModel(
         viewModelScope.launch {
             runCatching { server.rejectQuestion(session.directory, request.id) }
         }
+    }
+
+    companion object {
+        /** Newest page fetched on open — small so a huge session opens instantly. */
+        private const val INITIAL_PAGE_SIZE = 5
+
+        /** Older pages pulled on scroll-up — a bigger chunk, one round-trip. */
+        private const val OLDER_PAGE_SIZE = 20
     }
 }

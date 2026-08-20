@@ -69,7 +69,29 @@ struct ProjectListView: View {
             .sheet(isPresented: $showProviders) {
                 ProvidersView(server: server)
             }
-            .task { await load() }
+            .task { await load(); await openPending() }
+            // Watch the global event bus app-wide so the session list can show
+            // which sessions are currently generating (survives list↔session nav).
+            // Re-keyed on foregroundNonce so a stale socket reconnects on resume.
+            .task(id: server.foregroundNonce) { await server.trackSessionActivity() }
+            // A tapped push notification asks to open a specific session.
+            .onChange(of: server.pendingOpenSessionID) { _, sid in
+                if sid != nil { Task { await openPending() } }
+            }
+        }
+    }
+
+    /// Deep-links to the session a tapped notification refers to. Resolves the
+    /// session by id (the push only carries the id), then rebuilds the nav path so
+    /// Back still lands on the session list.
+    private func openPending() async {
+        guard let sid = server.pendingOpenSessionID,
+              let session = try? await server.getSession(id: sid) else { return }
+        server.pendingOpenSessionID = nil
+        if let project = projects.first(where: { $0.id == session.projectID }) {
+            path = [.sessions(project), .session(session)]
+        } else {
+            path = [.session(session)]
         }
     }
 

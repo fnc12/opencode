@@ -59,6 +59,7 @@ import studio.eugenezakharov.opencode.api.models.Session
 fun SessionListScreen(
     server: ServerConnection,
     project: Project,
+    busySessions: Set<String> = emptySet(),
     onSessionClick: (Session) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -161,7 +162,16 @@ fun SessionListScreen(
                                 )
                             }
                         },
-                        update = { rv -> (rv.adapter as SessionListAdapter).submit(sessions) },
+                        update = { rv ->
+                            // Only spin for sessions updated recently — a stuck turn
+                            // (e.g. an unanswered permission) stops updating, so we
+                            // drop its "Working…" instead of spinning forever.
+                            val nowMs = System.currentTimeMillis()
+                            val freshBusy = busySessions.filterTo(HashSet()) { id ->
+                                sessions.find { it.id == id }?.let { nowMs - it.time.updated < 180_000 } == true
+                            }
+                            (rv.adapter as SessionListAdapter).submit(sessions, freshBusy)
+                        },
                     )
                 }
             }
@@ -201,42 +211,6 @@ private fun EmptySessions(creating: Boolean, onNewSession: () -> Unit) {
             modifier = Modifier.testTag("sessions.new.empty"),
         ) {
             Text("New session")
-        }
-    }
-}
-
-@Composable
-private fun SessionRow(session: Session, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Text(
-            session.title.ifEmpty { "Untitled" },
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-        )
-        Spacer(Modifier.padding(top = 2.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            session.summary?.let { summary ->
-                if (summary.additions > 0) {
-                    Text("+${summary.additions} ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
-                if (summary.deletions > 0) {
-                    Text("-${summary.deletions} ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                }
-                if (summary.files > 0) {
-                    Text("${summary.files} files", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            Text(
-                relativeTime(session.time.updated),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
