@@ -80,9 +80,9 @@ device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xm
 
 ## Status (2026-08-20)
 
-_Latest: iOS 97.6% of testable-logic scope, Android 94.4% merged. Both suites green; remaining gaps are the gesture/streaming/nav ceiling documented above._
+_Latest: iOS 97.7% of testable-logic scope, Android 94.4% merged. Both suites green; remaining gaps are the gesture/streaming/nav ceiling documented above._
 
-- **iOS testable-logic scope: 97.6%** (was 68.8%; 24 UI-shell files excluded —
+- **iOS testable-logic scope: 97.7%** (was 68.8%; 24 UI-shell files excluded —
   App, ConnectView, PushManager added). Render pipeline extracted to
   `MessageRenderer`; ServerConnection (incl. trackSessionActivity via an
   injectable EventStream session), SessionStore, GrowingTextView, ToolOutputView,
