@@ -155,6 +155,33 @@ class AppViewModelInstrumentedTest {
         }
     }
 
+    @Test fun connectScreenCancelButtonDuringLoading() {
+        // A hanging server keeps the connect in flight → the Cancel button renders;
+        // tapping it cancels (loading clears).
+        val mock = okhttp3.mockwebserver.MockWebServer()
+        mock.enqueue(okhttp3.mockwebserver.MockResponse()
+            .setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE))
+        mock.start()
+        try {
+            val vm = vm()
+            vm.setMode(ConnectionMode.DIRECT)
+            vm.setDirectURL(mock.url("/").toString().trimEnd('/'))
+            compose.setContent {
+                OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                    val state by vm.state.collectAsState()
+                    ConnectScreen(state = state, viewModel = vm)
+                }
+            }
+            vm.connect()
+            compose.waitUntil(4000) { compose.onAllNodesWithTag("connect.cancel").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("connect.cancel").performClick()
+            compose.waitUntil(3000) { !vm.state.value.loading }
+            assertTrue("cancel clears the spinner", !vm.state.value.loading)
+        } finally {
+            mock.shutdown()
+        }
+    }
+
     @Test fun connectScreenRenders() {
         val vm = vm()
         compose.setContent {
