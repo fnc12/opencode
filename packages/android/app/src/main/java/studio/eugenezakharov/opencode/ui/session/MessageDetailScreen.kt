@@ -52,7 +52,7 @@ import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
 
-private sealed interface DetailBlock {
+internal sealed interface DetailBlock {
     data class Thinking(val text: String) : DetailBlock
     data class Body(val text: String) : DetailBlock
     data class ToolBlock(val title: String, val tool: PartContent.Tool) : DetailBlock
@@ -274,7 +274,7 @@ private fun splitBody(text: String): List<DetailBlock> {
     return res
 }
 
-private fun detailBlocks(message: MessageWithParts): List<DetailBlock> {
+internal fun detailBlocks(message: MessageWithParts): List<DetailBlock> {
     val out = mutableListOf<DetailBlock>()
     for (part in message.parts) {
         if (!part.isVisible) continue
@@ -294,7 +294,7 @@ private fun detailBlocks(message: MessageWithParts): List<DetailBlock> {
     return out
 }
 
-private fun plainText(blocks: List<DetailBlock>): String = blocks.joinToString("\n\n") { block ->
+internal fun plainText(blocks: List<DetailBlock>): String = blocks.joinToString("\n\n") { block ->
     when (block) {
         is DetailBlock.Thinking -> "💭 Thinking\n\n${block.text}"
         is DetailBlock.Body -> block.text
