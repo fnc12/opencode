@@ -330,12 +330,37 @@ class SessionScreenInteractionsInstrumentedTest {
         assertTrue("send posts the message", sawPath("POST /session/ses_1/message"))
     }
 
-    // NOTE: StreamStatusBadge's LIVE dot (session.live) is NOT asserted here — with
-    // MockWebServer the LIVE status only flashes between reconnects (the connection
-    // closes after each SSE frame), too briefly to catch deterministically under a
-    // paused clock. Covering it would need a persistent-open SSE test double; a
-    // flaky test is worse than the 8 uncovered lines. The stream loop itself is
-    // covered by SessionStreamInstrumentedTest.
+    @Test fun liveStreamShowsTheLiveBadge() {
+        // A PERSISTENT-open SSE double: the first frame flips status to LIVE, then
+        // throttleBody keeps the connection open (trailing SSE keep-alive comments)
+        // so LIVE stays put long enough to assert reliably — no flash. stopStream()
+        // then kills the reconnect loop so nothing leaks.
+        val event = """{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"m","sessionID":"ses_1","role":"assistant","time":{"created":9},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}"""
+        val keepAlive = ": keep-alive\n".repeat(400) // SSE comment lines (parser ignores them)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths.add("${request.method} ${request.path}")
+                return if ((request.path ?: "").contains("/global/event")) {
+                    MockResponse().setResponseCode(200)
+                        .setHeader("Content-Type", "text/event-stream")
+                        .setBody("data: $event\n\n$keepAlive")
+                        .throttleBody(64, 300, java.util.concurrent.TimeUnit.MILLISECONDS) // hold the socket open
+                } else {
+                    MockResponse().setResponseCode(200).setBody("[]")
+                }
+            }
+        }
+        val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = true)
+        try {
+            awaitLoaded(vm)
+            mount(vm)
+            advanceUntil(10000) { compose.onAllNodesWithTag("session.live").fetchSemanticsNodes().isNotEmpty() }
+            assertTrue("the live badge renders while the stream is connected",
+                compose.onAllNodesWithTag("session.live").fetchSemanticsNodes().isNotEmpty())
+        } finally {
+            vm.stopStream()
+        }
+    }
 
     @Test fun revertBannerRestores() {
         // A session with a revert boundary → the "↩ … reverted" banner shows above
