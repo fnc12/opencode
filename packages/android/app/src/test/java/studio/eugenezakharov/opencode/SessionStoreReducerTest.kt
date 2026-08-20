@@ -2,6 +2,7 @@ package studio.eugenezakharov.opencode
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,6 +24,18 @@ class SessionStoreReducerTest {
     private fun addAssistant(store: SessionStore, id: String) = store.apply(
         event("""{"type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"$id","sessionID":"ses_1","role":"assistant","time":{"created":1},"modelID":"m","providerID":"p","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}"""), sid,
     )
+
+    @Test fun onChangeGetterAndStreamStatusEntries() {
+        val s = store()
+        var fired = 0
+        val cb: () -> Unit = { fired++ }
+        s.onChange = cb
+        assertSame(cb, s.onChange) // read the getter back
+        addAssistant(s, "m1")
+        assertTrue("onChange fires on a state change", fired > 0)
+        // The enum's entries accessor (all four stream states are present).
+        assertEquals(4, SessionStore.StreamStatus.entries.size)
+    }
 
     @Test fun messageRemoved() {
         val s = store(); addAssistant(s, "m1")
