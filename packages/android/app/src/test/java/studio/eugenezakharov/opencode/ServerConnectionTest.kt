@@ -404,6 +404,29 @@ class ServerConnectionTest {
         assertTrue(body.contains("glm-5.2"))
     }
 
+    // --- InvalidURL guards (a non-http base URL → toHttpUrlOrNull() is null) ---
+
+    private fun malformed() = ServerConnection(
+        ConnectionConfig(mode = ConnectionMode.DIRECT, directURL = "not a url"),
+    )
+
+    @Test(expected = Exception::class)
+    fun getRawInvalidUrlThrows() = runBlocking { malformed().projects(); Unit }
+    @Test(expected = Exception::class)
+    fun getRawWithHeaderInvalidUrlThrows() = runBlocking { malformed().messagesPage("/w", "s", 5); Unit }
+    @Test(expected = Exception::class)
+    fun postRawInvalidUrlThrows() = runBlocking { malformed().abort("/w", "s"); Unit }
+    @Test(expected = Exception::class)
+    fun postRawForResultInvalidUrlThrows() = runBlocking { malformed().createSession("/w"); Unit }
+    @Test(expected = Exception::class)
+    fun sendRawInvalidUrlThrows() = runBlocking { malformed().deleteSession("/w", "s"); Unit }
+    @Test(expected = Exception::class)
+    fun sendRawForResultInvalidUrlThrows() = runBlocking { malformed().unshareSession("/w", "s"); Unit }
+
+    @Test fun eventStreamNullOnInvalidUrl() {
+        assertNull(malformed().eventStream())
+    }
+
     @Test fun sendPromptSerializesAttachments() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
         val image = studio.eugenezakharov.opencode.api.models.PromptAttachment(
