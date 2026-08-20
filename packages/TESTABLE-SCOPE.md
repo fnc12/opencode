@@ -80,7 +80,7 @@ device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xm
 
 ## Status (2026-08-20)
 
-_Latest: iOS 97.0% of testable-logic scope, Android 93.5% merged. Both suites green; remaining gaps are the gesture/streaming/nav ceiling documented above._
+_Latest: iOS 97.0% of testable-logic scope, Android 93.9% merged. Both suites green; remaining gaps are the gesture/streaming/nav ceiling documented above._
 
 - **iOS testable-logic scope: 97.0%** (was 68.8%; 24 UI-shell files excluded —
   App, ConnectView, PushManager added). Render pipeline extracted to
@@ -92,7 +92,7 @@ _Latest: iOS 97.0% of testable-logic scope, Android 93.5% merged. Both suites gr
   `cancelConnect` body (needs a mid-flight hang), and MessageDetailView's
   `toggleThinking`/`CodeBlockRepresentable` (SwiftUI @State/Context — XCUITest
   territory that can't merge into xccov).
-- **Android merged: 93.5%** (was 60.7%; UI countable via JaCoCo merge). Cracked
+- **Android merged: 93.9%** (was 60.7%; UI countable via JaCoCo merge). Cracked
   two long-standing blockers: (1) the NetworkOnMainThread on instrumented screen
   tests was building `ServerConnection` inside `setContent` (server.url() does
   reverse-DNS on the Compose main thread) — fixed by hoisting it to the test
@@ -101,9 +101,12 @@ _Latest: iOS 97.0% of testable-logic scope, Android 93.5% merged. Both suites gr
   instead. Now instrumented: self-fetch screens, dialog screens, SessionScreen
   composer/dock interactions (+ menus/dialogs via clock advance), OpenFolderBrowser,
   ConnectScreen, MessageViewHolder + SessionListAdapter listeners, and the AppNav
-  host, and the ImageViewer/ZoomableImageView gestures (pinch/pan/double-tap/
-  dismiss) via a real-Activity multi-touch harness. Remaining ~17%: the live SSE
-  stream loop (`SessionViewModel.start`), ShellScreen terminal streaming, popup
-  menu-item handlers (Copy/Revert/Rename/Delete — window-dependent), and the
-  deepest SessionScreen composer flows (send-with-attachments, readFile) — live
-  streaming / windowed popups rather than unit or single-screen instrumented tests.
+  host, the ImageViewer/ZoomableImageView gestures (pinch/pan/double-tap/
+  dismiss) via a real-Activity multi-touch harness, ShellScreen (request/response),
+  and every wire-model accessor + ServerConnection endpoint. Remaining ~6%: the
+  live SSE reconnect loop and the deepest SessionScreen composer flows
+  (send-with-attachments through the picker, readFile) — multi-step live streaming
+  flows — plus JaCoCo's `withContext(Dispatchers.IO)` suspend-boundary artifacts
+  (the enclosing methods are tested) and two @Ignore'd RecyclerView-in-Compose
+  rename/delete tests that flake under full-suite CPU load (covered indirectly by
+  `SessionListAdapterInstrumentedTest`).
