@@ -106,6 +106,9 @@ func (s *Server) Handler() http.Handler {
 	if s.assetDir != "" {
 		mux.HandleFunc("GET /dl/{name}", s.serveBinary)
 		mux.HandleFunc("GET /i/{code}", s.serveInstaller)
+		// Human-friendly delivery page: send a stranger `/welcome?code=…`
+		// instead of a raw curl pipe. Payment-neutral (promo + paid codes both).
+		mux.HandleFunc("GET /welcome", s.welcome)
 	}
 	mux.HandleFunc("/t/{id}/", s.proxy)
 	return mux
