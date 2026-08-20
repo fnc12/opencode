@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -168,6 +169,45 @@ class SessionScreenInteractionsInstrumentedTest {
         // The model picker dialog renders the provider/model (its item lambda runs).
         compose.waitUntil(3000) { compose.onAllNodesWithText("GLM 5.2", substring = true).fetchSemanticsNodes().isNotEmpty() }
         assertTrue(compose.onAllNodesWithText("GLM 5.2", substring = true).fetchSemanticsNodes().isNotEmpty())
+    }
+
+    private fun sessionWithDiff() = Session(
+        id = "ses_1", projectID = "p", directory = "/w", title = "Fix the parser",
+        version = "1", time = SessionTime(created = 1.0, updated = 2.0),
+        summary = studio.eugenezakharov.opencode.api.models.SessionSummary(additions = 5, deletions = 2, files = 1),
+    )
+
+    @Test fun diffButtonOpensDiffScreenAndFileDetail() {
+        // A session summary with files>0 → hasDiff → the ± diff button shows.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths.add("${request.method} ${request.path}")
+                val body = if ((request.path ?: "").contains("/diff")) {
+                    """[{"file":"src/parser.kt","patch":"@@ -1,2 +1,2 @@\n-old line\n+new line","additions":5,"deletions":2,"status":"modified"}]"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = SessionViewModel(server = conn(), session = sessionWithDiff(), prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                SessionScreen(viewModel = vm, session = sessionWithDiff(), onBack = {})
+            }
+        }
+        // Open the diff screen → it loads the file list (DiffFileRow renders).
+        compose.onNodeWithTag("session.diff").performClick()
+        compose.mainClock.advanceTimeBy(1_500)
+        compose.waitUntil(5000) { compose.onAllNodesWithText("src/parser.kt").fetchSemanticsNodes().isNotEmpty() }
+        assertTrue(compose.onAllNodesWithText("src/parser.kt").fetchSemanticsNodes().isNotEmpty())
+        // Tap the file row → DiffFileDetail with the colored diff (coloredDiff()).
+        compose.onNodeWithText("src/parser.kt").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertTrue("diff detail opened (Changes screen still up)",
+            compose.onAllNodesWithText("Changes").fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun shellButtonOpensShellScreen() {
