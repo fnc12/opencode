@@ -307,6 +307,13 @@ class SessionScreenInteractionsInstrumentedTest {
         assertTrue("send posts the message", sawPath("POST /session/ses_1/message"))
     }
 
+    // NOTE: StreamStatusBadge's LIVE dot (session.live) is NOT asserted here — with
+    // MockWebServer the LIVE status only flashes between reconnects (the connection
+    // closes after each SSE frame), too briefly to catch deterministically under a
+    // paused clock. Covering it would need a persistent-open SSE test double; a
+    // flaky test is worse than the 8 uncovered lines. The stream loop itself is
+    // covered by SessionStreamInstrumentedTest.
+
     @Test fun revertBannerRestores() {
         // A session with a revert boundary → the "↩ … reverted" banner shows above
         // the composer; tapping it restores (POST /unrevert).
