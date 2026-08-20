@@ -48,6 +48,19 @@ class MessageRenderBranchesInstrumentedTest {
         holder.bind(MessageAdapter.render(msg))
     }
 
+    @Test fun textTableTextBindsExtraBodyView() {
+        // A GFM table between two paragraphs → blocks [Text, Table, Text]. The first
+        // Text fills the bubble; the Table (buildTableView) and the trailing Text
+        // (makeBodyTextView) mount as "extra" views — covering makeBodyTextView.
+        val msg = assistant(parts = arrayOf(
+            MessagePart("p", "s", "m", "assistant",
+                PartContent.Text("Intro line.\n\n| Name | Type |\n|---|---|\n| id | Int |\n\nClosing line."), false, false),
+        ))
+        val rendered = MessageAdapter.render(msg)
+        assertTrue("splits into 3 blocks", rendered.blocks.size >= 3)
+        bind(msg)
+    }
+
     @Test fun runningToolMark() {
         val msg = assistant(parts = arrayOf(tool("running")))
         assertTrue("running tool uses the … mark", plainText(msg).contains("…"))
