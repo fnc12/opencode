@@ -13,6 +13,7 @@ import studio.eugenezakharov.opencode.api.models.ToolMeta
 import studio.eugenezakharov.opencode.ui.session.FileRefDisplay
 import studio.eugenezakharov.opencode.ui.session.PatchDisplay
 import studio.eugenezakharov.opencode.ui.session.ToolDisplay
+import studio.eugenezakharov.opencode.ui.session.filePath
 
 /**
  * Golden tests over a REAL session captured from a live OpenCode server
@@ -122,10 +123,22 @@ class ToolDisplayGoldenTest {
         assertEquals("codegen_tests_create_table.cpp:266", FileRefDisplay.chip(file))
     }
 
+    @Test fun fileChipFallsBackToUrlLastComponentThenLiteral() {
+        // No filename → lastComponent(url) (strips query + path).
+        assertEquals("main.kt", FileRefDisplay.chip(PartContent.FileRef(filename = null, url = "file:///a/b/main.kt")))
+        // No filename and no url → the literal "file".
+        assertEquals("file", FileRefDisplay.chip(PartContent.FileRef(filename = null, url = null)))
+    }
+
     @Test fun diffBadgeEdgeCases() {
         assertNull(ToolDisplay.diffBadge(null))
         assertNull(ToolDisplay.diffBadge(ToolMeta(additions = 0, deletions = 0)))
         assertEquals("+3 −0", ToolDisplay.diffBadge(ToolMeta(additions = 3, deletions = 0)))
+    }
+
+    @Test fun filePathReadsInputKey() {
+        assertEquals("/w/a.kt", filePath(PartContent.Tool(tool = "edit", callID = "c", status = "completed", input = mapOf("filePath" to "/w/a.kt"))))
+        assertNull(filePath(PartContent.Tool(tool = "bash", callID = "c", status = "completed")))
     }
 
     @Test fun lineRangeSpanAndSingle() {
