@@ -210,6 +210,57 @@ class SessionScreenInteractionsInstrumentedTest {
             compose.onAllNodesWithText("Changes").fetchSemanticsNodes().isNotEmpty())
     }
 
+    @Test fun multiQuestionPagerAdvancesAndSubmits() {
+        // Two single-select questions → isMulti → HorizontalPager + "1 / 2" indicator;
+        // picking the first auto-advances to the second (Claude-style slides).
+        val json = """[{"id":"q","sessionID":"ses_1","questions":[
+            {"question":"Q1","header":"First","options":[{"label":"A1","description":"a"},{"label":"B1","description":"b"}]},
+            {"question":"Q2","header":"Second","options":[{"label":"A2","description":"a"}]}]}]"""
+        val vm = SessionViewModel(
+            server = conn(), session = session(), prefs = Prefs(),
+            streamLive = false, injectQuestionJson = json,
+        )
+        awaitLoaded(vm)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.pendingQuestions.isEmpty()) Thread.sleep(20)
+        mount(vm)
+        compose.waitUntil(3000) { compose.onAllNodesWithText("1 / 2").fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("multi-question shows a page indicator", compose.onAllNodesWithText("1 / 2").fetchSemanticsNodes().isNotEmpty())
+        // Pick Q1's option → advances to page 2.
+        compose.onNodeWithTag("A1").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitUntil(3000) { vm.state.value.pendingQuestions.isNotEmpty() } // still pending until submit
+        // Pick Q2 + submit → clears.
+        compose.waitUntil(3000) { compose.onAllNodesWithTag("A2").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("A2").performClick()
+        compose.onNodeWithTag("question.submit").performClick()
+        compose.waitUntil(3000) { vm.state.value.pendingQuestions.isEmpty() }
+        assertTrue(vm.state.value.pendingQuestions.isEmpty())
+    }
+
+    @Test fun multiSelectQuestionTogglesOptions() {
+        // A single multi-select question → tapping toggles options on and off.
+        val json = """[{"id":"q","sessionID":"ses_1","questions":[
+            {"question":"Pick any","header":"Multi","multiple":true,
+             "options":[{"label":"Opt1","description":"a"},{"label":"Opt2","description":"b"}]}]}]"""
+        val vm = SessionViewModel(
+            server = conn(), session = session(), prefs = Prefs(),
+            streamLive = false, injectQuestionJson = json,
+        )
+        awaitLoaded(vm)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.pendingQuestions.isEmpty()) Thread.sleep(20)
+        mount(vm)
+        compose.waitUntil(3000) { compose.onAllNodesWithTag("Opt1").fetchSemanticsNodes().isNotEmpty() }
+        // Toggle on, on, then off (covers both branches of the multi-select toggle).
+        compose.onNodeWithTag("Opt1").performClick()
+        compose.onNodeWithTag("Opt2").performClick()
+        compose.onNodeWithTag("Opt1").performClick() // deselect
+        compose.onNodeWithTag("question.submit").performClick()
+        compose.waitUntil(3000) { vm.state.value.pendingQuestions.isEmpty() }
+        assertTrue(vm.state.value.pendingQuestions.isEmpty())
+    }
+
     @Test fun todoPillOpensTasksDialog() {
         val vm = SessionViewModel(
             server = conn(), session = session(), prefs = Prefs(),
