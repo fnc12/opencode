@@ -136,6 +136,13 @@ class ToolDisplayGoldenTest {
         assertEquals("+3 −0", ToolDisplay.diffBadge(ToolMeta(additions = 3, deletions = 0)))
     }
 
+    @Test fun describeTaskToolUsesTitle() {
+        // The "task"/"question" arm returns the tool's title as detail.
+        val t = PartContent.Tool(tool = "task", callID = "c", status = "completed", title = "Sub-agent run")
+        val (_, detail) = ToolDisplay.describe(t)
+        assertEquals("Sub-agent run", detail)
+    }
+
     @Test fun filePathReadsInputKey() {
         assertEquals("/w/a.kt", filePath(PartContent.Tool(tool = "edit", callID = "c", status = "completed", input = mapOf("filePath" to "/w/a.kt"))))
         assertNull(filePath(PartContent.Tool(tool = "bash", callID = "c", status = "completed")))

@@ -173,6 +173,49 @@ class ModelsExhaustiveTest {
         assertFalse(mwp.hasRenderableContent) // no parts
     }
 
+    @Test fun everyPartContentTypeDecodes() {
+        // One message carrying each remaining part type → covers PartContent.from's
+        // step-start/step-finish/patch/file/compaction arms and their constructors.
+        val msg = MessageParsing.parseMessageList(
+            json,
+            """[{"info":{"id":"m","sessionID":"s","role":"assistant","time":{"created":1}},"parts":[
+              {"id":"a","sessionID":"s","messageID":"m","type":"step-start","title":"T"},
+              {"id":"b","sessionID":"s","messageID":"m","type":"step-finish","reason":"stop"},
+              {"id":"c","sessionID":"s","messageID":"m","type":"patch","hash":"h","files":["a.kt"]},
+              {"id":"d","sessionID":"s","messageID":"m","type":"file","filename":"f.txt","url":"u","mime":"text/plain"},
+              {"id":"e","sessionID":"s","messageID":"m","type":"compaction","auto":true},
+              {"id":"f","sessionID":"s","messageID":"m","type":"reasoning","text":"why"},
+              {"id":"g","sessionID":"s","messageID":"m","type":"totally-unknown"}
+            ]}]""",
+        ).single()
+        val types = msg.parts.map { it.content }
+        assertTrue(types.any { it is PartContent.StepStart })
+        assertTrue(types.any { it is PartContent.StepFinish })
+        assertTrue(types.any { it is PartContent.Patch })
+        assertTrue(types.any { it is PartContent.FileRef })
+        assertTrue(types.any { it is PartContent.Compaction })
+        assertTrue(types.any { it is PartContent.Reasoning })
+        // An unknown part type resolves to null content (the `else -> null` arm).
+        assertTrue(msg.parts.any { it.type == "totally-unknown" && it.content == null })
+    }
+
+    @Test fun parseGuardsReturnNullOrEmptyOnBadInput() {
+        // MessageInfo.from: unknown role → null (message skipped).
+        val skipped = MessageParsing.parseMessageList(
+            json,
+            """[{"info":{"id":"m","sessionID":"s","role":"system","time":{"created":1}},"parts":[]}]""",
+        )
+        assertTrue("unknown role is skipped", skipped.isEmpty())
+        // parseMessageList: a non-array body → empty list.
+        assertTrue(MessageParsing.parseMessageList(json, """{"not":"an array"}""").isEmpty())
+        // QuestionItem.from: missing question → null.
+        val q = json.parseToJsonElement("""{"header":"H"}""").jsonObject
+        assertNull(QuestionItem.from(q))
+        // QuestionRequest.from: missing id → null.
+        val qr = json.parseToJsonElement("""{"sessionID":"s"}""").jsonObject
+        assertNull(studio.eugenezakharov.opencode.api.models.QuestionRequest.from(qr))
+    }
+
     @Test fun parentDirEdgeCases() {
         assertEquals("/a/b", parentDir("/a/b/c"))
         assertEquals("/a", parentDir("/a/b/")) // trailing slash trimmed first
