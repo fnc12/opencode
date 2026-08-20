@@ -310,6 +310,26 @@ class SessionViewModelTest {
         assertEquals("gpt-5", vm.modelLabel())
     }
 
+    @Test fun autoSelectsDefaultModelWhenNonePreset() {
+        // Empty-model prefs + providers returned → loadProviders runs
+        // autoSelectDefault, which prefers a free `opencode` model.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                recordedPaths.add(request.path ?: "")
+                val body = if ((request.path ?: "").contains("/config/providers")) {
+                    """{"providers":[{"id":"opencode","name":"OpenCode","models":{"glm-free":{"id":"glm-free","name":"GLM Free"}}}]}"""
+                } else {
+                    "[]"
+                }
+                return MockResponse().setResponseCode(200).setBody(body)
+            }
+        }
+        val vm = viewModel(FakeComposerPrefs(modelID = "")) // no preset model
+        waitFor { vm.state.value.modelID.isNotEmpty() }
+        assertEquals("opencode", vm.state.value.providerID)
+        assertEquals("glm-free", vm.state.value.modelID)
+    }
+
     // NOTE: the live SSE reconnect loop (SessionViewModel.start's `while (streamLive
     // && isActive)`) is deliberately NOT unit-tested — it's infinite by design and,
     // driven by real dispatchers against a MockWebServer, races the assertion
