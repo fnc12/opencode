@@ -210,6 +210,24 @@ class SessionScreenInteractionsInstrumentedTest {
             compose.onAllNodesWithText("Changes").fetchSemanticsNodes().isNotEmpty())
     }
 
+    @Test fun todoPillOpensTasksDialog() {
+        val vm = SessionViewModel(
+            server = conn(), session = session(), prefs = Prefs(),
+            streamLive = false, injectTestTodo = true,
+        )
+        awaitLoaded(vm)
+        val deadline = System.currentTimeMillis() + 3000
+        while (System.currentTimeMillis() < deadline && vm.state.value.todos.isEmpty()) Thread.sleep(20)
+        mount(vm)
+        // Tap the "☑ Tasks n/m" pill → the TodoDialog (with each status glyph) opens.
+        compose.waitUntil(3000) { compose.onAllNodesWithText("Tasks", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithText("Tasks", substring = true).onFirst().performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitUntil(3000) { compose.onAllNodesWithText("Read the AST query schema", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("todo dialog lists the tasks",
+            compose.onAllNodesWithText("Read the AST query schema", substring = true).fetchSemanticsNodes().isNotEmpty())
+    }
+
     @Test fun shellButtonOpensShellScreen() {
         val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
         awaitLoaded(vm)
