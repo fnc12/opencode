@@ -75,10 +75,31 @@ class SessionListScreenInteractionsInstrumentedTest {
 
     private fun sawPath(sub: String) = synchronized(paths) { paths.any { it.contains(sub) } }
 
-@Ignore("Flaky: races the SessionListScreen internal RecyclerView-in-Compose row " +
-        "render/layout (passes ~2/3 under full-suite CPU load). A reliably-green suite " +
-        "beats 2 flaky tests; the delete/rename callbacks are also covered by " +
-        "SessionListAdapterInstrumentedTest. Re-enable once the row-render wait is robust.")
+    /** Waits for the SessionListScreen's internal RecyclerView to have DATA (adapter
+     *  itemCount>0, which is synchronous once the network load + submit land), then
+     *  forces a measure/layout so a child row is guaranteed — decoupling "loaded"
+     *  from "laid out" (the async layout was the earlier flake). */
+    private fun awaitPopulatedRow(): RecyclerView {
+        var rv: RecyclerView? = null
+        val deadline = System.currentTimeMillis() + 15000
+        while (System.currentTimeMillis() < deadline) {
+            compose.runOnUiThread { rv = findRecycler(compose.activity.window.decorView) }
+            if ((rv?.adapter?.itemCount ?: 0) > 0) break
+            Thread.sleep(50)
+        }
+        assertTrue("the session list must load a row", (rv?.adapter?.itemCount ?: 0) > 0)
+        compose.runOnUiThread {
+            val r = rv!!
+            val w = if (r.width > 0) r.width else 1000
+            val h = if (r.height > 0) r.height else 2000
+            r.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                      View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY))
+            r.layout(0, 0, w, h)
+        }
+        assertTrue("a session row must be laid out", (rv?.childCount ?: 0) > 0)
+        return rv!!
+    }
+
     @Test fun renameFlowHitsServer() {
         val connection = ServerConnection(
             ConnectionConfig(mode = ConnectionMode.DIRECT, directURL = server.url("/").toString().trimEnd('/')),
@@ -89,16 +110,7 @@ class SessionListScreenInteractionsInstrumentedTest {
             }
         }
         // Wait for the loaded RecyclerView to have a row.
-        var rv: RecyclerView? = null
-        // Generous deadline: the list loads over the network then the RecyclerView
-        // adapter populates — both async and prone to spikes under CI/CPU load.
-        val deadline = System.currentTimeMillis() + 15000
-        while (System.currentTimeMillis() < deadline) {
-            compose.runOnUiThread { rv = findRecycler(compose.activity.window.decorView) }
-            if ((rv?.childCount ?: 0) > 0) break
-            Thread.sleep(50)
-        }
-        assertTrue("a session row must render", (rv?.childCount ?: 0) > 0)
+        val rv = awaitPopulatedRow()
 
         // Long-press the row → the Rename/Delete popup.
         compose.runOnUiThread { rv!!.getChildAt(0).performLongClick() }
@@ -113,7 +125,6 @@ class SessionListScreenInteractionsInstrumentedTest {
         assertTrue("commitRename PATCHes the session title", sawPath("PATCH /session/ses_1"))
     }
 
-@Ignore("Flaky: same RecyclerView-in-Compose row race as renameFlowHitsServer.")
     @Test fun deleteFlowHitsServer() {
         val connection = ServerConnection(
             ConnectionConfig(mode = ConnectionMode.DIRECT, directURL = server.url("/").toString().trimEnd('/')),
@@ -123,16 +134,7 @@ class SessionListScreenInteractionsInstrumentedTest {
                 SessionListScreen(server = connection, project = project(), onSessionClick = {}, onBack = {})
             }
         }
-        var rv: RecyclerView? = null
-        // Generous deadline: the list loads over the network then the RecyclerView
-        // adapter populates — both async and prone to spikes under CI/CPU load.
-        val deadline = System.currentTimeMillis() + 15000
-        while (System.currentTimeMillis() < deadline) {
-            compose.runOnUiThread { rv = findRecycler(compose.activity.window.decorView) }
-            if ((rv?.childCount ?: 0) > 0) break
-            Thread.sleep(50)
-        }
-        assertTrue("a session row must render", (rv?.childCount ?: 0) > 0)
+        val rv = awaitPopulatedRow()
         compose.runOnUiThread { rv!!.getChildAt(0).performLongClick() }
         compose.waitForIdle()
         onView(withText("Delete")).inRoot(isPlatformPopup()).perform(click())
