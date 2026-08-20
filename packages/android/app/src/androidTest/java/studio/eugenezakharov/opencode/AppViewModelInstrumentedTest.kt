@@ -92,6 +92,24 @@ class AppViewModelInstrumentedTest {
         org.junit.Assert.assertNull(vm.pendingOpenSessionId.value)
     }
 
+    @Test fun applyActivityTracksBusySessions() {
+        val vm = vm()
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        fun event(s: String) = studio.eugenezakharov.opencode.api.ServerEvent.decode(json, s)!!
+        // An assistant message still generating (no completed time) → session busy.
+        vm.applyActivity(event("""{"type":"message.updated","properties":{"sessionID":"ses_9","info":{"id":"m","sessionID":"ses_9","role":"assistant","time":{"created":1},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}"""))
+        assertTrue(vm.busySessions.value.contains("ses_9"))
+        // Completed → no longer busy.
+        vm.applyActivity(event("""{"type":"message.updated","properties":{"sessionID":"ses_9","info":{"id":"m","sessionID":"ses_9","role":"assistant","time":{"created":1,"completed":2},"modelID":"x","providerID":"y","agent":"build","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}}}}"""))
+        assertTrue(!vm.busySessions.value.contains("ses_9"))
+        // A live part delta marks busy too.
+        vm.applyActivity(event("""{"type":"message.part.delta","properties":{"sessionID":"ses_5","messageID":"m","partID":"p","field":"text","delta":"x"}}"""))
+        assertTrue(vm.busySessions.value.contains("ses_5"))
+        // A user message is ignored.
+        vm.applyActivity(event("""{"type":"message.updated","properties":{"sessionID":"ses_3","info":{"id":"m","sessionID":"ses_3","role":"user","time":{"created":1}}}}"""))
+        assertTrue(!vm.busySessions.value.contains("ses_3"))
+    }
+
     @Test fun disconnectClearsConnectedState() {
         val vm = vm()
         vm.disconnect()

@@ -162,7 +162,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun applyActivity(event: ServerEvent) {
+    // Internal (not private) so the busy-session reducer is unit-testable without
+    // standing up the live global event stream (mirrors iOS ServerConnection.applyActivity).
+    internal fun applyActivity(event: ServerEvent) {
         when (event) {
             is ServerEvent.MessageUpdated -> {
                 val info = event.info
