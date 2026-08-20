@@ -51,6 +51,14 @@ type Config struct {
 	// StripeWebhookSecret, when set (with Provision), enables POST /stripe/webhook
 	// to mint access on subscription start and revoke it on cancellation.
 	StripeWebhookSecret string
+
+	// PayPal, when its ClientID + WebhookID are set (with Provision), enables
+	// POST /paypal/webhook — the same mint-on-subscribe / revoke-on-cancel gate
+	// via PayPal (usable where Stripe is not available to the seller).
+	PayPal PayPalConfig
+	// VerifyPayPal overrides the webhook verifier (tests inject a stub); left nil
+	// in production, where New builds the live API verifier from PayPal.
+	VerifyPayPal func(http.Header, []byte) error
 }
 
 // Server is the relay. The zero value is not usable; call New.
@@ -65,6 +73,9 @@ type Server struct {
 	assetDir     string
 	publicURL    string
 	stripeSecret string
+	// verifyPayPal authenticates a PayPal webhook (nil when PayPal is not
+	// configured). Injectable so the mint/revoke path is unit-testable.
+	verifyPayPal func(http.Header, []byte) error
 }
 
 // New constructs a Server.
@@ -73,7 +84,7 @@ func New(cfg Config) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{
+	s := &Server{
 		reg:          tunnel.NewRegistry(),
 		secret:       cfg.Secret,
 		log:          log,
@@ -84,7 +95,14 @@ func New(cfg Config) *Server {
 		assetDir:     cfg.AssetDir,
 		publicURL:    cfg.PublicURL,
 		stripeSecret: cfg.StripeWebhookSecret,
+		verifyPayPal: cfg.VerifyPayPal,
 	}
+	// Default the PayPal verifier to the live API-verifying implementation when
+	// credentials are present and no override was supplied (tests inject one).
+	if s.verifyPayPal == nil && cfg.PayPal.ClientID != "" && cfg.PayPal.WebhookID != "" {
+		s.verifyPayPal = newPayPalVerifier(cfg.PayPal, nil)
+	}
+	return s
 }
 
 // Handler returns the HTTP handler exposing all relay routes.
@@ -101,6 +119,9 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /connector/claim", s.claimTunnel)
 		if s.stripeSecret != "" {
 			mux.HandleFunc("POST /stripe/webhook", s.handleStripeWebhook)
+		}
+		if s.verifyPayPal != nil {
+			mux.HandleFunc("POST /paypal/webhook", s.handlePayPalWebhook)
 		}
 	}
 	if s.assetDir != "" {

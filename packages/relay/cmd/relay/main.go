@@ -46,6 +46,15 @@ func main() {
 			cfg.StripeWebhookSecret = sw
 			logger.Info("stripe billing enabled")
 		}
+		if id := os.Getenv("PAYPAL_CLIENT_ID"); id != "" && os.Getenv("PAYPAL_WEBHOOK_ID") != "" {
+			cfg.PayPal = relayserver.PayPalConfig{
+				ClientID:  id,
+				Secret:    os.Getenv("PAYPAL_SECRET"),
+				WebhookID: os.Getenv("PAYPAL_WEBHOOK_ID"),
+				Live:      os.Getenv("PAYPAL_LIVE") == "1",
+			}
+			logger.Info("paypal billing enabled", "live", cfg.PayPal.Live)
+		}
 	}
 	// One-command installer: serve connector binaries + install.sh from ASSET_DIR.
 	if dir := os.Getenv("ASSET_DIR"); dir != "" {

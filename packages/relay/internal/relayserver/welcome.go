@@ -22,6 +22,22 @@ func (s *Server) welcome(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	code := r.URL.Query().Get("code")
+
+	// PayPal return: `?sub=<subscription-id>` — after checkout PayPal redirects
+	// here; look the minted code up by subscription (the webhook binds it as the
+	// customer id). If the webhook hasn't landed yet, show a "activating" page
+	// that reloads shortly rather than the form.
+	if code == "" {
+		if sub := r.URL.Query().Get("sub"); sub != "" && s.provision != nil {
+			if t, ok := s.provision.GetByCustomer(sub); ok && t.ClaimCode != "" {
+				code = t.ClaimCode
+			} else {
+				fmt.Fprintf(w, welcomeShell, "Activating…", welcomePendingBody)
+				return
+			}
+		}
+	}
+
 	if code == "" || !claimCodeRe.MatchString(code) {
 		// No (valid) code yet → a small form to paste one.
 		fmt.Fprintf(w, welcomeShell, "Connect your OpenCode", fmt.Sprintf(welcomeFormBody, html.EscapeString(code)))
@@ -94,6 +110,12 @@ const welcomeCodeBody = `<h1>You're in 🎉</h1>
   <li>Done — your projects load over the relay, on any network.</li>
 </ol>
 <p class="note">The connector dials out to the relay, so no ports or firewall changes are needed. Keep OpenCode running for the app to reach it.</p>`
+
+// welcomePendingBody is shown right after a PayPal return, while the activation
+// webhook is still in flight. Meta-refresh so the code appears once it lands.
+const welcomePendingBody = `<meta http-equiv="refresh" content="4">
+<h1>Activating your access…</h1>
+<p class="sub">Payment received — setting up your tunnel. This page refreshes automatically; it usually takes a few seconds.</p>`
 
 // welcomeFormBody is shown when no valid code is present. One %s pre-fills any
 // (rejected) code the user already typed.
