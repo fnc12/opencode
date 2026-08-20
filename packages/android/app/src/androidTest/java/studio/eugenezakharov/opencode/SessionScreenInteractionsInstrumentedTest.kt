@@ -125,6 +125,29 @@ class SessionScreenInteractionsInstrumentedTest {
         assertTrue("send posts the prompt", sawPath("POST /session/ses_1/message"))
     }
 
+    @Test fun sendFailureShowsError() {
+        // POST /message fails → the composer restores the text and shows sendError.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                paths.add("${request.method} ${request.path}")
+                return if (request.method == "POST" && (request.path ?: "").contains("/message")) {
+                    MockResponse().setResponseCode(500).setBody("boom")
+                } else {
+                    MockResponse().setResponseCode(200).setBody("[]")
+                }
+            }
+        }
+        val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
+        awaitLoaded(vm)
+        mount(vm)
+        compose.onNodeWithTag("composer.field").performTextInput("this will fail")
+        compose.onNodeWithTag("composer.send").performClick()
+        // The send-error row renders once the POST fails.
+        advanceUntil(5000) { compose.onAllNodesWithText("error", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("a send error is shown",
+            compose.onAllNodesWithText("error", substring = true).fetchSemanticsNodes().isNotEmpty())
+    }
+
     @Test fun agentMenuOpens() {
         val vm = SessionViewModel(server = conn(), session = session(), prefs = Prefs(), streamLive = false)
         awaitLoaded(vm)
