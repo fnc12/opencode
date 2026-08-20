@@ -128,6 +128,9 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation("androidx.test:rules:1.6.1")
     androidTestImplementation(libs.androidx.espresso.core)
+    // Stubs outgoing intents (e.g. the share chooser) so tests can drive
+    // Intent-launching code without a real Activity leaking over the suite.
+    androidTestImplementation("androidx.test.espresso:espresso-intents:3.6.1")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.okhttp)
