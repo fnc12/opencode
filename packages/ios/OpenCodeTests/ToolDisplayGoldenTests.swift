@@ -155,6 +155,20 @@ final class ToolDisplayGoldenTests: XCTestCase {
         XCTAssertEqual(ToolDisplay.diffBadge(FileDiff(additions: 3, deletions: 0)), "+3 \u{2212}0")
     }
 
+    func testDiffBadgeNilCountsAndDeletionsOnly() {
+        // additions == 0 forces the guard's `||` to evaluate the deletions side.
+        XCTAssertEqual(ToolDisplay.diffBadge(FileDiff(additions: 0, deletions: 5)), "+0 \u{2212}5")
+        // nil additions/deletions exercise the `?? 0` fallbacks (both in the guard
+        // and the interpolation) and, being zero, yield no badge.
+        XCTAssertNil(ToolDisplay.diffBadge(FileDiff(additions: nil, deletions: nil)))
+        XCTAssertEqual(ToolDisplay.diffBadge(FileDiff(additions: nil, deletions: 2)), "+0 \u{2212}2")
+    }
+
+    func testFileChipFallsBackToLiteralWhenNoNameOrURL() {
+        // No filename and no url → both `??` fallbacks give the literal "file".
+        XCTAssertEqual(FileRefDisplay.chip(FileRefContent(filename: nil, url: nil, mime: nil)), "file")
+    }
+
     func testLineRangeSpanAndSingle() {
         XCTAssertEqual(FileRefDisplay.lineRange("file:///a.cpp?start=10&end=10"), "10")
         XCTAssertEqual(FileRefDisplay.lineRange("file:///a.cpp?start=10&end=20"), "10-20")

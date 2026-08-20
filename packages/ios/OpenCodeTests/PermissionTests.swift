@@ -47,6 +47,18 @@ final class PermissionDecodeTests: XCTestCase {
         guard case .permissionReplied(_, let requestID) = try decode(json) else { return XCTFail("expected .permissionReplied") }
         XCTAssertEqual(requestID, "perm_2")
     }
+
+    /// A permission whose properties carry only `id` — no sessionID, and neither
+    /// the v2 (`action`/`resources`) nor v1 (`permission`/`patterns`) fields.
+    /// Exercises the terminal `?? ""` / `?? []` defaults in PermissionRequest.
+    func testDecodesSparsePermissionUsesDefaults() throws {
+        let json = #"{"payload":{"type":"permission.v2.asked","properties":{"id":"perm_9"}}}"#
+        guard case .permissionAsked(let req) = try decode(json) else { return XCTFail("expected .permissionAsked") }
+        XCTAssertEqual(req.id, "perm_9")
+        XCTAssertEqual(req.sessionID, "")
+        XCTAssertEqual(req.action, "")
+        XCTAssertEqual(req.resources, [])
+    }
 }
 
 @MainActor
