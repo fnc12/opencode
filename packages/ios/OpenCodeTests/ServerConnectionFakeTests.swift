@@ -450,6 +450,38 @@ final class ServerConnectionFakeTests: XCTestCase {
         XCTAssertFalse(c.loading)
     }
 
+    // --- invalidURL guards (malformed base URL → every builder throws) --------
+
+    private func malformed() -> ServerConnection {
+        var cfg = ConnectionConfig()
+        cfg.mode = .direct
+        cfg.directURL = "http://has space" // a space makes URLComponents(string:) nil
+        return ServerConnection(config: cfg, session: StubURLProtocol.session())
+    }
+
+    func testGetThrowsInvalidURLOnMalformedBase() async {
+        do { _ = try await malformed().projects(); XCTFail("bad URL must throw") } catch {}
+    }
+    func testPostThrowsInvalidURLOnMalformedBase() async {
+        do { try await malformed().abort(directory: "/w", sessionID: "s"); XCTFail("bad URL must throw") } catch {}
+    }
+    func testSendThrowsInvalidURLOnMalformedBase() async {
+        do { try await malformed().deleteSession(directory: "/w", sessionID: "s"); XCTFail("bad URL must throw") } catch {}
+    }
+    func testSendForResultThrowsInvalidURLOnMalformedBase() async {
+        do { _ = try await malformed().shareSession(directory: "/w", sessionID: "s"); XCTFail("bad URL must throw") } catch {}
+    }
+    func testMessagesPageThrowsInvalidURLOnMalformedBase() async {
+        do { _ = try await malformed().messagesPage(directory: "/w", sessionID: "s", limit: 5); XCTFail("bad URL must throw") } catch {}
+    }
+    func testCreateSessionThrowsInvalidURLOnMalformedBase() async {
+        do { _ = try await malformed().createSession(directory: "/w"); XCTFail("bad URL must throw") } catch {}
+    }
+    func testEventStreamNilOnMalformedBase() {
+        // eventStream returns nil (not throw) when the URL can't be built.
+        XCTAssertNil(malformed().eventStream(directory: ""))
+    }
+
     func testCancelConnectWhenIdleIsNoOp() {
         // Not loading → the guard early-returns without touching state.
         let c = direct()
