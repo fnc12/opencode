@@ -80,7 +80,7 @@ device connected), then parse `app/build/reports/jacoco/jacocoMergedReport/…xm
 
 ## Status (2026-08-20)
 
-_Latest: iOS 97.7% of testable-logic scope, Android 94.7% merged. Both suites green; remaining gaps are the gesture/streaming/nav ceiling documented above._
+_Latest: iOS 97.7% of testable-logic scope, Android 94.8% merged. Both suites green; remaining gaps are the gesture/streaming/nav ceiling documented above._
 
 - **iOS testable-logic scope: 97.7%** (was 68.8%; 24 UI-shell files excluded —
   App, ConnectView, PushManager added). Render pipeline extracted to
@@ -92,7 +92,7 @@ _Latest: iOS 97.7% of testable-logic scope, Android 94.7% merged. Both suites gr
   `cancelConnect` body (needs a mid-flight hang), and MessageDetailView's
   `toggleThinking`/`CodeBlockRepresentable` (SwiftUI @State/Context — XCUITest
   territory that can't merge into xccov).
-- **Android merged: 94.7%** (was 60.7%; UI countable via JaCoCo merge). Cracked
+- **Android merged: 94.8%** (was 60.7%; UI countable via JaCoCo merge). Cracked
   two long-standing blockers: (1) the NetworkOnMainThread on instrumented screen
   tests was building `ServerConnection` inside `setContent` (server.url() does
   reverse-DNS on the Compose main thread) — fixed by hoisting it to the test
