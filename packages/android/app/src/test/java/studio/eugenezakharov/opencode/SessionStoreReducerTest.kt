@@ -145,7 +145,16 @@ class SessionStoreReducerTest {
         s.apply(event("""{"type":"message.part.updated","properties":{"sessionID":"OTHER","part":{"id":"p","sessionID":"OTHER","messageID":"m1","type":"text","text":"x"}}}"""), sid)
         s.apply(event("""{"type":"todo.updated","properties":{"sessionID":"OTHER","todos":[{"content":"a","status":"pending","priority":"high"}]}}"""), sid)
         s.apply(event("""{"type":"session.updated","properties":{"info":{"id":"OTHER","revert":{"messageID":"z"}}}}"""), sid)
+        // The remaining reducer arms' `else false` (foreign session) branches:
+        s.apply(event("""{"type":"message.part.delta","properties":{"sessionID":"OTHER","messageID":"m1","partID":"p","field":"text","delta":"x"}}"""), sid)
+        s.apply(event("""{"type":"message.part.removed","properties":{"sessionID":"OTHER","messageID":"m1","partID":"p"}}"""), sid)
+        s.apply(event("""{"type":"message.removed","properties":{"sessionID":"OTHER","messageID":"m1"}}"""), sid)
+        s.apply(event("""{"type":"permission.v2.replied","properties":{"sessionID":"OTHER","requestID":"per_1"}}"""), sid)
+        s.apply(event("""{"type":"question.v2.replied","properties":{"sessionID":"OTHER","requestID":"que_1"}}"""), sid)
+        // An unrecognized event type → the terminal `else -> false`.
+        s.apply(event("""{"type":"server.connected","properties":{}}"""), sid)
         assertEquals(0, s.messages.first().parts.size)
+        assertEquals(1, s.messages.size) // foreign message.removed didn't drop ours
         assertTrue(s.todos.isEmpty())
         assertNull(s.revertMessageID)
     }
