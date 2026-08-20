@@ -54,6 +54,14 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Espresso REQUIRES device animations off, or `perform(click())` on a popup /
+    // dialog races the enter animation and flakes ("Animations or transitions are
+    // enabled on the target device"). This turns them off for every instrumented
+    // run so the suite is deterministic regardless of the emulator's settings.
+    testOptions {
+        animationsDisabled = true
+    }
+
     buildTypes {
         debug {
             // Emit JaCoCo coverage from BOTH unit and instrumented (androidTest)
