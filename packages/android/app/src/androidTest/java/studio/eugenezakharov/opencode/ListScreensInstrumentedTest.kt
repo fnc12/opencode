@@ -4,6 +4,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToLog
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -131,6 +133,56 @@ class ListScreensInstrumentedTest {
         textShown("No projects yet")
         compose.onNodeWithTag("projects.providers").performClick()
         assertTrue("providers dialog opened", textShown("Providers"))
+    }
+
+    @Test fun openFolderBrowserShowsLoadError() {
+        serve { req ->
+            when {
+                (req.path ?: "").startsWith("/project") -> 200 to "[]"
+                (req.path ?: "").startsWith("/file") -> 500 to "boom" // listDirectory fails
+                else -> 200 to "{}"
+            }
+        }
+        val connection = conn()
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                ProjectListScreen(server = connection, onProjectClick = {}, onSessionCreated = {}, onDisconnect = {})
+            }
+        }
+        textShown("No projects yet")
+        compose.onNodeWithTag("projects.openFolder").performClick()
+        assertTrue("browser opened", textShown("Open folder"))
+        // The folder listing fails → the "Can't open <path>" load-error branch renders
+        // (substring: the target path is appended).
+        compose.waitUntil(6000) { compose.onAllNodesWithText("Can't open", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("load error shows",
+            compose.onAllNodesWithText("Can't open", substring = true).fetchSemanticsNodes().isNotEmpty())
+    }
+
+    @Test fun openFolderBrowserShowsCreateError() {
+        serve { req ->
+            when {
+                req.method == "POST" && (req.path ?: "").startsWith("/session") -> 500 to "nope" // createSession fails
+                (req.path ?: "").startsWith("/project") -> 200 to "[]"
+                (req.path ?: "").startsWith("/file") -> 200 to "[]"
+                else -> 200 to "{}"
+            }
+        }
+        val connection = conn()
+        compose.setContent {
+            OpenCodeTheme(darkTheme = true, dynamicColor = false) {
+                ProjectListScreen(server = connection, onProjectClick = {}, onSessionCreated = {}, onDisconnect = {})
+            }
+        }
+        textShown("No projects yet")
+        compose.onNodeWithTag("projects.openFolder").performClick()
+        assertTrue("browser opened", textShown("Open folder"))
+        compose.onNodeWithTag("openFolder.path").performTextInput("/srv")
+        compose.onNodeWithTag("openFolder.create").performClick()
+        // createSession fails → the create-error branch renders (ClientError → "HTTP error: 500").
+        compose.waitUntil(6000) { compose.onAllNodesWithText("error", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("create error shows",
+            compose.onAllNodesWithText("error", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun openFolderBrowserNavigatesAndCreates() {
