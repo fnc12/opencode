@@ -6,6 +6,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"rsc.io/qr"
@@ -38,6 +39,14 @@ func (s *Server) welcome(w http.ResponseWriter, r *http.Request) {
 		sub := r.URL.Query().Get("subscription_id")
 		if sub == "" {
 			sub = r.URL.Query().Get("sub")
+		}
+		// If the buyer is signed in when they return from PayPal, bind the
+		// subscription to their account now — this is what ties a subscription
+		// paid from a different email to the right account.
+		if sub != "" && s.accounts != nil {
+			if acc, ok := s.accountFromRequest(r); ok {
+				_ = s.accounts.BindSubscription(acc, sub, time.Now().Unix())
+			}
 		}
 		if sub != "" && s.provision != nil {
 			if t, ok := s.provision.GetByCustomer(sub); ok {

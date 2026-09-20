@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fnc12/opencode/packages/relay/internal/account"
 	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/relayserver"
@@ -51,6 +52,17 @@ func main() {
 		}
 		cfg.Provision, cfg.AdminSecret = pstore, admin
 		logger.Info("provisioning enabled", "db", dbPath)
+		// User layer (accounts + magic-link + /account) shares the same DB.
+		// Gated so it stays dormant until an email transport is wired.
+		if os.Getenv("ACCOUNTS_ENABLED") == "1" {
+			astore, err := account.NewStore(dbPath)
+			if err != nil {
+				logger.Error("account store", "err", err)
+				os.Exit(1)
+			}
+			cfg.Accounts = astore
+			logger.Info("accounts enabled")
+		}
 		if sw := os.Getenv("STRIPE_WEBHOOK_SECRET"); sw != "" {
 			cfg.StripeWebhookSecret = sw
 			logger.Info("stripe billing enabled")
