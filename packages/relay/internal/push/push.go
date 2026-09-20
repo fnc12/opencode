@@ -73,6 +73,20 @@ type Dispatcher struct {
 	recent map[string]time.Time // key: tunnelID/sessionID
 	dedupe time.Duration
 	now    func() time.Time
+
+	// counter, when set, tallies delivered pushes for the public /stats number.
+	counter *Counter
+}
+
+// SetCounter attaches a durable delivery counter (for the public /stats value).
+func (d *Dispatcher) SetCounter(c *Counter) { d.counter = c }
+
+// Count returns the total pushes delivered (0 when no counter is attached).
+func (d *Dispatcher) Count() int64 {
+	if d.counter == nil {
+		return 0
+	}
+	return d.counter.Value()
 }
 
 // NewDispatcher builds a Dispatcher. Pushers are keyed by their Provider.
@@ -128,6 +142,9 @@ func (d *Dispatcher) Notify(ctx context.Context, n Notification) int {
 			continue
 		}
 		sent++
+	}
+	if d.counter != nil {
+		d.counter.Add(sent)
 	}
 	d.log.Info("push: dispatched", "tunnel", n.TunnelID, "session", n.SessionID, "kind", string(n.Kind), "devices", sent)
 	return sent
