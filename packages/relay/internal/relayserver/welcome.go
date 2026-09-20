@@ -1,9 +1,14 @@
 package relayserver
 
 import (
+	"encoding/base64"
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
+
+	"github.com/fnc12/opencode/packages/relay/internal/provision"
+	"rsc.io/qr"
 )
 
 // welcome serves a human-friendly landing page that turns a claim code into the
@@ -35,9 +40,21 @@ func (s *Server) welcome(w http.ResponseWriter, r *http.Request) {
 			sub = r.URL.Query().Get("sub")
 		}
 		if sub != "" && s.provision != nil {
-			if t, ok := s.provision.GetByCustomer(sub); ok && t.ClaimCode != "" {
-				code = t.ClaimCode
+			if t, ok := s.provision.GetByCustomer(sub); ok {
+				if t.ClaimCode != "" {
+					// Minted but the connector hasn't claimed it yet → the code is
+					// still live, show the install command.
+					code = t.ClaimCode
+				} else {
+					// Already claimed: a returning, active subscriber. Don't loop on
+					// the "Activating…" page — show a re-pair QR for the existing
+					// tunnel so a reinstalled app or new phone reconnects.
+					s.welcomeConnected(w, base, t)
+					return
+				}
 			} else {
+				// No tunnel for this subscription yet — the activation webhook is
+				// still in flight. Show the auto-refreshing pending page.
 				fmt.Fprintf(w, welcomeShell, "Activating…", welcomePendingBody)
 				return
 			}
@@ -57,6 +74,44 @@ func (s *Server) welcome(w http.ResponseWriter, r *http.Request) {
 		html.EscapeString(install), // data-copy attribute
 	)
 	fmt.Fprintf(w, welcomeShell, "Connect your OpenCode", body)
+}
+
+// welcomeConnected is shown to a returning subscriber whose connector has already
+// claimed its code. Their subscription is active and the connector keeps running,
+// so the only thing they might need is to re-pair a device (reinstalled app, new
+// phone). We render the same pairing deep link the connector emits, plus a
+// scannable QR, so reconnecting is a scan away — no reinstall, no new code.
+func (s *Server) welcomeConnected(w http.ResponseWriter, base string, t provision.Tunnel) {
+	link := pairingDeepLink(base, t.ID, t.Token)
+	body := fmt.Sprintf(welcomeConnectedBody,
+		pairingQRDataURI(link),  // <img src>
+		html.EscapeString(link), // visible link
+		html.EscapeString(link), // data-copy attribute
+	)
+	fmt.Fprintf(w, welcomeShell, "You're connected", body)
+}
+
+// pairingDeepLink builds the opencode://pair link the mobile app consumes. It
+// mirrors the connector's own pairingLink exactly (relay/tunnel/token params) so
+// a QR from here and a QR from the connector are interchangeable.
+func pairingDeepLink(relayBase, tunnelID, token string) string {
+	q := url.Values{}
+	q.Set("relay", relayBase)
+	q.Set("tunnel", tunnelID)
+	q.Set("token", token)
+	return "opencode://pair?" + q.Encode()
+}
+
+// pairingQRDataURI encodes a pairing link as a QR PNG and returns it as a data:
+// URI for inline <img> use. Rendered server-side (rsc.io/qr) so the page needs no
+// external script or CDN. On the rare encode error it returns "" and the page
+// still shows the copyable link.
+func pairingQRDataURI(link string) string {
+	code, err := qr.Encode(link, qr.M)
+	if err != nil {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG())
 }
 
 // welcomeShell is the page chrome (title + minimal dark/light styling). Two
@@ -131,3 +186,18 @@ const welcomeFormBody = `<h1>Connect your OpenCode</h1>
   <input type="text" name="code" placeholder="XXXX-YYYY" value="%[1]s" autocapitalize="characters" autocomplete="off" spellcheck="false">
   <div><button class="go" type="submit">Continue</button></div>
 </form>`
+
+// welcomeConnectedBody is shown to a returning, already-connected subscriber.
+// Three args: the QR image data URI, and the pairing link twice (visible text +
+// copy payload).
+const welcomeConnectedBody = `<h1>You're connected ✅</h1>
+<p class="sub">Your subscription is active and your connector is set up. Reinstalled the app or got a new phone? Scan to reconnect — no reinstall, no new code.</p>
+<div style="text-align:center;margin:6px 0 18px">
+  <img src="%[1]s" alt="Pairing QR" width="220" height="220" style="border-radius:12px;background:#fff;padding:12px">
+</div>
+<div class="cmd"><button class="copy" data-copy="%[3]s">Copy</button>%[2]s</div>
+<ol>
+  <li>Open the app → <strong>Relay</strong> → <strong>Scan pairing QR</strong>, or paste the link above.</li>
+  <li>Your projects load over the relay again — the connector keeps running on your machine.</li>
+</ol>
+<p class="note">Manage or cancel your subscription anytime in your <a href="https://www.paypal.com/myaccount/autopay/">PayPal account</a>.</p>`
