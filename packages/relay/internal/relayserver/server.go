@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fnc12/opencode/packages/relay/internal/account"
 	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/tunnel"
@@ -59,6 +60,13 @@ type Config struct {
 	// VerifyPayPal overrides the webhook verifier (tests inject a stub); left nil
 	// in production, where New builds the live API verifier from PayPal.
 	VerifyPayPal func(http.Header, []byte) error
+
+	// Accounts, when set, enables the user layer (email magic-link + OAuth login,
+	// sessions, and subscription↔account binding).
+	Accounts *account.Store
+	// Email delivers the magic-link mail. When nil (with Accounts set), New
+	// defaults to a LogSender that only logs the link — fine for dev, never prod.
+	Email account.EmailSender
 }
 
 // Server is the relay. The zero value is not usable; call New.
@@ -76,6 +84,12 @@ type Server struct {
 	// verifyPayPal authenticates a PayPal webhook (nil when PayPal is not
 	// configured). Injectable so the mint/revoke path is unit-testable.
 	verifyPayPal func(http.Header, []byte) error
+
+	// accounts, when set, enables the user layer: /login, /login/verify,
+	// /account, /logout, and binding a subscription to a signed-in account.
+	accounts *account.Store
+	// email delivers the magic-link sign-in mail; defaults to a LogSender.
+	email account.EmailSender
 }
 
 // New constructs a Server.
@@ -96,6 +110,13 @@ func New(cfg Config) *Server {
 		publicURL:    cfg.PublicURL,
 		stripeSecret: cfg.StripeWebhookSecret,
 		verifyPayPal: cfg.VerifyPayPal,
+		accounts:     cfg.Accounts,
+		email:        cfg.Email,
+	}
+	// With accounts enabled but no email transport wired, fall back to logging
+	// the magic link so sign-in still works in dev.
+	if s.accounts != nil && s.email == nil {
+		s.email = account.LogSender{Log: log}
 	}
 	// Default the PayPal verifier to the live API-verifying implementation when
 	// credentials are present and no override was supplied (tests inject one).
@@ -130,6 +151,13 @@ func (s *Server) Handler() http.Handler {
 		// Human-friendly delivery page: send a stranger `/welcome?code=…`
 		// instead of a raw curl pipe. Payment-neutral (promo + paid codes both).
 		mux.HandleFunc("GET /welcome", s.welcome)
+	}
+	if s.accounts != nil {
+		mux.HandleFunc("GET /login", s.login)
+		mux.HandleFunc("POST /login", s.login)
+		mux.HandleFunc("GET /login/verify", s.loginVerify)
+		mux.HandleFunc("GET /account", s.account)
+		mux.HandleFunc("POST /logout", s.logout)
 	}
 	mux.HandleFunc("/t/{id}/", s.proxy)
 	return mux
