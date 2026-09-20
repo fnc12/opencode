@@ -61,7 +61,21 @@ func main() {
 				os.Exit(1)
 			}
 			cfg.Accounts = astore
-			logger.Info("accounts enabled")
+			// Magic-link email transport: SMTP (e.g. iCloud) when configured,
+			// otherwise the LogSender default (dev — links only appear in logs).
+			if host := os.Getenv("SMTP_HOST"); host != "" {
+				cfg.Email = account.SMTPSender{
+					Host: host,
+					Port: envOr("SMTP_PORT", "587"),
+					User: os.Getenv("SMTP_USER"),
+					Pass: os.Getenv("SMTP_PASS"),
+					From: envOr("EMAIL_FROM", os.Getenv("SMTP_USER")),
+					Name: envOr("EMAIL_FROM_NAME", "Shubat"),
+				}
+				logger.Info("accounts enabled", "email", "smtp:"+host)
+			} else {
+				logger.Info("accounts enabled", "email", "log-only (no SMTP_HOST)")
+			}
 		}
 		if sw := os.Getenv("STRIPE_WEBHOOK_SECRET"); sw != "" {
 			cfg.StripeWebhookSecret = sw
