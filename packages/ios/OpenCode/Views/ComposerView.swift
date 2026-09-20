@@ -123,24 +123,33 @@ struct ComposerView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                // The photo picker is presented from SessionView (see below) —
-                // presenting it here would tear the composer down on dismiss.
-                Button { showPhotoPicker = true } label: {
-                    Image(systemName: "photo").font(.title3)
-                }
-                .accessibilityIdentifier("composer.attach")
-
-                Button { showFilePicker = true } label: {
-                    Image(systemName: "doc.badge.plus").font(.title3)
-                }
-                .accessibilityIdentifier("composer.file")
-
-                if !commands.isEmpty {
-                    Button { showCommands = true } label: {
-                        Image(systemName: "slash.circle").font(.title3)
+                // Attach / command actions collapse into one "+" menu so the row
+                // isn't crowded (and stays roomy when the field grows to two
+                // lines). Each item just toggles a binding — the pickers/sheets
+                // are still presented from SessionView, because presenting them
+                // from this accessory-hosted view would tear the composer down.
+                Menu {
+                    Button { showPhotoPicker = true } label: {
+                        Label("Photo", systemImage: "photo")
                     }
-                    .accessibilityIdentifier("composer.commands")
+                    .accessibilityIdentifier("composer.attach")
+                    Button { showFilePicker = true } label: {
+                        Label("File", systemImage: "doc.badge.plus")
+                    }
+                    .accessibilityIdentifier("composer.file")
+                    if !commands.isEmpty {
+                        Button { showCommands = true } label: {
+                            Label("Command", systemImage: "slash.circle")
+                        }
+                        .accessibilityIdentifier("composer.commands")
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .frame(width: 32, height: 34) // roomy tap target, bottom-aligned with the field
                 }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("composer.plus")
 
                 // SwiftUI's TextField(axis: .vertical) renders its text clipped
                 // above the field inside the inputAccessoryView, so use a
@@ -155,9 +164,12 @@ struct ComposerView: View {
                 // Send ↔ Stop: while the agent is streaming this same button
                 // becomes a stop (■) that aborts — matching the web client, which
                 // toggles its composer submit button rather than a separate control.
+                // Stop is red so it reads as "interrupt", distinct from the blue
+                // send/attach affordances.
                 Button { isBusy ? stop() : send() } label: {
                     Image(systemName: isBusy ? "stop.circle.fill" : "arrow.up.circle.fill")
                         .font(.title2)
+                        .foregroundStyle(isBusy ? Color.red : Color.accentColor)
                 }
                 .disabled(isBusy ? false : !canSend)
                 .accessibilityIdentifier("composer.send")

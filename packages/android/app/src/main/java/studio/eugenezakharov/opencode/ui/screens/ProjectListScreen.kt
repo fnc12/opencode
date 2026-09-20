@@ -360,32 +360,3 @@ private fun parentOf(p: String): String {
     return if (slash <= 0) "/" else trimmed.substring(0, slash)
 }
 
-@Composable
-private fun ProjectRow(project: Project, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-    ) {
-        Text(
-            project.name ?: project.worktree.substringAfterLast('/').ifEmpty { "Unknown" },
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-        )
-        Text(
-            shortenPath(project.worktree),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-        )
-    }
-}
-
-private fun shortenPath(path: String): String {
-    val marker = "/Users/"
-    val idx = path.indexOf(marker)
-    if (idx < 0) return path
-    val afterUsers = path.substring(idx + marker.length)
-    val slash = afterUsers.indexOf('/')
-    return if (slash >= 0) "~" + afterUsers.substring(slash) else path
-}

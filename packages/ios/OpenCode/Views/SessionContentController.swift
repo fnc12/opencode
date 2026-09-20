@@ -78,44 +78,171 @@ final class SessionContentController: UIViewController {
         didSet { coordinator.receive(messages, table: table) }
     }
 
-    /// Thinking indicator shown as the table's footer — i.e. right after the last
-    /// message, where the reply will stream in — not a fixed overlay that lands on
-    /// top of an existing message.
-    var showTyping: Bool = false {
-        didSet { if showTyping != oldValue { updateTypingFooter() } }
+    /// The list's FOOTER — rendered right after the last message and scrolling
+    /// WITH the content (a UITableView footer, not a fixed overlay): a pending
+    /// question dock and/or the "thinking" indicator. Putting the question dock
+    /// here (instead of pinned above the composer) is the whole point — it rides
+    /// the transcript's end, so scrolling up moves it away with the content
+    /// instead of the transcript sliding under it and the two overlapping.
+    var pendingQuestions: [QuestionRequest] = [] {
+        didSet { if pendingQuestions.map(\.id) != oldValue.map(\.id) { rebuildFooter() } }
     }
-    private var typingFooterHost: UIViewController?
-    private func updateTypingFooter() {
-        guard showTyping else { table.tableFooterView = nil; typingFooterHost = nil; return }
-        let host = UIHostingController(rootView:
-            HStack { TypingIndicator(); Spacer() }
-                .padding(.horizontal, 16).padding(.vertical, 10))
+    var showTyping: Bool = false {
+        didSet { if showTyping != oldValue { rebuildFooter() } }
+    }
+    /// The "background processes" strip — moved OUT of the composer accessory to
+    /// here so its live spinner never animates inside the keyboard window.
+    var runningTools: [RunningTool] = [] {
+        didSet { if runningTools.map(\.id) != oldValue.map(\.id) { rebuildFooter() } }
+    }
+    /// Wired from SwiftUI: answer / skip a footer question.
+    var onQuestionReply: ((QuestionRequest, [[String]]) -> Void)?
+    var onQuestionReject: ((QuestionRequest) -> Void)?
+
+    private var footerHost: UIHostingController<SessionFooter>?
+
+    /// Rebuild the hosted footer only when WHICH questions are pending (or the
+    /// typing flag) changes — never on a plain message delta — so the dock's own
+    /// selection state survives a streaming update.
+    private func rebuildFooter() {
+        guard !pendingQuestions.isEmpty || showTyping || !runningTools.isEmpty else {
+            if let old = footerHost {
+                old.willMove(toParent: nil)
+                old.view.removeFromSuperview()
+                old.removeFromParent()
+                footerHost = nil
+            }
+            coordinator.setFooter(view: nil, show: false)
+            return
+        }
+        let content = SessionFooter(
+            questions: pendingQuestions,
+            showTyping: showTyping,
+            runningTools: runningTools,
+            onReply: { [weak self] req, ans in self?.onQuestionReply?(req, ans) },
+            onReject: { [weak self] req in self?.onQuestionReject?(req) })
+
+        // Already shown → UPDATE the hosted content in place. Recreating the host
+        // on every running-tool change would flicker the strip and drop the dock's
+        // selection state; reassigning rootView keeps both.
+        if let host = footerHost {
+            host.rootView = content
+            measureFooter()
+            coordinator.setFooter(view: host.view, show: true)
+            return
+        }
+
+        let host = UIHostingController(rootView: content)
         host.view.backgroundColor = .clear
+        // A proper child VC so the dock's SwiftUI accessibility is vended (a view
+        // hosted only as a subview — e.g. a `tableFooterView` — renders but exposes
+        // nothing to VoiceOver / XCUITest). Its view is mounted into the transcript's
+        // last row (see `FooterHostCell`), so it scrolls WITH the messages.
+        addChild(host)
+        footerHost = host
+        host.didMove(toParent: self)
+        measureFooter()
+        coordinator.setFooter(view: host.view, show: true)
+        // Keep the footer on screen when the user is at the newest message.
+        if coordinator.isPinnedToBottom {
+            DispatchQueue.main.async { [weak self] in self?.scrollToBottom(animated: false) }
+            reassertBottomSoon()
+        }
+    }
+
+    /// Measure the footer's exact height (deterministic — the dock has no inner
+    /// scroll) and hand it to the coordinator, which returns it as the row's exact
+    /// height so `contentSize` stays stable and pin-to-bottom is precise.
+    private func measureFooter() {
+        guard let host = footerHost else { return }
         let width = table.bounds.width > 0 ? table.bounds.width : UIScreen.main.bounds.width
-        let height = host.view.systemLayoutSizeFitting(
+        let h = host.view.systemLayoutSizeFitting(
             CGSize(width: width, height: 0),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel).height
-        host.view.frame = CGRect(x: 0, y: 0, width: width, height: height)
-        host.view.isAccessibilityElement = true
-        host.view.accessibilityIdentifier = "typing.indicator"
-        table.tableFooterView = host.view
-        typingFooterHost = host
-        // Keep the fresh indicator on screen when the user is at the bottom.
-        if coordinator.isPinnedToBottom {
-            DispatchQueue.main.async { [weak self] in self?.scrollToBottom() }
+        if h > 0 { coordinator.footerHeight = h }
+    }
+
+    private var lastFooterWidth: CGFloat = 0
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Re-measure on a width change (rotation): the dock's height depends on
+        // wrapped text width.
+        if footerHost != nil, table.bounds.width > 0, abs(table.bounds.width - lastFooterWidth) > 0.5 {
+            lastFooterWidth = table.bounds.width
+            measureFooter()
         }
     }
-    private func scrollToBottom() {
+    private func scrollToBottom(animated: Bool = true) {
         let cover = table.contentInset.bottom
         let maxY = max(-table.adjustedContentInset.top,
                        table.contentSize.height - table.bounds.height + cover)
-        table.setContentOffset(CGPoint(x: 0, y: maxY), animated: true)
+        table.setContentOffset(CGPoint(x: 0, y: maxY), animated: animated)
+    }
+
+    /// Re-assert the pinned-to-bottom position a moment after a keyboard/accessory
+    /// resize. On some devices the bottom inset + content size settle a frame or
+    /// two late after sending a multi-line message (the composer shrinks tall→one
+    /// line), which briefly left the newest message + typing dots ducked under the
+    /// composer. A delayed, no-op-if-already-there re-scroll cleans that up.
+    private func reassertBottomSoon() {
+        guard coordinator.isPinnedToBottom else { return }
+        for delay in [0.05, 0.35] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.coordinator.isPinnedToBottom,
+                      !self.table.isTracking, !self.table.isDragging else { return }
+                self.scrollToBottom(animated: false)
+            }
+        }
     }
 
     /// Wired from SwiftUI: called with a message id when the user picks "Revert to here".
     var onRevert: ((String) -> Void)? {
         didSet { coordinator.onRevert = onRevert }
+    }
+
+    /// Wired from SwiftUI: called as the list nears the top so older history pages
+    /// in (scroll-up pagination).
+    var onLoadOlder: (() -> Void)? {
+        didSet { coordinator.onNearTop = onLoadOlder }
+    }
+
+    /// Wired from SwiftUI: reports whether the REAL keyboard (not just the
+    /// docked accessory) covers the view. Derived from the same measured state
+    /// the inset logic uses (`lastKeyboardOnly`, self-correcting from the bar's
+    /// on-screen position), because keyboard notifications alone proved
+    /// unreliable during dismissal. Tall docks collapse while this is true.
+    var onKeyboardVisible: ((Bool) -> Void)?
+
+    /// Scrolls back to the newest message and re-pins.
+    func returnToBottom() {
+        coordinator.returnToBottom(table)
+    }
+    private var lastReportedKeyboard = false
+    private var kbReportWork: DispatchWorkItem?
+    private func reportKeyboard() {
+        let up = lastKeyboardOnly > 50
+        guard up != lastReportedKeyboard else { return }
+        kbReportWork?.cancel()
+        if up {
+            // Going up: report immediately (the dock must collapse before the
+            // keyboard finishes presenting).
+            lastReportedKeyboard = true
+            let cb = onKeyboardVisible
+            DispatchQueue.main.async { cb?(true) } // never mutate SwiftUI state mid-layout
+        } else {
+            // Going down: debounce — mid-animation the bar-position-derived
+            // overlap transiently dips below the threshold, and reporting it
+            // instantly flapped the dock back while the keyboard was still
+            // rising.
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.lastKeyboardOnly <= 50 else { return }
+                self.lastReportedKeyboard = false
+                self.onKeyboardVisible?(false)
+            }
+            kbReportWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        }
     }
 
     /// Wired from SwiftUI: called with a message id when a row is tapped.
@@ -160,6 +287,7 @@ final class SessionContentController: UIViewController {
         table.keyboardDismissMode = .interactive
         table.estimatedRowHeight = 120
         table.register(MessageCell.self, forCellReuseIdentifier: MessageCell.reuseID)
+        table.register(FooterHostCell.self, forCellReuseIdentifier: FooterHostCell.reuseID)
         table.delegate = coordinator
         table.onLayout = { [weak coordinator] in coordinator?.tableDidLayout() }
         coordinator.makeDataSource(for: table)
@@ -182,6 +310,14 @@ final class SessionContentController: UIViewController {
         // re-sync the list inset so the composer stays glued to the bottom.
         bar.onHeightChange = { [weak self] _ in self?.syncBottomInset() }
         coordinator.onSelectMessageAt = { [weak self] id, frame in self?.presentDetail(id: id, from: frame) }
+        coordinator.onSelectImage = { [weak self] image in self?.presentImageViewer(image) }
+    }
+
+    private func presentImageViewer(_ image: UIImage) {
+        let viewer = ImageViewerController(image: image)
+        viewer.modalPresentationStyle = .overFullScreen
+        viewer.modalTransitionStyle = .crossDissolve
+        present(viewer, animated: true)
     }
 
     /// Bottom inset the list needs to clear the accessory bar, given the current
@@ -189,16 +325,55 @@ final class SessionContentController: UIViewController {
     /// Keyboard height excluding the accessory bar (0 when the keyboard is down),
     /// so the inset can be recomputed against the *current* bar height.
     private var lastKeyboardOnly: CGFloat = 0
+
+    /// How much of THIS view the accessory bar actually covers, from its real
+    /// on-screen position. NOT the same as `bar.bounds.height`: the bar lives in
+    /// the keyboard window and spans down to the physical screen bottom
+    /// (including the home-indicator area), while this view stops at the safe
+    /// area ABOVE the home indicator. Using the bar's height as the inset floor
+    /// over-covered by that difference (~30-45pt), leaving a permanent band of
+    /// bare table background between the last message and the composer whenever
+    /// the keyboard was down — THE "gap" bug. (Keyboard-up insets come from the
+    /// keyboard frame converted into view coords, which is why that mode was
+    /// always flush.) Diagnosed by layer-coloring: the gap pixels were table
+    /// background, i.e. viewport past the content end created by the inflated
+    /// inset. Returns nil before the bar is on screen.
+    private func barOverlapNow() -> CGFloat? {
+        guard let barSuper = bar.superview, bar.window != nil, view.window != nil else { return nil }
+        let barTopInView = view.convert(bar.frame, from: barSuper).minY
+        return max(0, view.bounds.maxY - barTopInView)
+    }
     private func syncBottomInset() {
-        let cover = lastKeyboardOnly + bar.bounds.height
+        // The resting cover is the bar's REAL overlap with this view (see
+        // barOverlapNow). This both fixes the home-indicator over-count and
+        // self-corrects `lastKeyboardOnly` after a dismiss whose final keyboard
+        // frame was bogus or absent.
+        let cover: CGFloat
+        if let overlap = barOverlapNow() {
+            cover = overlap
+            lastKeyboardOnly = max(0, overlap - bar.bounds.height)
+        } else {
+            cover = lastKeyboardOnly + bar.bounds.height
+        }
         let delta = cover - table.contentInset.bottom
+        reportKeyboard()
         guard abs(delta) > 0.5 else { return }
         let pinned = coordinator.isPinnedToBottom
         table.contentInset.bottom = cover
         table.verticalScrollIndicatorInsets.bottom = cover
+        let maxY = max(-table.adjustedContentInset.top,
+                       table.contentSize.height - table.bounds.height + cover)
         if pinned {
-            let maxY = max(-table.adjustedContentInset.top,
-                           table.contentSize.height - table.bounds.height + cover)
+            table.contentOffset.y = maxY
+            reassertBottomSoon()
+        } else if table.contentOffset.y > maxY {
+            // The inset shrank while unpinned — the interactive keyboard dismiss
+            // scrolls the list a little, which drops `pinned` (measured:
+            // pinned true→false mid-drag), and UIKit NEVER clamps contentOffset
+            // when an inset shrinks. The stranded offset rested as a black gap
+            // between the last message and the composer. An offset past the
+            // bottom is invalid in any pin state; clamping it cannot disturb a
+            // legitimate reading position.
             table.contentOffset.y = maxY
         }
     }
@@ -207,6 +382,7 @@ final class SessionContentController: UIViewController {
         super.viewDidAppear(animated)
         becomeFirstResponder() // dock the accessory when no field is focused
     }
+
 
     /// Inset the table by how much the keyboard (which includes the accessory bar)
     /// overlaps the view, and shift the content by the same delta so the viewport
@@ -217,7 +393,20 @@ final class SessionContentController: UIViewController {
               let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else { return }
         let endInView = view.convert(end, from: window)
-        let kbOverlap = view.bounds.maxY - endInView.minY
+        // What the DOCKED bar covers of this view. Not `bar.bounds.height`: the
+        // bar spans down to the physical screen bottom while this view stops at
+        // the safe area above the home indicator, so the bar's own height
+        // over-counts by that slice (~30-45pt) — using it as the resting inset
+        // left a permanent band of bare table background above the composer.
+        let viewBottomInWindow = view.convert(CGPoint(x: 0, y: view.bounds.maxY), to: window).y
+        let belowView = max(0, window.bounds.height - viewBottomInWindow)
+        let dockedCover = max(0, bar.bounds.height - belowView)
+        // A hide's end frame is untrustworthy (measured: bogus transitional
+        // frames during interactive dismiss) — hidden means the docked bar is
+        // the whole cover, full stop.
+        let kbOverlap = note.name == UIResponder.keyboardWillHideNotification
+            ? dockedCover
+            : view.bounds.maxY - endInView.minY
         // UIKit posts spurious transitional keyboard frames during an interactive
         // dismiss with an inputAccessoryView — the frame is reported above the view,
         // so the "overlap" spans more than the whole view. Acting on one inflates
@@ -228,7 +417,8 @@ final class SessionContentController: UIViewController {
             return
         }
         lastKeyboardOnly = max(0, kbOverlap - bar.bounds.height)
-        let cover = max(bar.bounds.height, kbOverlap)
+        reportKeyboard()
+        let cover = max(dockedCover, kbOverlap)
         let delta = cover - table.contentInset.bottom
         guard abs(delta) > 0.5 else { return }
 
@@ -249,6 +439,10 @@ final class SessionContentController: UIViewController {
             let base = interactive ? self.table.contentOffset.y : self.table.contentOffset.y + delta
             self.table.contentOffset.y = min(max(base, minY), maxY)
         }
+        // The composer (accessory) may still be settling its height after this
+        // frame (e.g. shrinking from multi-line to one line on send); re-assert
+        // the bottom so the newest content never stays ducked under it.
+        if !interactive { reassertBottomSoon() }
     }
 }
 
@@ -258,9 +452,29 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
     let messages: [MessageWithParts]
     let revision: Int
     var onRevert: ((String) -> Void)? = nil
+    /// Called as the list nears the top so the view can page in older history.
+    var onLoadOlder: (() -> Void)? = nil
+    /// Reports real-keyboard visibility so tall docks can collapse while typing.
+    var onKeyboardVisible: ((Bool) -> Void)?
+
+    /// Pending question(s) rendered in the list FOOTER (after the last message),
+    /// so they scroll with the transcript instead of floating over it.
+    var pendingQuestions: [QuestionRequest] = []
+    /// Answer / skip a footer question.
+    var onQuestionReply: ((QuestionRequest, [[String]]) -> Void)? = nil
+    var onQuestionReject: ((QuestionRequest) -> Void)? = nil
     /// Shows a "thinking" indicator as the last row (in the message flow, where
     /// the reply will appear) while the agent works but hasn't streamed text yet.
     var showTyping: Bool = false
+    /// The "background processes" strip, in the footer (not the accessory).
+    var runningTools: [RunningTool] = []
+    /// Changes only when the bar's *inputs* change (busy state, docks, pickers) —
+    /// NOT on every streamed message delta. The hosted composer is only rebuilt
+    /// when this changes, so a fast stream doesn't churn the accessory (which was
+    /// making it flicker its safe-area height and shove content under the bar).
+    /// The composer's own typing state updates inside its hosting controller and
+    /// doesn't need a rootView reassign.
+    var barRevision: Int = 0
     @ViewBuilder var bar: () -> Bar
 
     func makeUIViewController(context: Context) -> SessionContentController {
@@ -274,21 +488,77 @@ struct SessionContent<Bar: View>: UIViewControllerRepresentable {
         // input window, and a child VC's view being moved there crashes UIKit's
         // appearance forwarding. The coordinator retains `host` instead.
         context.coordinator.host = host
+        context.coordinator.lastBarRevision = barRevision
         let controller = SessionContentController(bar: InputBarView(content: host.view))
         controller.onRevert = onRevert
+        controller.onLoadOlder = onLoadOlder
+        controller.onKeyboardVisible = onKeyboardVisible
+        controller.onQuestionReply = onQuestionReply
+        controller.onQuestionReject = onQuestionReject
         controller.messages = messages
+        controller.pendingQuestions = pendingQuestions
         controller.showTyping = showTyping
+        controller.runningTools = runningTools
         return controller
     }
 
     func updateUIViewController(_ controller: SessionContentController, context: Context) {
-        context.coordinator.host?.rootView = bar()
+        // Only rebuild the hosted composer when its inputs actually changed — a
+        // streamed delta bumps `revision` (→ new messages/showTyping) but leaves
+        // `barRevision` alone, so the accessory stops flickering mid-stream.
+        if context.coordinator.lastBarRevision != barRevision {
+            context.coordinator.lastBarRevision = barRevision
+            context.coordinator.host?.rootView = bar()
+        }
         controller.onRevert = onRevert
+        controller.onLoadOlder = onLoadOlder
+        controller.onKeyboardVisible = onKeyboardVisible
+        controller.onQuestionReply = onQuestionReply
+        controller.onQuestionReject = onQuestionReject
+        // Assign messages BEFORE questions: the footer's pin-to-bottom must run
+        // against the freshly-applied rows, not the previous content size.
         controller.messages = messages
+        controller.pendingQuestions = pendingQuestions
         controller.showTyping = showTyping
+        controller.runningTools = runningTools
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    @MainActor final class Coordinator { var host: UIHostingController<Bar>? }
+    @MainActor final class Coordinator {
+        var host: UIHostingController<Bar>?
+        var lastBarRevision: Int = 0
+    }
+}
+
+/// The list's footer content: pending question dock(s) and/or the thinking
+/// indicator — everything that belongs right AFTER the newest message and should
+/// scroll with it. Hosted by `SessionContentController` as the table's footer.
+struct SessionFooter: View {
+    let questions: [QuestionRequest]
+    let showTyping: Bool
+    var runningTools: [RunningTool] = []
+    let onReply: (QuestionRequest, [[String]]) -> Void
+    let onReject: (QuestionRequest) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(questions) { question in
+                QuestionDock(request: question,
+                             onReply: { onReply(question, $0) },
+                             onReject: { onReject(question) })
+            }
+            if showTyping {
+                HStack { TypingIndicator(); Spacer() }
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .accessibilityIdentifier("typing.indicator")
+            }
+            if !runningTools.isEmpty {
+                // "Background processes" strip — here (footer) rather than the
+                // composer accessory, so its live spinner never animates inside the
+                // keyboard window and can't wedge an interactive keyboard dismiss.
+                RunningToolsPill(tools: runningTools)
+            }
+        }
+    }
 }

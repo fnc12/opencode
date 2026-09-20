@@ -31,6 +31,7 @@ struct SessionListView: View {
             } else {
                 SessionTableView(
                     sessions: sessions,
+                    busyIDs: freshBusyIDs,
                     onSelect: { path.append(.session($0)) },
                     onDelete: { session in Task { await delete(session) } },
                     onRename: { startRename($0) },
@@ -58,6 +59,16 @@ struct SessionListView: View {
             }
         }
         .task { await load() }
+    }
+
+    /// Sessions the server reports busy AND that were updated recently — a stuck
+    /// turn (e.g. an unanswered permission) stops updating, so we drop its
+    /// "Working…" spinner instead of spinning forever.
+    private var freshBusyIDs: Set<String> {
+        let nowMS = Date().timeIntervalSince1970 * 1000
+        return Set(sessions.filter {
+            server.busySessions.contains($0.id) && nowMS - $0.time.updated < 180_000
+        }.map(\.id))
     }
 
     private func newSession() async {

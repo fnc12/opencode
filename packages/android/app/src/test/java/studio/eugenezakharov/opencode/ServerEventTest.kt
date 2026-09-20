@@ -2,6 +2,7 @@ package studio.eugenezakharov.opencode
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import studio.eugenezakharov.opencode.api.ServerEvent
@@ -89,5 +90,15 @@ class ServerEventTest {
         val event = decode("""{"payload":{"type":"server.connected","properties":{}}}""")
         assertTrue(event is ServerEvent.Other)
         assertEquals("server.connected", (event as ServerEvent.Other).type)
+    }
+
+    @Test
+    fun malformedOrTypelessDecodesToNull() {
+        // Unparseable body → the runCatching guard returns null.
+        assertNull(decode("this is not json {"))
+        // Parseable but not an object → null.
+        assertNull(decode("[1,2,3]"))
+        // Object without a `type` → null.
+        assertNull(decode("""{"payload":{"properties":{}}}"""))
     }
 }

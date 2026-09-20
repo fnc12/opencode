@@ -19,6 +19,8 @@ struct RenderedMessage {
             switch block {
             case .text(let s): return s.string
             case .table(let t): return ([t.header] + t.rows).map { $0.joined(separator: "\t") }.joined(separator: "\n")
+            case .code(let s): return s.string
+            case .image: return "🖼 image"
             }
         }.joined(separator: "\n\n")
     }
@@ -49,7 +51,21 @@ enum MessageMetrics {
             return ceil(bounds.height)
         case .table(let table):
             return TableBlockView.height(for: table, font: bodyFont)
+        case .code(let string):
+            return CodeBlockView.height(for: string)
+        case .image(let image):
+            return imageHeight(image, cellWidth: cellWidth)
         }
+    }
+
+    /// Height of an inline image thumbnail: aspect-fit into the bubble width,
+    /// capped so a tall screenshot doesn't take over the transcript.
+    static let maxImageHeight: CGFloat = 260
+    static func imageHeight(_ image: UIImage, cellWidth: CGFloat) -> CGFloat {
+        let w = textWidth(cellWidth: cellWidth)
+        guard image.size.width > 0 else { return 0 }
+        let scaled = w * image.size.height / image.size.width
+        return ceil(min(scaled, maxImageHeight))
     }
 
     static func bodyHeight(_ blocks: [MessageBlock], cellWidth: CGFloat) -> CGFloat {
@@ -76,6 +92,10 @@ final class MessageCell: UITableViewCell {
     private let metaLabel = UILabel()
     private var blockViews: [UIView] = []
     private var blocks: [MessageBlock] = []
+
+    /// Called when the user taps an inline image, to open a full-screen viewer.
+    /// Wired by the list coordinator on dequeue.
+    var onSelectImage: ((UIImage) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -124,6 +144,29 @@ final class MessageCell: UITableViewCell {
                 let view = TableBlockView(table: table, font: MessageMetrics.bodyFont)
                 bubble.addSubview(view)
                 return view
+            case .code(let string):
+                let view = CodeBlockView(code: string)
+                bubble.addSubview(view)
+                return view
+            case .image(let image):
+                // A UIButton (a UIControl) intercepts the touch so tapping the
+                // image opens the viewer without also selecting the row.
+                let button = UIButton(type: .custom)
+                button.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
+                button.imageView?.contentMode = .scaleAspectFill
+                button.contentHorizontalAlignment = .fill
+                button.contentVerticalAlignment = .fill
+                button.clipsToBounds = true
+                button.layer.cornerRadius = 10
+                button.layer.cornerCurve = .continuous
+                button.layer.borderWidth = 1
+                button.layer.borderColor = UIColor.separator.withAlphaComponent(0.4).cgColor
+                button.accessibilityIdentifier = "message.image"
+                button.addAction(UIAction { [weak self] _ in
+                    self?.onSelectImage?(image)
+                }, for: .touchUpInside)
+                bubble.addSubview(button)
+                return button
             }
         }
         setNeedsLayout()

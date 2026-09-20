@@ -38,4 +38,34 @@ class CodeHighlighterTest {
         assertEquals(SyntaxLanguage.PYTHON, CodeHighlighter.language("s.py"))
         assertEquals(SyntaxLanguage.DEFAULT, CodeHighlighter.language("Makefile"))
     }
+
+    @Test fun languageMappingCoversEveryExtension() {
+        // Every arm of the when(ext) — so a new extension can't silently fall to DEFAULT.
+        val cases = mapOf(
+            "h" to SyntaxLanguage.CPP, "c" to SyntaxLanguage.CPP, "ino" to SyntaxLanguage.CPP,
+            "mjs" to SyntaxLanguage.JAVASCRIPT, "jsx" to SyntaxLanguage.JAVASCRIPT,
+            "ts" to SyntaxLanguage.TYPESCRIPT, "tsx" to SyntaxLanguage.TYPESCRIPT,
+            "pyi" to SyntaxLanguage.PYTHON,
+            "go" to SyntaxLanguage.GO, "rs" to SyntaxLanguage.RUST, "java" to SyntaxLanguage.JAVA,
+            "kt" to SyntaxLanguage.KOTLIN, "kts" to SyntaxLanguage.KOTLIN,
+            "rb" to SyntaxLanguage.RUBY, "php" to SyntaxLanguage.PHP, "cs" to SyntaxLanguage.CSHARP,
+            "sh" to SyntaxLanguage.SHELL, "bash" to SyntaxLanguage.SHELL, "zsh" to SyntaxLanguage.SHELL,
+            "pl" to SyntaxLanguage.PERL, "dart" to SyntaxLanguage.DART,
+        )
+        for ((ext, lang) in cases) {
+            assertEquals("ext .$ext", lang, CodeHighlighter.language("file.$ext"))
+        }
+        // Null filename and no extension both fall back to DEFAULT.
+        assertEquals(SyntaxLanguage.DEFAULT, CodeHighlighter.language(null))
+        assertEquals(SyntaxLanguage.DEFAULT, CodeHighlighter.language("README"))
+    }
+
+    @Test fun readContentWithoutGutterPassesThroughCode() {
+        // The else branch of readContent: lines with no "123: " gutter.
+        val a = CodeHighlighter.readContent(
+            "fun main() {}\nval x = 1", "m.kt", dark = true, gutterColor = Color.Gray,
+        )
+        assertTrue(a.text.contains("fun main()"))
+        assertTrue(a.text.contains("val x = 1"))
+    }
 }

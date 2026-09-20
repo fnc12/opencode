@@ -179,6 +179,8 @@ sealed interface PartContent {
         /** Stringified `state.input` (filePath, command, description, pattern, …). */
         val input: Map<String, String> = emptyMap(),
         val metadata: ToolMeta? = null,
+        /** `state.time.start` (epoch ms) — drives the running-tool elapsed label. */
+        val timeStart: Double? = null,
     ) : PartContent
     data class StepStart(val title: String? = null) : PartContent
     data class StepFinish(val reason: String? = null) : PartContent
@@ -204,6 +206,7 @@ sealed interface PartContent {
                     error = state?.get("error")?.jsonPrimitive?.contentOrNull,
                     input = parseInput(state?.get("input")),
                     metadata = ToolMeta.from(state?.get("metadata")),
+                    timeStart = state?.get("time")?.jsonObject?.get("start")?.jsonPrimitive?.contentOrNull?.toDoubleOrNull(),
                 )
             }
             "step-start" -> StepStart(obj["title"]?.jsonPrimitive?.contentOrNull)

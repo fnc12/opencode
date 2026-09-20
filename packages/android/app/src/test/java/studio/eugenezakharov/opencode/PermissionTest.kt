@@ -52,6 +52,43 @@ class PermissionDecodeTest {
         assertTrue(event is ServerEvent.PermissionAsked)
         assertEquals("Modify file: a.kt", (event as ServerEvent.PermissionAsked).request.summary)
     }
+
+    private fun req(action: String, resources: List<String>) =
+        studio.eugenezakharov.opencode.api.models.PermissionRequest("p", "s", action, resources)
+
+    @Test
+    fun summaryCoversEveryActionAndEmptyTarget() {
+        // Non-empty and empty target for each known action, plus the custom
+        // fallback (unknown action → capitalized verb).
+        assertEquals("Run command: npm test", req("bash", listOf("npm test")).summary)
+        assertEquals("Run a shell command", req("bash", emptyList()).summary)
+        assertEquals("Modify file: a.kt", req("edit", listOf("a.kt")).summary)
+        assertEquals("Modify a file", req("write", emptyList()).summary)
+        assertEquals("Fetch: https://x", req("webfetch", listOf("https://x")).summary)
+        assertEquals("Fetch a URL", req("webfetch", emptyList()).summary)
+        assertEquals("Search the web: kotlin", req("websearch", listOf("kotlin")).summary)
+        assertEquals("Search the web", req("websearch", emptyList()).summary)
+        assertEquals("Access outside project: /etc", req("external_directory", listOf("/etc")).summary)
+        assertEquals("Access a directory outside the project", req("external_directory", emptyList()).summary)
+        // Unknown action → the else branch capitalizes the verb.
+        assertEquals("Deploy: prod", req("deploy", listOf("prod")).summary)
+        assertEquals("Deploy", req("deploy", emptyList()).summary)
+        // Multiple resources are comma-joined.
+        assertEquals("Run command: a, b", req("bash", listOf("a", "b")).summary)
+    }
+
+    @Test
+    fun fromReturnsNullWithoutIdAndReadsV1Patterns() {
+        val json = Json { ignoreUnknownKeys = true }
+        // Missing id → null.
+        val bad = json.parseToJsonElement("""{"sessionID":"s"}""")
+        assertEquals(null, studio.eugenezakharov.opencode.api.models.PermissionRequest.from(bad as kotlinx.serialization.json.JsonObject))
+        // v1 shape: `permission` + `patterns` map onto action/resources.
+        val v1 = json.parseToJsonElement("""{"id":"p","permission":"external_directory","patterns":["/mnt/*"]}""")
+        val req = studio.eugenezakharov.opencode.api.models.PermissionRequest.from(v1 as kotlinx.serialization.json.JsonObject)!!
+        assertEquals("external_directory", req.action)
+        assertEquals(listOf("/mnt/*"), req.resources)
+    }
 }
 
 /**

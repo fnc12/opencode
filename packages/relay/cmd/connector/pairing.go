@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mdp/qrterminal/v3"
 )
 
 // identity is the persisted tunnel id + token a connector uses to register with
@@ -140,7 +142,24 @@ func printPairing(cfg config) {
 		"  ┌──────────────────────────────────────────────┐\n"+
 		"  │  Pair the Shubat app with this server         │\n"+
 		"  └──────────────────────────────────────────────┘\n\n"+
-		"  Paste this link into the app (Add server → Paste link):\n\n"+
+		"  Scan this QR in the app (Add server → Scan pairing QR):\n\n")
+
+	// Print the pairing link as a scannable QR right in the terminal, so the
+	// operator can pair by pointing the phone at their own screen — no copy-paste
+	// between machines. Level L (smallest) keeps this long link's QR terminal-sized.
+	qrterminal.GenerateWithConfig(link, qrterminal.Config{
+		Level:      qrterminal.L,
+		Writer:     os.Stderr,
+		HalfBlocks: true,
+		BlackChar:  qrterminal.BLACK_BLACK,
+		WhiteChar:  qrterminal.WHITE_WHITE,
+		BlackWhiteChar: qrterminal.BLACK_WHITE,
+		WhiteBlackChar: qrterminal.WHITE_BLACK,
+		QuietZone:  1,
+	})
+
+	fmt.Fprint(os.Stderr, "\n"+
+		"  …or paste this link (Add server → Paste link):\n\n"+
 		"    "+link+"\n\n"+
 		"  tunnel: "+cfg.tunnelID+"\n"+
 		"  token:  "+cfg.token+"\n\n")

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SessionRow: View {
     let session: Session
+    /// The session is currently generating a reply — shows a live "working" cue.
+    var isBusy: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -10,7 +12,16 @@ struct SessionRow: View {
                 .lineLimit(2)
 
             HStack(spacing: 12) {
-                if let summary = session.summary {
+                if isBusy {
+                    HStack(spacing: 5) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Working…")
+                            .foregroundStyle(.green)
+                    }
+                    .font(.caption)
+                    .accessibilityIdentifier("session.working")
+                } else if let summary = session.summary {
                     HStack(spacing: 4) {
                         if summary.additions > 0 {
                             Text("+\(summary.additions)")

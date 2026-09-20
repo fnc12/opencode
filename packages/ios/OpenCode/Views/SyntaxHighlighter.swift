@@ -24,6 +24,35 @@ enum SyntaxHighlighter {
         return engine.highlight(code, as: language(for: filename), fastRender: true)
     }
 
+    /// Highlight `code` for an explicit language name (a fenced code block's
+    /// ```lang info string). nil/unknown falls back to highlight.js auto-detect.
+    static func attributed(_ code: String, language name: String?, dark isDark: Bool, fontSize: CGFloat = 12) -> NSAttributedString? {
+        guard let engine = isDark ? dark : light else { return nil }
+        engine.theme.codeFont = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let lang = name.flatMap { $0.isEmpty ? nil : normalizeLanguage($0) }
+        return engine.highlight(code, as: lang, fastRender: true)
+    }
+
+    /// Map common fence info strings / aliases to highlight.js language ids.
+    private static func normalizeLanguage(_ lang: String) -> String {
+        switch lang.lowercased() {
+        case "c++", "cpp", "cc", "h", "hpp": return "cpp"
+        case "objc", "objective-c": return "objectivec"
+        case "js", "node", "jsx": return "javascript"
+        case "ts", "tsx": return "typescript"
+        case "py", "python3": return "python"
+        case "sh", "shell", "zsh", "console": return "bash"
+        case "yml": return "yaml"
+        case "html", "htm": return "xml"
+        case "cs": return "csharp"
+        case "rb": return "ruby"
+        case "rs": return "rust"
+        case "kt": return "kotlin"
+        case "toml": return "ini"
+        default: return lang.lowercased()
+        }
+    }
+
     /// A `read` file result: strip the "123: " line-number gutter, highlight the
     /// code, then re-attach the numbers dimmed — mirroring the web's gutter.
     static func readContent(_ content: String, filename: String?, dark isDark: Bool, fontSize: CGFloat = 12) -> NSAttributedString {

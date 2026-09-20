@@ -4,18 +4,20 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Simple ">_" terminal glyph centered in the safe zone. -->
+    <!-- two camel humps (Shubat = camel milk), taller hump on the right;
+         sized for the adaptive-icon safe zone (center 66dp circle) -->
     <path
-        android:strokeColor="#5B9DFF"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:fillColor="#00000000"
-        android:pathData="M42,44 L52,54 L42,64" />
+        android:pathData="M25.7,72.5 C34.7,72.5 33.9,51.9 44,51.9 C52.8,51.9 51.5,64.4 56.3,64.4 C60.8,64.4 60.4,47.3 70.1,47.3 C79.7,47.3 80.2,72.5 81.7,72.5 Z"
+        android:fillColor="#FFFFFFFF" />
+    <!-- rounded ground line absorbs the thin dune tails so the silhouette stays solid when small -->
     <path
-        android:strokeColor="#5B9DFF"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M58,66 L70,66" />
+        android:pathData="M25.9,70.7 h55.4 a1.9,1.9 0 0 1 0,3.8 h-55.4 a1.9,1.9 0 0 1 0,-3.8 z"
+        android:fillColor="#FFFFFFFF" />
+    <!-- live/status dot as a desert sun: white ring + brand green -->
+    <path
+        android:pathData="M34.7,33.5 a6.2,6.2 0 1 1 0,12.4 a6.2,6.2 0 1 1 0,-12.4 z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M34.7,35.35 a4.35,4.35 0 1 1 0,8.7 a4.35,4.35 0 1 1 0,-8.7 z"
+        android:fillColor="#FF22C55E" />
 </vector>

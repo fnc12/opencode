@@ -54,6 +54,8 @@ final class ComposerTests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 20), "composer should be present")
         field.tap() // focus → keyboard up, matching the repro
 
+        // Attach/command actions now live behind the "+" menu.
+        app.buttons["composer.plus"].tap()
         let commands = app.buttons["composer.commands"]
         guard commands.waitForExistence(timeout: 10) else {
             throw XCTSkip("server exposes no slash commands")
@@ -81,6 +83,7 @@ final class ComposerTests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 20), "composer should be present")
         field.tap()
 
+        app.buttons["composer.plus"].tap()
         app.buttons["composer.attach"].tap()
         let cancel = app.buttons["Cancel"]
         if cancel.waitForExistence(timeout: 6) { cancel.tap() } else { app.swipeDown() }
@@ -97,6 +100,7 @@ final class ComposerTests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 20), "composer should be present")
         field.tap()
 
+        app.buttons["composer.plus"].tap()
         app.buttons["composer.file"].tap()
         let file = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'file.'")).firstMatch
         guard file.waitForExistence(timeout: 10) else { throw XCTSkip("no files to attach") }

@@ -35,6 +35,18 @@ final class SessionStore {
         revision += 1
     }
 
+    /// Merge an older page of history in at the front (scroll-up pagination),
+    /// de-duped by id. Existing entries win, so live SSE updates to a message
+    /// aren't clobbered by the (older) snapshot from the page fetch. No-op if
+    /// nothing new, so it's safe to call speculatively.
+    func prependOlder(_ older: [MessageWithParts]) {
+        let existing = Set(messages.map(\.id))
+        let fresh = older.filter { !existing.contains($0.id) }
+        guard !fresh.isEmpty else { return }
+        messages = (fresh + messages).sorted { Self.createdAt($0) < Self.createdAt($1) }
+        revision += 1
+    }
+
     func setInitialPermissions(_ permissions: [PermissionRequest]) {
         pendingPermissions = permissions
     }
@@ -62,6 +74,12 @@ final class SessionStore {
     }
 
     func setStatus(_ status: StreamStatus) {
+        // No-op on the same value: the stream loop calls setStatus(.live) on
+        // EVERY SSE frame (of the global bus — all sessions), and @Observable
+        // notifies on any assignment, same value or not. That re-rendered the
+        // toolbar (which reads `status` for the badge) on every event, making
+        // the shell/diff/share buttons visibly flicker.
+        guard status != self.status else { return }
         self.status = status
     }
 

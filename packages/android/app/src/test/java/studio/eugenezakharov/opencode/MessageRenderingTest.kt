@@ -1,12 +1,14 @@
 package studio.eugenezakharov.opencode
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import studio.eugenezakharov.opencode.api.models.MessageInfo
 import studio.eugenezakharov.opencode.api.models.MessagePart
 import studio.eugenezakharov.opencode.api.models.MessageWithParts
 import studio.eugenezakharov.opencode.api.models.PartContent
+import studio.eugenezakharov.opencode.ui.session.MessageAdapter
 
 /**
  * Guards the "empty You bubble" regression: a message whose only part is
@@ -50,5 +52,25 @@ class MessageRenderingTest {
                 part(PartContent.Tool(tool = "bash", callID = "c", status = "completed")),
             ).hasRenderableContent,
         )
+    }
+
+    // Image-attachment gating (the pure-Kotlin guard paths; the actual Bitmap
+    // decode is exercised on-device). A non-image file part must NOT be treated
+    // as an inline image — it falls back to the "📎 filename" chip.
+
+    @Test fun nonImageFileIsNotAnAttachmentImage() {
+        val file = PartContent.FileRef(filename = "main.kt", url = "file:///main.kt", mime = "text/plain")
+        assertNull(MessageAdapter.imageAttachment(file))
+    }
+
+    @Test fun fileWithoutUrlIsNotAnAttachmentImage() {
+        val file = PartContent.FileRef(filename = "shot.png", url = null, mime = "image/png")
+        assertNull(MessageAdapter.imageAttachment(file))
+    }
+
+    @Test fun malformedDataUrlDecodesToNull() {
+        // No scheme / no ;base64 marker — rejected before any decode.
+        assertNull(MessageAdapter.decodeDataUrlImage("https://example.com/a.png"))
+        assertNull(MessageAdapter.decodeDataUrlImage("data:image/png,rawnotbase64"))
     }
 }
