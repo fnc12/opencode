@@ -35,13 +35,22 @@ func main() {
 	// Claim-code onboarding: when an admin secret is set, mint/claim tunnels so
 	// testers self-provision without a shared register secret.
 	if admin := os.Getenv("ADMIN_SECRET"); admin != "" {
-		pstore, err := provision.NewFileStore(envOr("PROVISION_STORE_PATH", "tunnels.json"))
+		dbPath := envOr("PROVISION_DB_PATH", "provision.db")
+		pstore, err := provision.NewSQLiteStore(dbPath)
 		if err != nil {
 			logger.Error("provision store", "err", err)
 			os.Exit(1)
 		}
+		// One-time migration: import the legacy JSON store into the DB the first
+		// time (no-op once the DB has tunnels), so an existing deploy carries over.
+		legacy := envOr("PROVISION_STORE_PATH", "tunnels.json")
+		if n, err := pstore.ImportLegacyJSON(legacy); err != nil {
+			logger.Error("provision import", "err", err)
+		} else if n > 0 {
+			logger.Info("provision: imported legacy tunnels", "count", n, "from", legacy)
+		}
 		cfg.Provision, cfg.AdminSecret = pstore, admin
-		logger.Info("provisioning enabled")
+		logger.Info("provisioning enabled", "db", dbPath)
 		if sw := os.Getenv("STRIPE_WEBHOOK_SECRET"); sw != "" {
 			cfg.StripeWebhookSecret = sw
 			logger.Info("stripe billing enabled")
