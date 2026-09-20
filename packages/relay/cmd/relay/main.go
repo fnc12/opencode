@@ -97,12 +97,16 @@ func main() {
 		cfg.PublicURL = os.Getenv("RELAY_PUBLIC_URL")
 		logger.Info("installer enabled", "assetDir", dir)
 	}
+	var pushCounter *push.Counter
 	if store, disp, err := buildPush(logger); err != nil {
 		logger.Error("push config", "err", err)
 		os.Exit(1)
 	} else if disp != nil {
 		cfg.Store, cfg.Dispatcher = store, disp
-		logger.Info("push enabled")
+		// Durable tally of delivered pushes for the public /stats counter.
+		pushCounter = push.NewCounter(envOr("PUSH_COUNT_PATH", "push_count"))
+		disp.SetCounter(pushCounter)
+		logger.Info("push enabled", "count", pushCounter.Value())
 	} else {
 		logger.Warn("push disabled (no APNs/FCM configured)")
 	}
@@ -125,6 +129,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if pushCounter != nil {
+		pushCounter.StartFlusher(ctx, 20*time.Second)
+	}
 	<-ctx.Done()
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
