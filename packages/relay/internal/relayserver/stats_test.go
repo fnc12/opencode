@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fnc12/opencode/packages/relay/internal/account"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 )
 
@@ -60,5 +61,32 @@ func TestStatsEndpointZeroWithoutDispatcher(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&out)
 	if resp.StatusCode != http.StatusOK || out.Pushes != 0 {
 		t.Errorf("no dispatcher → want 200 pushes=0, got %d pushes=%d", resp.StatusCode, out.Pushes)
+	}
+}
+
+func TestStatsIncludesFreeSpots(t *testing.T) {
+	astore, err := account.NewStore(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { astore.Close() })
+	astore.AccountForEmail("a@x.com", 1)
+	astore.AccountForEmail("b@x.com", 1)
+
+	srv := New(Config{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Accounts: astore})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/stats")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		FreeSpotsLeft int `json:"freeSpotsLeft"`
+	}
+	json.NewDecoder(resp.Body).Decode(&out)
+	if out.FreeSpotsLeft != 98 {
+		t.Errorf("freeSpotsLeft = %d, want 98 (100 - 2 accounts)", out.FreeSpotsLeft)
 	}
 }
