@@ -130,6 +130,7 @@ func New(cfg Config) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.health)
+	mux.HandleFunc("GET /stats", s.stats)
 	mux.HandleFunc("GET /connector", s.connector)
 	mux.HandleFunc("POST /api/devices", s.registerDevice)
 	mux.HandleFunc("DELETE /api/devices", s.unregisterDevice)
@@ -157,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /login", s.login)
 		mux.HandleFunc("GET /login/verify", s.loginVerify)
 		mux.HandleFunc("GET /account", s.account)
+		mux.HandleFunc("POST /account/promo", s.promoRedeem)
 		mux.HandleFunc("POST /logout", s.logout)
 	}
 	mux.HandleFunc("/t/{id}/", s.proxy)

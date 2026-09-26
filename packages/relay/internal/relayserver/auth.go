@@ -1,12 +1,16 @@
 package relayserver
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/fnc12/opencode/packages/relay/internal/account"
+	"github.com/fnc12/opencode/packages/relay/internal/provision"
 )
 
 const (
@@ -106,35 +110,117 @@ func (s *Server) account(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
+	now := time.Now().Unix()
 	if sub := r.URL.Query().Get("subscription_id"); sub != "" {
-		_ = s.accounts.BindSubscription(acc, sub, time.Now().Unix())
+		_ = s.accounts.BindSubscription(acc, sub, now)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, welcomeShell, "Your account", fmt.Sprintf(accountShellBody, s.accountStateBlock(r, acc)))
+	fmt.Fprintf(w, welcomeShell, "Your account", s.accountBody(r, acc, now, r.URL.Query().Get("flash")))
 }
 
-// accountStateBlock renders the per-account subscription/connection state: a
-// re-pair QR for a live connection, the install command for a paid-but-unset-up
-// subscription, or a subscribe CTA when there's nothing yet.
-func (s *Server) accountStateBlock(r *http.Request, acc string) string {
-	base := s.baseURL(r)
+// promoRedeem applies a promo code to the signed-in account, then redirects back
+// to /account with a flash message.
+func (s *Server) promoRedeem(w http.ResponseWriter, r *http.Request) {
+	acc, ok := s.accountFromRequest(r)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	code := r.FormValue("code")
+	months, err := s.accounts.RedeemPromo(acc, code, time.Now().Unix())
+	flash := fmt.Sprintf("Promo applied — %d free month%s added.", months, plural(months))
+	switch {
+	case errors.Is(err, account.ErrPromoRedeemed):
+		flash = "You've already used that promo code."
+	case errors.Is(err, account.ErrPromoUsedUp):
+		flash = "That promo code has no uses left."
+	case err != nil:
+		flash = "That promo code isn't valid."
+	}
+	http.Redirect(w, r, "/account?flash="+url.QueryEscape(flash), http.StatusSeeOther)
+}
+
+// tunnelForAccount returns the account's tunnel — from a bound paid subscription
+// or an account-owned free tunnel — if one exists.
+func (s *Server) tunnelForAccount(acc string) (provision.Tunnel, bool) {
+	if s.provision == nil {
+		return provision.Tunnel{}, false
+	}
 	subs, _ := s.accounts.SubscriptionsForAccount(acc)
 	for _, sub := range subs {
-		if s.provision == nil {
-			break
+		if t, ok := s.provision.GetByCustomer(sub); ok {
+			return t, true
 		}
-		t, ok := s.provision.GetByCustomer(sub)
-		if !ok {
-			continue
+	}
+	// Free tunnels are minted keyed by the account id.
+	if t, ok := s.provision.GetByCustomer(acc); ok {
+		return t, true
+	}
+	return provision.Tunnel{}, false
+}
+
+// accountBody renders the account page: plan status, connection (re-pair/install),
+// referral link, and promo entry.
+func (s *Server) accountBody(r *http.Request, acc string, now int64, flash string) string {
+	base := s.baseURL(r)
+	var b strings.Builder
+
+	if flash != "" {
+		b.WriteString(`<p style="background:#14351c;border:1px solid #22c55e55;color:#86efac;padding:10px 14px;border-radius:10px;margin:0 0 18px;font-size:14px">` + html.EscapeString(flash) + `</p>`)
+	}
+	b.WriteString(`<h1>Your account</h1>`)
+
+	// Plan status: paid subscription, then free entitlement, else nothing.
+	hasPaid := false
+	if subs, _ := s.accounts.SubscriptionsForAccount(acc); len(subs) > 0 && s.provision != nil {
+		for _, sub := range subs {
+			if _, ok := s.provision.GetByCustomer(sub); ok {
+				hasPaid = true
+				break
+			}
 		}
+	}
+	until, _ := s.accounts.EntitledUntil(acc)
+	switch {
+	case hasPaid:
+		b.WriteString(`<p class="sub">✓ Subscription active.</p>`)
+	case until > now:
+		b.WriteString(`<p class="sub">🎁 Free until <b>` + time.Unix(until, 0).UTC().Format("Jan 2, 2006") + `</b>.</p>`)
+	default:
+		b.WriteString(`<p class="sub">No active plan. <a href="https://shubat.org#pricing">Subscribe ($5/mo)</a>, or redeem a promo code below.</p>`)
+	}
+
+	// Connection state.
+	if t, ok := s.tunnelForAccount(acc); ok {
 		if t.ClaimCode != "" {
 			install := fmt.Sprintf("curl -fsSL %s/i/%s | sh", base, t.ClaimCode)
-			return fmt.Sprintf(accountInstallBlock, html.EscapeString(install), html.EscapeString(install))
+			b.WriteString(fmt.Sprintf(accountInstallBlock, html.EscapeString(install), html.EscapeString(install)))
+		} else {
+			link := pairingDeepLink(base, t.ID, t.Token)
+			b.WriteString(fmt.Sprintf(accountConnectedBlock, pairingQRDataURI(link), html.EscapeString(link), html.EscapeString(link)))
 		}
-		link := pairingDeepLink(base, t.ID, t.Token)
-		return fmt.Sprintf(accountConnectedBlock, pairingQRDataURI(link), html.EscapeString(link), html.EscapeString(link))
 	}
-	return accountNoSubBlock
+
+	// Referral.
+	if code, _ := s.accounts.ReferralCode(acc); code != "" {
+		refLink := base + "/login?ref=" + code
+		n, _ := s.accounts.ReferralCount(acc)
+		joined := fmt.Sprintf("%d friend%s joined so far.", n, plural(n))
+		b.WriteString(fmt.Sprintf(accountReferralBlock, html.EscapeString(refLink), html.EscapeString(refLink), joined))
+	}
+
+	// Promo entry.
+	b.WriteString(accountPromoBlock)
+
+	b.WriteString(`<form method="post" action="/logout" style="margin-top:30px"><button class="go" type="submit" style="background:#2a2d37">Sign out</button></form>`)
+	return b.String()
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // logout revokes the session and clears the cookie.
@@ -198,21 +284,27 @@ const loginSentBody = `<h1>Check your email 📬</h1>
 const loginExpiredBody = `<h1>Link expired</h1>
 <p class="sub">That sign-in link is invalid or already used. <a href="/login">Get a new one</a>.</p>`
 
-// accountShellBody: %[1]s the state block.
-const accountShellBody = `%[1]s
-<form method="post" action="/logout" style="margin-top:30px"><button class="go" type="submit" style="background:#2a2d37">Sign out</button></form>`
-
-const accountNoSubBlock = `<h1>Your account</h1>
-<p class="sub">No active subscription yet. <a href="https://shubat.org#pricing">Subscribe</a> to reach your OpenCode from anywhere. Paid on another device? Open the link on your receipt while signed in here to attach it.</p>`
-
 // accountInstallBlock: %[1]s install command (visible), %[2]s (copy payload).
-const accountInstallBlock = `<h1>You're subscribed 🎉</h1>
-<p class="sub">Finish setup on the machine running OpenCode:</p>
+const accountInstallBlock = `<p class="sub">Finish setup on the machine running OpenCode:</p>
 <div class="cmd"><button class="copy" data-copy="%[2]s">Copy</button>%[1]s</div>
 <p class="note">It installs a small connector and prints a pairing QR to scan in the app.</p>`
 
 // accountConnectedBlock: %[1]s QR data URI, %[2]s pairing link (visible), %[3]s (copy).
-const accountConnectedBlock = `<h1>You're connected ✅</h1>
-<p class="sub">Reinstalled the app or got a new phone? Scan to reconnect:</p>
+const accountConnectedBlock = `<p class="sub">✅ Connected. Reinstalled the app or got a new phone? Scan to reconnect:</p>
 <div style="text-align:center;margin:6px 0 18px"><img src="%[1]s" alt="Pairing QR" width="200" height="200" style="border-radius:12px;background:#fff;padding:12px"></div>
 <div class="cmd"><button class="copy" data-copy="%[3]s">Copy</button>%[2]s</div>`
+
+// accountReferralBlock: %[1]s referral link (visible), %[2]s (copy), %[3]s joined text.
+const accountReferralBlock = `<div style="margin:26px 0 0;padding-top:22px;border-top:1px solid #23272e">
+<h3 style="font-size:16px;margin:0 0 6px">Invite friends → a free month each 🎁</h3>
+<p class="sub" style="margin:0 0 10px">You and each friend who joins both get a free month.</p>
+<div class="cmd"><button class="copy" data-copy="%[2]s">Copy</button>%[1]s</div>
+<p class="note">%[3]s</p></div>`
+
+// accountPromoBlock: static promo-entry form.
+const accountPromoBlock = `<div style="margin:24px 0 0;padding-top:22px;border-top:1px solid #23272e">
+<h3 style="font-size:16px;margin:0 0 10px">Have a promo code?</h3>
+<form method="post" action="/account/promo" style="display:flex;gap:10px;flex-wrap:wrap">
+  <input type="text" name="code" placeholder="PROMO CODE" autocapitalize="characters" autocomplete="off" spellcheck="false" style="flex:1;min-width:180px">
+  <button class="go" type="submit" style="margin-top:0">Apply</button>
+</form></div>`
