@@ -205,3 +205,22 @@ func (s *Store) RedeemPromo(accountID, code string, now int64) (int, error) {
 func normalizePromo(code string) string {
 	return strings.ToUpper(strings.TrimSpace(code))
 }
+
+// SetConfig stores a runtime key/value (e.g. OAuth app credentials captured at
+// setup time), so they survive restarts and take effect without a redeploy.
+func (s *Store) SetConfig(key, value string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO config(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		key, value)
+	return err
+}
+
+// GetConfig returns a stored config value.
+func (s *Store) GetConfig(key string) (string, bool) {
+	var v string
+	err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&v)
+	if err != nil {
+		return "", false
+	}
+	return v, true
+}

@@ -48,7 +48,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		norm, err := account.NormalizeEmail(email)
 		if err != nil {
 			errHTML := `<p style="color:#f87171;margin:0 0 12px">That doesn't look like an email address.</p>`
-			fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, errHTML, html.EscapeString(email)))
+			fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, errHTML, html.EscapeString(email), s.githubLoginButton()))
 			return
 		}
 		exp := time.Now().Add(loginTokenTTL).Unix()
@@ -65,7 +65,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, welcomeShell, "Check your email", loginSentBody)
 		return
 	}
-	fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, "", ""))
+	fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, "", "", s.githubLoginButton()))
 }
 
 // loginVerify consumes a magic-link token, opens a session, and redirects to the
@@ -305,14 +305,25 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// loginFormBody: %[1]s optional error HTML, %[2]s prefilled email.
+// loginFormBody: %[1]s optional error HTML, %[2]s prefilled email, %[3]s optional
+// social sign-in section.
 const loginFormBody = `<h1>Sign in</h1>
 <p class="sub">Enter your email and we'll send a one-time sign-in link — no password.</p>
 %[1]s<form method="post" action="/login">
   <input type="email" name="email" placeholder="you@example.com" value="%[2]s" autocomplete="email" autocapitalize="off" spellcheck="false" required>
   <div><button class="go" type="submit">Send me a link</button></div>
 </form>
-<p class="note">The link works once and expires in 15 minutes.</p>`
+%[3]s<p class="note">The link works once and expires in 15 minutes.</p>`
+
+// githubLoginButton returns a "Sign in with GitHub" section, or "" when GitHub
+// sign-in isn't configured yet.
+func (s *Server) githubLoginButton() string {
+	if _, ok := s.accounts.GetConfig(ghClientIDKey); !ok {
+		return ""
+	}
+	return `<div style="text-align:center;margin:16px 0 0">
+<a href="/auth/github" style="display:inline-block;padding:11px 18px;border-radius:10px;background:#24292f;color:#fff;text-decoration:none;font-size:15px">Sign in with GitHub</a></div>`
+}
 
 const loginSentBody = `<h1>Check your email 📬</h1>
 <p class="sub">If that address can sign in, a one-time link is on its way. It expires in 15 minutes.</p>`

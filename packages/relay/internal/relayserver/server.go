@@ -67,6 +67,10 @@ type Config struct {
 	// Email delivers the magic-link mail. When nil (with Accounts set), New
 	// defaults to a LogSender that only logs the link — fine for dev, never prod.
 	Email account.EmailSender
+
+	// HTTPClient overrides the outbound HTTP client used for OAuth (GitHub) calls.
+	// Tests inject a stub; nil in production.
+	HTTPClient *http.Client
 }
 
 // Server is the relay. The zero value is not usable; call New.
@@ -90,6 +94,9 @@ type Server struct {
 	accounts *account.Store
 	// email delivers the magic-link sign-in mail; defaults to a LogSender.
 	email account.EmailSender
+	// hc is the outbound HTTP client for OAuth calls (GitHub); tests inject a
+	// stub. nil → a default client with a timeout.
+	hc *http.Client
 }
 
 // New constructs a Server.
@@ -112,6 +119,7 @@ func New(cfg Config) *Server {
 		verifyPayPal: cfg.VerifyPayPal,
 		accounts:     cfg.Accounts,
 		email:        cfg.Email,
+		hc:           cfg.HTTPClient,
 	}
 	// With accounts enabled but no email transport wired, fall back to logging
 	// the magic link so sign-in still works in dev.
@@ -161,6 +169,11 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /account/connect", s.accountConnect)
 		mux.HandleFunc("POST /account/promo", s.promoRedeem)
 		mux.HandleFunc("POST /logout", s.logout)
+		// GitHub sign-in (provisioned via the manifest setup flow).
+		mux.HandleFunc("GET /setup/github", s.setupGitHub)
+		mux.HandleFunc("GET /setup/github/callback", s.setupGitHubCallback)
+		mux.HandleFunc("GET /auth/github", s.authGitHub)
+		mux.HandleFunc("GET /auth/github/callback", s.authGitHubCallback)
 	}
 	mux.HandleFunc("/t/{id}/", s.proxy)
 	return mux

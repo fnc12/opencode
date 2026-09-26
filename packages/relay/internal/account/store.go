@@ -77,6 +77,10 @@ CREATE TABLE IF NOT EXISTS promo_redemptions (
   account_id  TEXT NOT NULL,
   redeemed_at INTEGER NOT NULL,
   PRIMARY KEY (code, account_id)
+);
+CREATE TABLE IF NOT EXISTS config (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );`
 
 // NewStore opens (or creates) the account database at path and ensures the
