@@ -270,6 +270,31 @@ func TestPromoRedeemFlow(t *testing.T) {
 	}
 }
 
+func TestAccountConnectFree(t *testing.T) {
+	ts, _, _, sender := authServer(t)
+	ck := signIn(t, ts, sender, "connect@x.com") // fresh → first-100 free month
+
+	// An entitled account with no tunnel yet sees the Connect button.
+	_, body := getWithCookie(t, ts.URL+"/account", ck)
+	if !strings.Contains(body, "Connect your OpenCode") {
+		t.Fatalf("free account should show the Connect button:\n%s", body)
+	}
+
+	// Connecting provisions a free tunnel and returns to /account.
+	if resp := postForm(t, ts.URL+"/account/connect", ck, url.Values{}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("connect = %d, want 303", resp.StatusCode)
+	}
+	// Which now shows the install command.
+	_, body = getWithCookie(t, ts.URL+"/account", ck)
+	if !strings.Contains(body, "| sh") || !strings.Contains(body, "Finish setup") {
+		t.Errorf("after connect, /account should show the install command:\n%s", body)
+	}
+	// Connecting again is idempotent (no second tunnel).
+	if resp := postForm(t, ts.URL+"/account/connect", ck, url.Values{}); resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("second connect = %d, want 303", resp.StatusCode)
+	}
+}
+
 func refCodeFromBody(t *testing.T, body string) string {
 	t.Helper()
 	const marker = "/login?ref="
