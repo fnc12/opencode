@@ -64,7 +64,20 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   account_id  TEXT NOT NULL,
   created_at  INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_subs_account ON subscriptions(account_id);`
+CREATE INDEX IF NOT EXISTS idx_subs_account ON subscriptions(account_id);
+CREATE TABLE IF NOT EXISTS promo_codes (
+  code       TEXT PRIMARY KEY,
+  months     INTEGER NOT NULL,
+  max_uses   INTEGER NOT NULL DEFAULT 0,
+  uses       INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS promo_redemptions (
+  code        TEXT NOT NULL,
+  account_id  TEXT NOT NULL,
+  redeemed_at INTEGER NOT NULL,
+  PRIMARY KEY (code, account_id)
+);`
 
 // NewStore opens (or creates) the account database at path and ensures the
 // schema exists. It's safe to point at the same file as the provision store.
@@ -78,7 +91,47 @@ func NewStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := migrateAccounts(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+// migrateAccounts adds the entitlement/referral columns to an existing accounts
+// table (idempotent — a fresh DB from `schema` gets them here too).
+func migrateAccounts(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(accounts)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+
+	for _, c := range []struct{ name, ddl string }{
+		{"free_until", `ALTER TABLE accounts ADD COLUMN free_until INTEGER NOT NULL DEFAULT 0`},
+		{"referral_code", `ALTER TABLE accounts ADD COLUMN referral_code TEXT`},
+		{"referred_by", `ALTER TABLE accounts ADD COLUMN referred_by TEXT NOT NULL DEFAULT ''`},
+	} {
+		if !have[c.name] {
+			if _, err := db.Exec(c.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_refcode ON accounts(referral_code) WHERE referral_code IS NOT NULL`)
+	return err
 }
 
 // Close closes the underlying database.
@@ -140,45 +193,61 @@ func (s *Store) RedeemLoginToken(token string, now int64) (string, error) {
 // creating both the account and the identity on first sight. Use provider
 // "email" with the address as subject for magic-link, or "google"/"github" with
 // the provider user id for OAuth.
-func (s *Store) AccountForIdentity(provider, subject string, now int64) (string, error) {
+// AccountForIdentity resolves the account for a (provider, subject) identity,
+// creating both on first sight. The bool result reports whether a new account
+// was created — the caller applies referral credit only for new accounts. A new
+// account gets a referral code and, while the free cap isn't reached, one free
+// month (first-N-free launch promo).
+func (s *Store) AccountForIdentity(provider, subject string, now int64) (string, bool, error) {
 	var accountID string
 	err := s.db.QueryRow(
 		`SELECT account_id FROM identities WHERE provider = ? AND subject = ?`,
 		provider, subject).Scan(&accountID)
 	if err == nil {
-		return accountID, nil
+		return accountID, false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return "", err
+		return "", false, err
 	}
-	// New identity → new account.
 	accountID = "acc_" + randHex(12)
+	refCode := randHex(6)
 	tx, err := s.db.Begin()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	if _, err := tx.Exec(`INSERT INTO accounts(id, created_at) VALUES(?, ?)`, accountID, now); err != nil {
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&count); err != nil {
 		tx.Rollback()
-		return "", err
+		return "", false, err
+	}
+	var freeUntil int64
+	if count < firstFreeCap {
+		freeUntil = now + firstFreeMonths*monthSeconds
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO accounts(id, created_at, free_until, referral_code, referred_by) VALUES(?, ?, ?, ?, '')`,
+		accountID, now, freeUntil, refCode); err != nil {
+		tx.Rollback()
+		return "", false, err
 	}
 	if _, err := tx.Exec(
 		`INSERT INTO identities(provider, subject, account_id, created_at) VALUES(?, ?, ?, ?)`,
 		provider, subject, accountID, now); err != nil {
 		tx.Rollback()
-		return "", err
+		return "", false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return accountID, nil
+	return accountID, true, nil
 }
 
 // AccountForEmail is AccountForIdentity for the email provider (normalizing the
 // address first).
-func (s *Store) AccountForEmail(email string, now int64) (string, error) {
+func (s *Store) AccountForEmail(email string, now int64) (string, bool, error) {
 	norm, err := NormalizeEmail(email)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	return s.AccountForIdentity("email", norm, now)
 }

@@ -73,22 +73,22 @@ func TestLoginTokenExpiryAndUnknown(t *testing.T) {
 
 func TestAccountForEmailIsStable(t *testing.T) {
 	s := newStore(t)
-	a1, err := s.AccountForEmail("me@x.com", 1)
+	a1, _, err := s.AccountForEmail("me@x.com", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Same address (any case) → same account.
-	a2, _ := s.AccountForEmail("ME@X.com", 2)
+	a2, _, _ := s.AccountForEmail("ME@X.com", 2)
 	if a1 != a2 {
 		t.Errorf("same email produced different accounts: %s vs %s", a1, a2)
 	}
 	// Different address → different account.
-	b, _ := s.AccountForEmail("other@x.com", 3)
+	b, _, _ := s.AccountForEmail("other@x.com", 3)
 	if b == a1 {
 		t.Errorf("different email should be a different account")
 	}
 	// The email identity and AccountForIdentity("email", ...) agree.
-	a3, _ := s.AccountForIdentity("email", "me@x.com", 4)
+	a3, _, _ := s.AccountForIdentity("email", "me@x.com", 4)
 	if a3 != a1 {
 		t.Errorf("AccountForIdentity(email) disagrees with AccountForEmail")
 	}
@@ -96,15 +96,15 @@ func TestAccountForEmailIsStable(t *testing.T) {
 
 func TestAccountForIdentityProviders(t *testing.T) {
 	s := newStore(t)
-	g, err := s.AccountForIdentity("google", "google-uid-1", 1)
+	g, _, err := s.AccountForIdentity("google", "google-uid-1", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := s.AccountForIdentity("google", "google-uid-1", 2); again != g {
+	if again, _, _ := s.AccountForIdentity("google", "google-uid-1", 2); again != g {
 		t.Errorf("same google identity should map to same account")
 	}
 	// Different provider, same subject string → different account (namespaced).
-	h, _ := s.AccountForIdentity("github", "google-uid-1", 3)
+	h, _, _ := s.AccountForIdentity("github", "google-uid-1", 3)
 	if h == g {
 		t.Errorf("identities must be namespaced by provider")
 	}
@@ -112,7 +112,7 @@ func TestAccountForIdentityProviders(t *testing.T) {
 
 func TestSessions(t *testing.T) {
 	s := newStore(t)
-	acc, _ := s.AccountForEmail("s@x.com", 1)
+	acc, _, _ := s.AccountForEmail("s@x.com", 1)
 	sid, err := s.CreateSession(acc, 1, 1000)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestSessions(t *testing.T) {
 
 func TestSubscriptionBinding(t *testing.T) {
 	s := newStore(t)
-	acc, _ := s.AccountForEmail("pay@x.com", 1)
+	acc, _, _ := s.AccountForEmail("pay@x.com", 1)
 	if err := s.BindSubscription(acc, "I-SUB-1", 1); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestSubscriptionBinding(t *testing.T) {
 		t.Errorf("unknown subscription should not resolve")
 	}
 	// Re-binding to a different account re-points (last binder wins).
-	acc2, _ := s.AccountForEmail("pay2@x.com", 2)
+	acc2, _, _ := s.AccountForEmail("pay2@x.com", 2)
 	if err := s.BindSubscription(acc2, "I-SUB-1", 3); err != nil {
 		t.Fatal(err)
 	}
