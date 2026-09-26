@@ -10,9 +10,11 @@ import (
 )
 
 const (
-	sessionCookie = "shubat_session"
-	sessionTTL    = 30 * 24 * time.Hour
-	loginTokenTTL = 15 * time.Minute
+	sessionCookie  = "shubat_session"
+	referralCookie = "shubat_ref"
+	sessionTTL     = 30 * 24 * time.Hour
+	referralTTL    = 30 * 24 * time.Hour
+	loginTokenTTL  = 15 * time.Minute
 )
 
 // baseURL is the relay's externally-reachable base (config PublicURL, else the
@@ -27,6 +29,15 @@ func (s *Server) baseURL(r *http.Request) string {
 // login renders the passwordless sign-in form (GET) and issues a magic link
 // (POST). It never reveals whether an account exists for the address.
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	// Capture a referral code from a /login?ref=CODE invite link so it's credited
+	// when this visitor signs in for the first time.
+	if ref := r.URL.Query().Get("ref"); ref != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name: referralCookie, Value: ref, Path: "/",
+			HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+			MaxAge: int(referralTTL / time.Second),
+		})
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method == http.MethodPost {
 		email := r.FormValue("email")
@@ -64,10 +75,17 @@ func (s *Server) loginVerify(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, welcomeShell, "Link expired", loginExpiredBody)
 		return
 	}
-	acc, err := s.accounts.AccountForEmail(email, now)
+	acc, created, err := s.accounts.AccountForEmail(email, now)
 	if err != nil {
 		http.Error(w, "sign-in failed", http.StatusInternalServerError)
 		return
+	}
+	// On first sign-in, credit a referrer if the visitor arrived via a ref link
+	// (captured into a cookie at /login?ref= or the landing).
+	if created {
+		if rc, err := r.Cookie(referralCookie); err == nil && rc.Value != "" {
+			_, _ = s.accounts.ApplyReferral(acc, rc.Value, now)
+		}
 	}
 	sid, err := s.accounts.CreateSession(acc, now, time.Now().Add(sessionTTL).Unix())
 	if err != nil {
