@@ -159,6 +159,47 @@ func (s *Server) tunnelForAccount(acc string) (provision.Tunnel, bool) {
 	return provision.Tunnel{}, false
 }
 
+// hasPaidTunnel reports whether the account has a bound subscription with a live
+// (unrevoked) tunnel — i.e. a paying customer.
+func (s *Server) hasPaidTunnel(acc string) bool {
+	if s.provision == nil {
+		return false
+	}
+	subs, _ := s.accounts.SubscriptionsForAccount(acc)
+	for _, sub := range subs {
+		if _, ok := s.provision.GetByCustomer(sub); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// accountConnect provisions a free, account-owned tunnel for an entitled account
+// that doesn't have one yet, then returns to /account (which shows the install
+// command). Free tunnels are keyed by the account id; the reaper revokes them
+// when entitlement lapses.
+func (s *Server) accountConnect(w http.ResponseWriter, r *http.Request) {
+	acc, ok := s.accountFromRequest(r)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	now := time.Now().Unix()
+	if _, ok := s.tunnelForAccount(acc); ok {
+		http.Redirect(w, r, "/account", http.StatusSeeOther) // already provisioned
+		return
+	}
+	if !s.accounts.FreeActive(acc, now) && !s.hasPaidTunnel(acc) {
+		http.Redirect(w, r, "/account?flash="+url.QueryEscape("Subscribe or add a promo code to connect."), http.StatusSeeOther)
+		return
+	}
+	if _, err := s.provision.MintFor(acc, "account:"+acc, now); err != nil {
+		http.Error(w, "could not provision a tunnel", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/account", http.StatusSeeOther)
+}
+
 // accountBody renders the account page: plan status, connection (re-pair/install),
 // referral link, and promo entry.
 func (s *Server) accountBody(r *http.Request, acc string, now int64, flash string) string {
@@ -171,15 +212,7 @@ func (s *Server) accountBody(r *http.Request, acc string, now int64, flash strin
 	b.WriteString(`<h1>Your account</h1>`)
 
 	// Plan status: paid subscription, then free entitlement, else nothing.
-	hasPaid := false
-	if subs, _ := s.accounts.SubscriptionsForAccount(acc); len(subs) > 0 && s.provision != nil {
-		for _, sub := range subs {
-			if _, ok := s.provision.GetByCustomer(sub); ok {
-				hasPaid = true
-				break
-			}
-		}
-	}
+	hasPaid := s.hasPaidTunnel(acc)
 	until, _ := s.accounts.EntitledUntil(acc)
 	switch {
 	case hasPaid:
@@ -190,7 +223,8 @@ func (s *Server) accountBody(r *http.Request, acc string, now int64, flash strin
 		b.WriteString(`<p class="sub">No active plan. <a href="https://shubat.org#pricing">Subscribe ($5/mo)</a>, or redeem a promo code below.</p>`)
 	}
 
-	// Connection state.
+	// Connection state: existing tunnel → re-pair/install; entitled but no tunnel
+	// yet → a Connect button that provisions one for free.
 	if t, ok := s.tunnelForAccount(acc); ok {
 		if t.ClaimCode != "" {
 			install := fmt.Sprintf("curl -fsSL %s/i/%s | sh", base, t.ClaimCode)
@@ -199,6 +233,8 @@ func (s *Server) accountBody(r *http.Request, acc string, now int64, flash strin
 			link := pairingDeepLink(base, t.ID, t.Token)
 			b.WriteString(fmt.Sprintf(accountConnectedBlock, pairingQRDataURI(link), html.EscapeString(link), html.EscapeString(link)))
 		}
+	} else if until > now || hasPaid {
+		b.WriteString(accountConnectBlock)
 	}
 
 	// Referral.
@@ -293,6 +329,11 @@ const accountInstallBlock = `<p class="sub">Finish setup on the machine running 
 const accountConnectedBlock = `<p class="sub">✅ Connected. Reinstalled the app or got a new phone? Scan to reconnect:</p>
 <div style="text-align:center;margin:6px 0 18px"><img src="%[1]s" alt="Pairing QR" width="200" height="200" style="border-radius:12px;background:#fff;padding:12px"></div>
 <div class="cmd"><button class="copy" data-copy="%[3]s">Copy</button>%[2]s</div>`
+
+// accountConnectBlock: shown to an entitled account with no tunnel yet.
+const accountConnectBlock = `<p class="sub">You're all set — connect your OpenCode to reach it from your phone.</p>
+<form method="post" action="/account/connect"><button class="go" type="submit">Connect your OpenCode</button></form>
+<p class="note">Provisions a connector for your machine; the next screen has the one-line install.</p>`
 
 // accountReferralBlock: %[1]s referral link (visible), %[2]s (copy), %[3]s joined text.
 const accountReferralBlock = `<div style="margin:26px 0 0;padding-top:22px;border-top:1px solid #23272e">

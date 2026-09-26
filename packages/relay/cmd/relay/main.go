@@ -132,6 +132,8 @@ func main() {
 	if pushCounter != nil {
 		pushCounter.StartFlusher(ctx, 20*time.Second)
 	}
+	// Revoke free tunnels whose entitlement has lapsed.
+	srv.StartReaper(ctx, time.Hour)
 	<-ctx.Done()
 	logger.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

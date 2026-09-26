@@ -158,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /login", s.login)
 		mux.HandleFunc("GET /login/verify", s.loginVerify)
 		mux.HandleFunc("GET /account", s.account)
+		mux.HandleFunc("POST /account/connect", s.accountConnect)
 		mux.HandleFunc("POST /account/promo", s.promoRedeem)
 		mux.HandleFunc("POST /logout", s.logout)
 	}
