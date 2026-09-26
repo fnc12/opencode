@@ -50,12 +50,11 @@ func (s *Server) setupGitHub(w http.ResponseWriter, r *http.Request) {
 	}
 	base := s.baseURL(r)
 	manifest := map[string]any{
-		"name":                "Shubat",
-		"url":                 "https://shubat.org",
-		"redirect_url":        base + "/setup/github/callback",
-		"callback_urls":       []string{base + "/auth/github/callback"},
-		"public":              false,
-		"default_permissions": map[string]string{"email_addresses": "read"},
+		"name":          "Shubat",
+		"url":           "https://shubat.org",
+		"redirect_url":  base + "/setup/github/callback",
+		"callback_urls": []string{base + "/auth/github/callback"},
+		"public":        false,
 	}
 	mj, _ := json.Marshal(manifest)
 	state := setupState(s.adminSecret)
