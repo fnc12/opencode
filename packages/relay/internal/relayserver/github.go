@@ -55,7 +55,6 @@ func (s *Server) setupGitHub(w http.ResponseWriter, r *http.Request) {
 		"redirect_url":        base + "/setup/github/callback",
 		"callback_urls":       []string{base + "/auth/github/callback"},
 		"public":              false,
-		"hook_attributes":     map[string]any{"active": false},
 		"default_permissions": map[string]string{"email_addresses": "read"},
 	}
 	mj, _ := json.Marshal(manifest)
