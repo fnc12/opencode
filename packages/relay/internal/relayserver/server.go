@@ -174,6 +174,11 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /setup/github/callback", s.setupGitHubCallback)
 		mux.HandleFunc("GET /auth/github", s.authGitHub)
 		mux.HandleFunc("GET /auth/github/callback", s.authGitHubCallback)
+		// Google sign-in (credentials pasted at setup — no manifest flow exists).
+		mux.HandleFunc("GET /setup/google", s.setupGoogle)
+		mux.HandleFunc("POST /setup/google", s.setupGoogle)
+		mux.HandleFunc("GET /auth/google", s.authGoogle)
+		mux.HandleFunc("GET /auth/google/callback", s.authGoogleCallback)
 	}
 	mux.HandleFunc("/t/{id}/", s.proxy)
 	return mux

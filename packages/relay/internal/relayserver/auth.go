@@ -48,7 +48,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		norm, err := account.NormalizeEmail(email)
 		if err != nil {
 			errHTML := `<p style="color:#f87171;margin:0 0 12px">That doesn't look like an email address.</p>`
-			fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, errHTML, html.EscapeString(email), s.githubLoginButton()))
+			fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, errHTML, html.EscapeString(email), s.socialButtons()))
 			return
 		}
 		exp := time.Now().Add(loginTokenTTL).Unix()
@@ -65,7 +65,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, welcomeShell, "Check your email", loginSentBody)
 		return
 	}
-	fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, "", "", s.githubLoginButton()))
+	fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, "", "", s.socialButtons()))
 }
 
 // loginVerify consumes a magic-link token, opens a session, and redirects to the
