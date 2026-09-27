@@ -248,11 +248,31 @@ checklist; a regression fails CI. Mapping (QA area → test):
 | Store durability + JSON→SQLite migration (INF-5) | `internal/provision/store_contract_test.go` |
 | Admin mint / devices (INF-1/2) | `server_test.go`, `internal/push/*_test.go` |
 
-**Mobile (§10): Phase 2 — to be automated as XCUITest (iOS) + instrumented
-tests (Android)** driving the app against a fake server via the existing
-`UITEST_*` / `UiTestFlags` / `PAIR_LINK` hooks (fake-server infra: iOS
-`URLProtocol`, Android `MockWebServer`). These run on the self-hosted Apple /
-Android runners (heavier than the Go suite), not in the every-commit Go run.
+### Mobile (§10)
+
+Most mobile cases are **already automated** by the apps' existing suites (the
+work behind ~97.7% iOS / ~94.9% Android coverage): iOS `OpenCodeTests` (unit +
+snapshot) + `OpenCodeUITests` (XCUITest, driven by `UITEST_*` / `PAIR_LINK`
+launch hooks + `URLProtocol` fake server); Android `src/test` (unit) +
+`src/androidTest` (instrumented, `MockWebServer` + `UiTestFlags`). They run on
+the self-hosted Apple / Android runners (heavier than the Go suite).
+
+| Mobile QA | iOS test(s) | Android test(s) |
+|-----------|-------------|-----------------|
+| Connect & pairing (MOB-CONN) | `ConnectionConfigTests`, `ConnectViewSnapshotTests`, `ServerConnectionFakeTests` | `AppViewModelInstrumentedTest` (applyPairing/config/disconnect/cancel), `QrScanInstrumentedTest` |
+| Navigation & projects (MOB-NAV) | `OpenFolderUITests` | `ListScreensInstrumentedTest`, `AppViewModelInstrumentedTest` |
+| Sessions: busy/rename/delete/share (MOB-SESS) | `SessionBusyTests`, `SessionStoreTests` | `SessionListAdapterInstrumentedTest`, `SessionListScreenInteractionsInstrumentedTest`, `ShareChooserInstrumentedTest` |
+| Messaging & rendering (MOB-MSG) | `MarkdownRendererTests`, `DiffRendererTests`, `SyntaxHighlighterTests`, `CodeBlockViewTests`, `MessageCell/DetailSnapshotTests`, `MessageRenderPipeline/RenderingTests`, `MessageCacheTests`, `EventStreamTests`, `LiveSessionIntegrationTests`, `StreamingTests` | `MessageRenderBranchesInstrumentedTest`, `MessageAdapterImageInstrumentedTest`, `SessionStreamInstrumentedTest` |
+| Permissions & questions (MOB-PERM) | `PermissionTests`, `QuestionTests`, `PermissionDockUITests`, `QuestionDockUITests`, `QuestionDockLayoutUITests` | `PermissionDockUITest` |
+| Composer & attachments (MOB-COMP) | `ComposerTests`, `ComposerSendUITests`, `GrowingTextViewTests`, `ShellStoreTests`, `ShellTests` | `ShellScreenInstrumentedTest`, `DialogScreensInstrumentedTest` (file picker), `ActivitySoftInputModeTest` |
+| Push (MOB-PUSH) | `PushManagerTests` | `AppViewModelInstrumentedTest` (pending open session) |
+| Providers / viewers / resilience (MOB-PROV/VIEW/RES) | `DiffRendererTests`, `RunningToolsTests` | `DialogScreensInstrumentedTest` (providers), `ImageViewerInstrumentedTest`, `ListScreensInstrumentedTest` (empty/error) |
+
+**Gaps to add (mobile phase-2 backlog)** — cases without a clear dedicated test:
+MOB-CONN-3 (Direct-mode connect UI), MOB-CONN-9 (scanner-unavailable fallback),
+MOB-SESS-8 (revert/restore UI flow), MOB-MSG-8 (copy-message UI), MOB-VIEW-1
+(diff-viewer file list + Copy), MOB-RES-2 (stuck-turn hint), MOB-PUSH tap→deep-link
+on Android. These are the next mobile tests to write.
 
 **How to run the automated QA suite:**
 ```sh
