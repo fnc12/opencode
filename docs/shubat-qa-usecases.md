@@ -223,3 +223,42 @@ features have automated tests (`OpenCodeTests`/`OpenCodeUITests`; `src/test` +
 | MOB-RES-2 | **Given** ~3 min with no output **Then** a "This turn looks stuck — tap ■ to cancel" hint replaces the typing dots. |
 | MOB-RES-3 | **Given** the session top bar **Then** a stream status badge shows green (Live) / spinner (connecting/reconnecting). |
 | MOB-RES-4 | **Given** a load/connect error **Then** an in-place Retry (or error text) shows; retrying recovers. |
+
+---
+
+## 11. Automated coverage
+
+The **backend** cases (§1–9) run as Go tests on every commit —
+`go test ./packages/relay/...`. This is the automated QA harness that walks the
+checklist; a regression fails CI. Mapping (QA area → test):
+
+| QA area | Automated by (`packages/relay/internal/relayserver/…` unless noted) |
+|---------|--------------------------------------------------------------------|
+| **E2E-1 paid journey** (mint → welcome → claim → connector register → proxy → cancel → revoke) | `qa_e2e_test.go` · `TestQA_E2E_PaidPath` |
+| **E2E-2 free journey** (first-100 → connect → claim → register → proxy → reaper) | `qa_e2e_test.go` · `TestQA_E2E_FreePath` |
+| Proxy round-trip & token gating (PAIR-3) | `server_test.go` · `TestProxyRoundTrip`, `TestProxyRejectsWrongToken` |
+| Welcome / re-pair (ONB-1..3, BILL-3/7) | `welcome_test.go` |
+| Email magic-link (AUTH-1..5) | `auth_test.go` |
+| GitHub sign-in (AUTH-6..8) | `github_test.go` |
+| Google sign-in (AUTH-9..11) | `google_test.go` |
+| PayPal billing (BILL-2/4/5/6) | `paypal_test.go`, `qa_e2e_test.go` |
+| Entitlement: first-100/promo/referral/connect (ENT-1..9, E2E-3) | `entitlement_test.go`, `auth_test.go` (`TestReferralViaLoginLink`, `TestPromoRedeemFlow`, `TestAccountConnectFree`) |
+| Reaper (ENT-10) | `reaper_test.go`, `qa_e2e_test.go` |
+| Stats / live counters (LAND-3/4, INF-3/4) | `stats_test.go`, `internal/push/counter_test.go` |
+| Store durability + JSON→SQLite migration (INF-5) | `internal/provision/store_contract_test.go` |
+| Admin mint / devices (INF-1/2) | `server_test.go`, `internal/push/*_test.go` |
+
+**Mobile (§10): Phase 2 — to be automated as XCUITest (iOS) + instrumented
+tests (Android)** driving the app against a fake server via the existing
+`UITEST_*` / `UiTestFlags` / `PAIR_LINK` hooks (fake-server infra: iOS
+`URLProtocol`, Android `MockWebServer`). These run on the self-hosted Apple /
+Android runners (heavier than the Go suite), not in the every-commit Go run.
+
+**How to run the automated QA suite:**
+```sh
+# backend (fast, every commit)
+cd packages/relay && go test ./...
+# mobile (Phase 2, on the runners)
+# iOS:     xcodebuild test -scheme OpenCode -destination 'platform=iOS Simulator,name=iPhone 15'
+# Android: ./gradlew :app:connectedAndroidTest
+```
