@@ -274,11 +274,22 @@ MOB-SESS-8 (revert/restore UI flow), MOB-MSG-8 (copy-message UI), MOB-VIEW-1
 (diff-viewer file list + Copy), MOB-RES-2 (stuck-turn hint), MOB-PUSH tap→deep-link
 on Android. These are the next mobile tests to write.
 
+**Live onboarding smoke (real relay + real connector + real OpenCode, no mocks):**
+`scripts/qa-onboarding-live.sh <CLAIM_CODE>` stands up an isolated connector on a
+host running OpenCode, has it claim a real code and register with the relay, and
+verifies an app-facing request reaches OpenCode through the relay (wrong token →
+401). The account/email half (POST `/login` → open the magic link → `/account` →
+Connect → get the code) is real too; automating its inbox read needs a Gmail
+token. This whole chain was verified live end-to-end (real email delivered & read,
+real relay, real connector, real OpenCode reachable).
+
 **How to run the automated QA suite:**
 ```sh
-# backend (fast, every commit)
+# backend unit + E2E journeys (fast, every commit)
 cd packages/relay && go test ./...
-# mobile (Phase 2, on the runners)
+# live onboarding smoke (real components)
+scripts/qa-onboarding-live.sh <CLAIM_CODE>
+# mobile (on the runners)
 # iOS:     xcodebuild test -scheme OpenCode -destination 'platform=iOS Simulator,name=iPhone 15'
 # Android: ./gradlew :app:connectedAndroidTest
 ```
