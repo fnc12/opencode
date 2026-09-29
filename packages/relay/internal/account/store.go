@@ -293,6 +293,33 @@ func (s *Store) DeleteSession(sessionID string) error {
 	return err
 }
 
+// DeleteAccount permanently erases an account and every row that references it:
+// third-party identities, sessions, subscription bindings, and promo
+// redemptions. It's the store side of the app stores' account-deletion
+// requirement (Apple 5.1.1(v), Google Play). Login tokens are keyed by email and
+// expire on their own, so they're left to lapse. Callers should revoke the
+// account's tunnels (see SubscriptionsForAccount + the account-keyed free tunnel)
+// before or after this — those live in the provision store, not here.
+func (s *Store) DeleteAccount(accountID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`DELETE FROM identities WHERE account_id = ?`,
+		`DELETE FROM sessions WHERE account_id = ?`,
+		`DELETE FROM subscriptions WHERE account_id = ?`,
+		`DELETE FROM promo_redemptions WHERE account_id = ?`,
+		`DELETE FROM accounts WHERE id = ?`,
+	} {
+		if _, err := tx.Exec(q, accountID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // BindSubscription links a PayPal subscription (customer id) to an account. It's
 // idempotent and re-points the subscription if bound again (last binder wins).
 func (s *Store) BindSubscription(accountID, customerID string, now int64) error {

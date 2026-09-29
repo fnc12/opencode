@@ -65,7 +65,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, welcomeShell, "Check your email", loginSentBody)
 		return
 	}
-	fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, "", "", s.socialButtons()))
+	// A neutral flash (e.g. the post-deletion confirmation) renders in the form's
+	// top slot, styled green rather than as an error.
+	var top string
+	if flash := r.URL.Query().Get("flash"); flash != "" {
+		top = `<p style="background:#14351c;border:1px solid #22c55e55;color:#86efac;padding:10px 14px;border-radius:10px;margin:0 0 12px;font-size:14px">` + html.EscapeString(flash) + `</p>`
+	}
+	fmt.Fprintf(w, welcomeShell, "Sign in", fmt.Sprintf(loginFormBody, top, "", s.socialButtons()))
 }
 
 // loginVerify consumes a magic-link token, opens a session, and redirects to the
@@ -138,6 +144,39 @@ func (s *Server) promoRedeem(w http.ResponseWriter, r *http.Request) {
 		flash = "That promo code isn't valid."
 	}
 	http.Redirect(w, r, "/account?flash="+url.QueryEscape(flash), http.StatusSeeOther)
+}
+
+// accountDelete permanently deletes the signed-in account. It revokes every
+// tunnel the account owns (paid subscriptions + a free account-keyed one), drops
+// their live connector connections, erases all account data, clears the session,
+// and returns to /login. This is the app stores' required account-deletion path
+// (Apple 5.1.1(v), Google Play): users can delete from the web, linked from the
+// app's account screen.
+func (s *Server) accountDelete(w http.ResponseWriter, r *http.Request) {
+	acc, ok := s.accountFromRequest(r)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	// Revoke the account's tunnels and drop any live connector connections. Free
+	// tunnels are keyed by the account id; paid ones by the subscription id.
+	if s.provision != nil {
+		customers, _ := s.accounts.SubscriptionsForAccount(acc)
+		customers = append(customers, acc)
+		for _, c := range customers {
+			if id := s.provision.DeleteByCustomer(c); id != "" {
+				if conn := s.reg.Get(id); conn != nil {
+					conn.Close()
+				}
+			}
+		}
+	}
+	if err := s.accounts.DeleteAccount(acc); err != nil {
+		http.Error(w, "could not delete account", http.StatusInternalServerError)
+		return
+	}
+	s.clearSessionCookie(w)
+	http.Redirect(w, r, "/login?flash="+url.QueryEscape("Your account and all data were permanently deleted."), http.StatusSeeOther)
 }
 
 // tunnelForAccount returns the account's tunnel — from a bound paid subscription
@@ -249,6 +288,12 @@ func (s *Server) accountBody(r *http.Request, acc string, now int64, flash strin
 	b.WriteString(accountPromoBlock)
 
 	b.WriteString(`<form method="post" action="/logout" style="margin-top:30px"><button class="go" type="submit" style="background:#2a2d37">Sign out</button></form>`)
+
+	// Danger zone: permanent account deletion (required by the app stores).
+	b.WriteString(`<div style="margin:26px 0 0;padding-top:22px;border-top:1px solid #23272e">` +
+		`<form method="post" action="/account/delete" onsubmit="return confirm('Permanently delete your account and all data? This revokes your connector and cannot be undone.')">` +
+		`<button class="go" type="submit" style="margin-top:0;background:#2a1417;color:#fca5a5;border:1px solid #7f1d1d">Delete account</button></form>` +
+		`<p class="note">Deletes your account, revokes your connector, and removes your data. This can't be undone.</p></div>`)
 	return b.String()
 }
 
