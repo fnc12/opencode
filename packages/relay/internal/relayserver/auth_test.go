@@ -231,6 +231,48 @@ func TestLogoutRevokesSession(t *testing.T) {
 	}
 }
 
+// TestAccountDelete covers the app stores' required account-deletion path
+// (Apple 5.1.1(v), Google Play): deleting an account revokes its tunnel, kills
+// the session, and erases the account.
+func TestAccountDelete(t *testing.T) {
+	ts, pstore, astore, sender := authServer(t)
+	ck := signIn(t, ts, sender, "gone@x.com") // fresh → first-100 free month
+	acc, err := astore.AccountBySession(ck.Value, 1)
+	if err != nil || acc == "" {
+		t.Fatalf("sign-in did not open a session: %v", err)
+	}
+
+	// Connect so the account owns a (free) tunnel that deletion must revoke.
+	if resp := postForm(t, ts.URL+"/account/connect", ck, url.Values{}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("connect = %d, want 303", resp.StatusCode)
+	}
+	if _, ok := pstore.GetByCustomer(acc); !ok {
+		t.Fatal("precondition: account should own a tunnel before deletion")
+	}
+
+	// Delete → redirect to /login with a confirmation flash.
+	resp := postForm(t, ts.URL+"/account/delete", ck, url.Values{})
+	if resp.StatusCode != http.StatusSeeOther || !strings.HasPrefix(resp.Header.Get("Location"), "/login") {
+		t.Fatalf("delete = %d loc=%q, want 303 -> /login", resp.StatusCode, resp.Header.Get("Location"))
+	}
+
+	// The account is gone, the session is dead, and the tunnel is revoked.
+	if n, _ := astore.RegisteredCount(); n != 0 {
+		t.Errorf("RegisteredCount = %d, want 0 after deletion", n)
+	}
+	if _, err := astore.AccountBySession(ck.Value, 1); err == nil {
+		t.Error("session should be invalid after account deletion")
+	}
+	if _, ok := pstore.GetByCustomer(acc); ok {
+		t.Error("account deletion should revoke the account's tunnel")
+	}
+
+	// The confirmation renders on the sign-in page.
+	if _, body := getBody(t, ts.URL+"/login?flash="+url.QueryEscape("Your account and all data were permanently deleted.")); !strings.Contains(body, "permanently deleted") {
+		t.Error("post-deletion flash should render on /login")
+	}
+}
+
 func postForm(t *testing.T, u string, ck *http.Cookie, form url.Values) *http.Response {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, u, strings.NewReader(form.Encode()))

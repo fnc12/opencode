@@ -168,6 +168,7 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /account", s.account)
 		mux.HandleFunc("POST /account/connect", s.accountConnect)
 		mux.HandleFunc("POST /account/promo", s.promoRedeem)
+		mux.HandleFunc("POST /account/delete", s.accountDelete)
 		mux.HandleFunc("POST /logout", s.logout)
 		// GitHub sign-in (provisioned via the manifest setup flow).
 		mux.HandleFunc("GET /setup/github", s.setupGitHub)
