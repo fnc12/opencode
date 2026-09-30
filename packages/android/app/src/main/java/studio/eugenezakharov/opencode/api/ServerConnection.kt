@@ -92,9 +92,12 @@ class ServerConnection(
                 put("provider", provider)
                 put("token", token)
             }.toString()
-            val request = Request.Builder().url(url)
-                .post(body.toRequestBody("application/json".toMediaType())).build()
-            runCatching { client.newCall(request).execute().use { it.isSuccessful } }
+            // The relay gates device registration on the tunnel token, so only the
+            // paired user can subscribe a device to this tunnel's notifications.
+            val rb = Request.Builder().url(url)
+                .post(body.toRequestBody("application/json".toMediaType()))
+            tunnelToken()?.let { rb.header("X-Tunnel-Token", it) }
+            runCatching { client.newCall(rb.build()).execute().use { it.isSuccessful } }
                 .getOrDefault(false)
         }
 

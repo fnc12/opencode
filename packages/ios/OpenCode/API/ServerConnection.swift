@@ -160,6 +160,9 @@ final class ServerConnection {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // The relay gates device registration on the tunnel token, so only the
+        // paired user can subscribe a device to this tunnel's push notifications.
+        if let tunnelToken { request.setValue(tunnelToken, forHTTPHeaderField: "X-Tunnel-Token") }
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "tunnelId": config.tunnelID, "provider": "apns", "token": hexToken,
         ])

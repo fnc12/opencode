@@ -391,8 +391,20 @@ func (s *Server) parseDevice(w http.ResponseWriter, r *http.Request) (string, pu
 		http.Error(w, "tunnelId, token and provider(apns|fcm) required", http.StatusBadRequest)
 		return "", push.Device{}, false
 	}
-	// NOTE: registration is currently unauthenticated; proper per-device
-	// pairing auth arrives with #4.
+	// Per-tunnel auth: only someone holding the tunnel's token (the paired user)
+	// may register or unregister a device for it. Without this, anyone who learns
+	// a tunnel id could register their device and receive that tunnel's push
+	// notifications (session titles + answer previews). The token is the same one
+	// the app pairs with and sends as X-Tunnel-Token. Enforced whenever
+	// provisioning is on (production); the push-only test config has no provision
+	// store and skips it.
+	if s.provision != nil {
+		tun, found := s.provision.Get(body.TunnelID)
+		if !found || (tun.Token != "" && r.Header.Get("X-Tunnel-Token") != tun.Token) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return "", push.Device{}, false
+		}
+	}
 	return body.TunnelID, push.Device{Provider: prov, Token: body.Token}, true
 }
 
