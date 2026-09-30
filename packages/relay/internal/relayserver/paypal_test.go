@@ -61,6 +61,41 @@ func TestPayPalActivatedMintsTunnel(t *testing.T) {
 	}
 }
 
+// TestPayPalRenewalKeysBySubscription covers recurring renewals: a
+// PAYMENT.SALE.COMPLETED carries the sale id in resource.id and the subscription
+// id in billing_agreement_id. The handler must key off the subscription id so a
+// renewal reaffirms the SAME tunnel (idempotent) instead of minting an orphan
+// keyed by the sale id.
+func TestPayPalRenewalKeysBySubscription(t *testing.T) {
+	ok := func(http.Header, []byte) error { return nil }
+	ts, store := paypalServer(t, ok)
+
+	postPayPal(t, ts.URL+"/paypal/webhook", subActivated) // mint keyed by I-SUB123
+	minted, found := store.GetByCustomer("I-SUB123")
+	if !found {
+		t.Fatal("precondition: activation should mint the subscription tunnel")
+	}
+
+	// A monthly renewal: sale id in resource.id, subscription in billing_agreement_id.
+	renewal := `{"event_type":"PAYMENT.SALE.COMPLETED","resource":{"id":"SALE-9999","billing_agreement_id":"I-SUB123"}}`
+	if code := postPayPal(t, ts.URL+"/paypal/webhook", renewal); code != http.StatusOK {
+		t.Fatalf("renewal status = %d, want 200", code)
+	}
+
+	// The subscription's tunnel is reaffirmed (same tunnel), not replaced.
+	after, found := store.GetByCustomer("I-SUB123")
+	if !found {
+		t.Fatal("renewal dropped the subscription tunnel")
+	}
+	if after.ID != minted.ID {
+		t.Errorf("renewal minted a different tunnel (%s vs %s)", after.ID, minted.ID)
+	}
+	// No orphan tunnel keyed by the sale id.
+	if _, orphan := store.GetByCustomer("SALE-9999"); orphan {
+		t.Error("renewal minted an orphan tunnel keyed by the sale id")
+	}
+}
+
 func TestPayPalActivatedIsIdempotent(t *testing.T) {
 	ok := func(http.Header, []byte) error { return nil }
 	ts, store := paypalServer(t, ok)
