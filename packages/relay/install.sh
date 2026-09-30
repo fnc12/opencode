@@ -44,7 +44,13 @@ chmod +x "$bin"
 
 # --- collect the local OpenCode server details -----------------------------
 OPENCODE_URL="${OPENCODE_URL:-http://127.0.0.1:4096}"
-if [ -z "${OPENCODE_PASSWORD:-}" ] && [ -r /dev/tty ]; then
+# Prompt only when an interactive terminal is actually usable. `[ -r /dev/tty ]`
+# passes on the device node even with no controlling terminal (e.g. `ssh host
+# 'curl … | sh'`, CI, a headless server), where the real read/write then fails
+# with "Device not configured" and aborts under `set -e`. Opening /dev/tty for
+# writing is the honest test; when it fails we fall back to the OPENCODE_URL
+# default and an empty password (both overridable via env).
+if [ -z "${OPENCODE_PASSWORD:-}" ] && { : > /dev/tty; } 2>/dev/null; then
   printf 'OpenCode server URL [%s]: ' "$OPENCODE_URL" > /dev/tty
   read -r reply < /dev/tty || reply=""
   [ -n "$reply" ] && OPENCODE_URL="$reply"
