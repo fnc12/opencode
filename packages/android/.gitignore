@@ -17,3 +17,7 @@ google-services.json
 
 # coverage artifacts
 app/build/reports/kover/
+
+# Release signing (never commit)
+keystore.properties
+*.jks
