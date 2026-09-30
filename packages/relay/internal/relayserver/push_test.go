@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/tunnel"
 	"github.com/gorilla/websocket"
@@ -60,6 +61,59 @@ func TestDeviceRegistrationEndpoint(t *testing.T) {
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp2.StatusCode)
+	}
+}
+
+// TestDeviceRegistrationRequiresTunnelToken: when provisioning is on, only a
+// caller holding the tunnel's token may register a device for it — so a stranger
+// who learns a tunnel id can't subscribe to its push notifications.
+func TestDeviceRegistrationRequiresTunnelToken(t *testing.T) {
+	pstore, err := provision.NewFileStore(t.TempDir() + "/tunnels.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tun, err := pstore.Mint("qa", time.Now().Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := push.NewMemoryStore()
+	disp := push.NewDispatcher(store, slog.New(slog.NewTextHandler(io.Discard, nil)), &chanPusher{provider: push.APNs, got: make(chan push.Notification, 1)})
+	srv := New(Config{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Store: store, Dispatcher: disp, Provision: pstore, AdminSecret: "adm"})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+
+	reg := func(token string) int {
+		body, _ := json.Marshal(map[string]string{"tunnelId": tun.ID, "provider": "apns", "token": "devtok"})
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/devices", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("X-Tunnel-Token", token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := reg(tun.Token); code != http.StatusNoContent {
+		t.Errorf("correct token: got %d, want 204", code)
+	}
+	if code := reg("wrong-token"); code != http.StatusUnauthorized {
+		t.Errorf("wrong token: got %d, want 401", code)
+	}
+	if code := reg(""); code != http.StatusUnauthorized {
+		t.Errorf("no token: got %d, want 401", code)
+	}
+	// An unknown tunnel id is rejected even with a plausible token.
+	body, _ := json.Marshal(map[string]string{"tunnelId": "tun_unknown", "provider": "apns", "token": "devtok"})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/devices", bytes.NewReader(body))
+	req.Header.Set("X-Tunnel-Token", tun.Token)
+	resp, _ := http.DefaultClient.Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unknown tunnel: got %d, want 401", resp.StatusCode)
 	}
 }
 
