@@ -12,15 +12,19 @@ import (
 	"time"
 )
 
-// paypalEvent is the slice of a PayPal webhook event we act on. Subscription
-// events carry the subscription id in resource.id; that id is our stable
-// customer key (the same id arrives on cancellation, so revoke can match it).
+// paypalEvent is the slice of a PayPal webhook event we act on. On subscription
+// events (ACTIVATED / CANCELLED / …) the subscription id — our stable customer
+// key — is resource.id. On PAYMENT.SALE.* events (recurring renewals) resource.id
+// is the sale/transaction id instead, and the subscription id lives in
+// resource.billing_agreement_id; we key off that so a renewal reaffirms the same
+// tunnel rather than minting an orphan keyed by the sale id.
 type paypalEvent struct {
 	EventType string `json:"event_type"`
 	Resource  struct {
-		ID         string `json:"id"`
-		Status     string `json:"status"`
-		Subscriber struct {
+		ID                 string `json:"id"`
+		BillingAgreementID string `json:"billing_agreement_id"`
+		Status             string `json:"status"`
+		Subscriber         struct {
 			Email   string `json:"email_address"`
 			PayerID string `json:"payer_id"`
 		} `json:"subscriber"`
@@ -47,7 +51,12 @@ func (s *Server) handlePayPalWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
+	// The subscription id is our customer key. On PAYMENT.SALE.* events resource.id
+	// is the sale id, not the subscription — take it from billing_agreement_id there.
 	sub := ev.Resource.ID
+	if ev.Resource.BillingAgreementID != "" {
+		sub = ev.Resource.BillingAgreementID
+	}
 	switch ev.EventType {
 	case "BILLING.SUBSCRIPTION.ACTIVATED", "BILLING.SUBSCRIPTION.CREATED", "PAYMENT.SALE.COMPLETED":
 		if sub == "" {
