@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct OpenCodeApp: App {
     @State private var server = ServerConnection()
+    @State private var subscriptions = SubscriptionStore()
     @UIApplicationDelegateAdaptor(PushManager.self) private var pushManager
     @Environment(\.scenePhase) private var scenePhase
 
@@ -10,12 +11,14 @@ struct OpenCodeApp: App {
         WindowGroup {
             Group {
                 if server.connected {
-                    ProjectListView(server: server)
+                    ProjectListView(server: server, subscriptions: subscriptions)
                 } else {
                     ConnectView(server: server)
                 }
             }
             .task {
+                // Renewals and Ask to Buy approvals arrive outside the paywall.
+                subscriptions.startListening()
                 // UI tests start from a clean slate so the connect flow is deterministic.
                 if ProcessInfo.processInfo.arguments.contains("UITEST_RESET") {
                     server.forget()
@@ -31,6 +34,9 @@ struct OpenCodeApp: App {
                 if !server.connected && server.config.isComplete {
                     await server.connect()
                 }
+                // Link the App Store subscription to the paired relay account.
+                await subscriptions.setRelay(RelayIAPClient(config: server.config))
+                await subscriptions.refreshEntitlements()
                 // Register this device for push once connected.
                 PushManager.onToken = { token in Task { await server.registerPushToken(token) } }
                 if let token = PushManager.lastToken { await server.registerPushToken(token) }
@@ -46,6 +52,11 @@ struct OpenCodeApp: App {
                 if server.applyPairing(url.absoluteString) {
                     Task { await server.connect() }
                 }
+            }
+            .onChange(of: server.connected) { _, connected in
+                // A new pairing (or a disconnect) changes which account a purchase binds to.
+                let relay = connected ? RelayIAPClient(config: server.config) : nil
+                Task { await subscriptions.setRelay(relay) }
             }
             .onChange(of: scenePhase) { _, phase in
                 // Returning to the foreground: nudge views to re-fetch and
