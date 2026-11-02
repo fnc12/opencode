@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS promo_redemptions (
   redeemed_at INTEGER NOT NULL,
   PRIMARY KEY (code, account_id)
 );
+CREATE TABLE IF NOT EXISTS apple_subscriptions (
+  original_transaction_id TEXT PRIMARY KEY,
+  account_id              TEXT NOT NULL DEFAULT '',
+  transaction_id          TEXT NOT NULL,
+  product_id              TEXT NOT NULL,
+  environment             TEXT NOT NULL,
+  expires_at              INTEGER NOT NULL,
+  revoked_at              INTEGER NOT NULL DEFAULT 0,
+  signed_at               INTEGER NOT NULL,
+  updated_at              INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_apple_subs_account ON apple_subscriptions(account_id);
 CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -294,8 +306,8 @@ func (s *Store) DeleteSession(sessionID string) error {
 }
 
 // DeleteAccount permanently erases an account and every row that references it:
-// third-party identities, sessions, subscription bindings, and promo
-// redemptions. It's the store side of the app stores' account-deletion
+// third-party identities, sessions, subscription bindings (PayPal and Apple),
+// and promo redemptions. It's the store side of the app stores' account-deletion
 // requirement (Apple 5.1.1(v), Google Play). Login tokens are keyed by email and
 // expire on their own, so they're left to lapse. Callers should revoke the
 // account's tunnels (see SubscriptionsForAccount + the account-keyed free tunnel)
@@ -311,6 +323,7 @@ func (s *Store) DeleteAccount(accountID string) error {
 		`DELETE FROM sessions WHERE account_id = ?`,
 		`DELETE FROM subscriptions WHERE account_id = ?`,
 		`DELETE FROM promo_redemptions WHERE account_id = ?`,
+		`DELETE FROM apple_subscriptions WHERE account_id = ?`,
 		`DELETE FROM accounts WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(q, accountID); err != nil {
