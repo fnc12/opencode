@@ -226,8 +226,9 @@ func (s *Store) GetConfig(key string) (string, bool) {
 }
 
 // AppleTransaction is the verified state of one Apple auto-renewable
-// subscription as the relay applies it. Times are unix seconds; RevokedAt is 0
-// unless Apple refunded or revoked the transaction.
+// subscription as the relay applies it. ExpiresAt and RevokedAt are unix
+// seconds (RevokedAt is 0 unless Apple refunded or revoked it); SignedAt is
+// Apple's signedDate in milliseconds and orders updates.
 type AppleTransaction struct {
 	OriginalTransactionID string
 	TransactionID         string

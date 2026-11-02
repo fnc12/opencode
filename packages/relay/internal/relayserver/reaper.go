@@ -7,7 +7,8 @@ import (
 )
 
 // StartReaper periodically revokes free, account-owned tunnels whose entitlement
-// has lapsed — the free period ended and there's no paid subscription. Runs
+// has lapsed — the free period ended and there's no paid (PayPal or Apple)
+// subscription. Runs
 // until ctx is done. Free tunnels are keyed by the account id ("acc_..."); paid
 // tunnels are keyed by the PayPal subscription id and revoked by the cancel
 // webhook instead, so they're left alone here.
@@ -39,7 +40,7 @@ func (s *Server) reapExpiredFree(now int64) int {
 		if !strings.HasPrefix(t.CustomerID, "acc_") {
 			continue // not a free, account-owned tunnel
 		}
-		if s.accounts.FreeActive(t.CustomerID, now) || s.hasPaidTunnel(t.CustomerID) {
+		if s.entitled(t.CustomerID, now) {
 			continue // still entitled — keep it
 		}
 		if id := s.provision.DeleteByCustomer(t.CustomerID); id != "" {

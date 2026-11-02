@@ -228,7 +228,7 @@ func (s *Server) accountConnect(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/account", http.StatusSeeOther) // already provisioned
 		return
 	}
-	if !s.accounts.FreeActive(acc, now) && !s.hasPaidTunnel(acc) {
+	if !s.entitled(acc, now) {
 		http.Redirect(w, r, "/account?flash="+url.QueryEscape("Subscribe or add a promo code to connect."), http.StatusSeeOther)
 		return
 	}
@@ -253,9 +253,12 @@ func (s *Server) accountBody(r *http.Request, acc string, now int64, flash strin
 	// Plan status: paid subscription, then free entitlement, else nothing.
 	hasPaid := s.hasPaidTunnel(acc)
 	until, _ := s.accounts.EntitledUntil(acc)
+	appleUntil, _ := s.accounts.AppleEntitledUntil(acc)
 	switch {
 	case hasPaid:
 		b.WriteString(`<p class="sub">✓ Subscription active.</p>`)
+	case appleUntil > now:
+		b.WriteString(`<p class="sub">✓ Subscription active via the App Store, renews or ends <b>` + time.Unix(appleUntil, 0).UTC().Format("Jan 2, 2006") + `</b>. Manage it in iOS Settings → Apple ID → Subscriptions.</p>`)
 	case until > now:
 		b.WriteString(`<p class="sub">🎁 Free until <b>` + time.Unix(until, 0).UTC().Format("Jan 2, 2006") + `</b>.</p>`)
 	default:

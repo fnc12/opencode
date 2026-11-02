@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/fnc12/opencode/packages/relay/internal/account"
+	"github.com/fnc12/opencode/packages/relay/internal/appstore"
 	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/tunnel"
@@ -61,6 +62,11 @@ type Config struct {
 	// in production, where New builds the live API verifier from PayPal.
 	VerifyPayPal func(http.Header, []byte) error
 
+	// AppleIAP, when its ProductIDs are set (with Provision + Accounts), enables
+	// POST /api/iap/apple and POST /apple/notifications — Apple subscriptions as
+	// a second entitlement source next to PayPal.
+	AppleIAP AppleIAPConfig
+
 	// Accounts, when set, enables the user layer (email magic-link + OAuth login,
 	// sessions, and subscription↔account binding).
 	Accounts *account.Store
@@ -88,6 +94,11 @@ type Server struct {
 	// verifyPayPal authenticates a PayPal webhook (nil when PayPal is not
 	// configured). Injectable so the mint/revoke path is unit-testable.
 	verifyPayPal func(http.Header, []byte) error
+
+	// apple configures Apple in-app subscriptions; appleVerifier checks their
+	// JWS (Apple's root in production, a test root in tests).
+	apple         AppleIAPConfig
+	appleVerifier *appstore.Verifier
 
 	// accounts, when set, enables the user layer: /login, /login/verify,
 	// /account, /logout, and binding a subscription to a signed-in account.
@@ -117,6 +128,7 @@ func New(cfg Config) *Server {
 		publicURL:    cfg.PublicURL,
 		stripeSecret: cfg.StripeWebhookSecret,
 		verifyPayPal: cfg.VerifyPayPal,
+		apple:        cfg.AppleIAP,
 		accounts:     cfg.Accounts,
 		email:        cfg.Email,
 		hc:           cfg.HTTPClient,
@@ -125,6 +137,10 @@ func New(cfg Config) *Server {
 	// the magic link so sign-in still works in dev.
 	if s.accounts != nil && s.email == nil {
 		s.email = account.LogSender{Log: log}
+	}
+	s.appleVerifier = cfg.AppleIAP.Verifier
+	if s.appleVerifier == nil {
+		s.appleVerifier = appstore.NewVerifier()
 	}
 	// Default the PayPal verifier to the live API-verifying implementation when
 	// credentials are present and no override was supplied (tests inject one).
@@ -170,6 +186,10 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /account/promo", s.promoRedeem)
 		mux.HandleFunc("POST /account/delete", s.accountDelete)
 		mux.HandleFunc("POST /logout", s.logout)
+		if s.provision != nil && s.apple.enabled() {
+			mux.HandleFunc("POST /api/iap/apple", s.handleAppleIAP)
+			mux.HandleFunc("POST /apple/notifications", s.handleAppleNotification)
+		}
 		// GitHub sign-in (provisioned via the manifest setup flow).
 		mux.HandleFunc("GET /setup/github", s.setupGitHub)
 		mux.HandleFunc("GET /setup/github/callback", s.setupGitHubCallback)
