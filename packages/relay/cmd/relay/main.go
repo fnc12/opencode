@@ -6,6 +6,8 @@
 //
 //	GET  /healthz          liveness, reports live tunnel count
 //	GET  /connector        WebSocket; connector registers a tunnel
+//	POST /api/iap/apple    iOS app uploads a StoreKit 2 subscription (APPLE_IAP_*)
+//	POST /apple/notifications  App Store Server Notifications v2
 //	*    /t/{id}/...        proxied to the connector for tunnel {id}
 package main
 
@@ -16,10 +18,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/fnc12/opencode/packages/relay/internal/account"
+	"github.com/fnc12/opencode/packages/relay/internal/appstore"
 	"github.com/fnc12/opencode/packages/relay/internal/provision"
 	"github.com/fnc12/opencode/packages/relay/internal/push"
 	"github.com/fnc12/opencode/packages/relay/internal/relayserver"
@@ -89,6 +93,29 @@ func main() {
 				Live:      os.Getenv("PAYPAL_LIVE") == "1",
 			}
 			logger.Info("paypal billing enabled", "live", cfg.PayPal.Live)
+		}
+		// Apple in-app subscriptions (iOS). Product ids come from App Store
+		// Connect; the In-App Purchase key is optional and stays on the server.
+		if ids := splitList(os.Getenv("APPLE_IAP_PRODUCT_IDS")); len(ids) > 0 && cfg.Accounts != nil {
+			cfg.AppleIAP = relayserver.AppleIAPConfig{
+				BundleID:     envOr("APPLE_BUNDLE_ID", "studio.eugenezakharov.shubat"),
+				ProductIDs:   ids,
+				AllowSandbox: os.Getenv("APPLE_IAP_SANDBOX") != "0",
+			}
+			if key := os.Getenv("APPLE_IAP_KEY_PATH"); key != "" {
+				c, err := appstore.NewClient(appstore.APIConfig{
+					KeyPath:  key,
+					KeyID:    os.Getenv("APPLE_IAP_KEY_ID"),
+					IssuerID: os.Getenv("APPLE_IAP_ISSUER_ID"),
+					BundleID: cfg.AppleIAP.BundleID,
+				})
+				if err != nil {
+					logger.Error("apple iap key", "err", err)
+					os.Exit(1)
+				}
+				cfg.AppleIAP.API = c
+			}
+			logger.Info("apple iap enabled", "products", ids, "sandbox", cfg.AppleIAP.AllowSandbox, "serverAPI", cfg.AppleIAP.API != nil)
 		}
 	}
 	// One-command installer: serve connector binaries + install.sh from ASSET_DIR.
@@ -177,6 +204,17 @@ func buildPush(logger *slog.Logger) (push.Store, *push.Dispatcher, error) {
 		return nil, nil, err
 	}
 	return store, push.NewDispatcher(store, logger, pushers...), nil
+}
+
+// splitList parses a comma-separated env value, dropping blanks.
+func splitList(v string) []string {
+	var out []string
+	for _, p := range strings.Split(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func envOr(key, def string) string {

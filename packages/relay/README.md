@@ -41,6 +41,8 @@ zero or more `TypeData` chunks (flushed immediately, so SSE passes through unbuf
 | GET    | `/connector`   | WebSocket; a connector registers a tunnel          |
 | POST   | `/api/devices` | Register a device for push `{tunnelId, provider, token}` (`provider` ∈ `apns`/`fcm`) |
 | DELETE | `/api/devices` | Unregister a device (same body)                    |
+| POST   | `/api/iap/apple` | iOS app uploads a StoreKit 2 subscription `{tunnelId, signedTransaction}` (`X-Tunnel-Token`); answers `{entitledUntil, active}` |
+| POST   | `/apple/notifications` | App Store Server Notifications v2 (`{signedPayload}`) |
 | *      | `/t/{id}/...`  | Proxied to the connector for tunnel `{id}`         |
 
 ## Push (session-finished notifications)
@@ -64,6 +66,28 @@ JSON file (`RELAY_STORE_PATH`); swap `push.Store` for sqlite/postgres later behi
 | `RELAY_STORE_PATH`     | Device registry file (default `devices.json`)                  |
 
 > Never commit `.p8` keys or service-account JSON (public repo). Mount them as files and point the env at them.
+
+## Apple in-app subscriptions (iOS)
+
+Access is granted by free months, a PayPal subscription, **or** an Apple
+subscription. The iOS app uploads the StoreKit 2 transaction JWS; the relay
+verifies it against the pinned Apple Root CA - G3 (no key needed for that),
+checks bundle + product, and binds it (by `originalTransactionId`) to the
+account behind the paired tunnel. App Store Server Notifications v2 keep it
+current: renewals extend, `EXPIRED` ends, `REFUND`/`REVOKE` cut access at once.
+In App Store Connect, point the Production and Sandbox Server Notification URL
+(Version 2) at `https://relay.shubat.org/apple/notifications`.
+
+Requires `ADMIN_SECRET` and `ACCOUNTS_ENABLED=1`.
+
+| Env                     | Meaning                                                              |
+|-------------------------|----------------------------------------------------------------------|
+| `APPLE_IAP_PRODUCT_IDS` | Comma-separated subscription product ids (enables the endpoints)     |
+| `APPLE_BUNDLE_ID`       | Default `studio.eugenezakharov.shubat`                               |
+| `APPLE_IAP_SANDBOX`     | `0` rejects Sandbox transactions (default: accepted — App Review and TestFlight buy in the sandbox) |
+| `APPLE_IAP_KEY_PATH`    | Optional In-App Purchase `.p8` key; with it the relay also asks the App Store Server API for the current state on upload |
+| `APPLE_IAP_KEY_ID`      | Key id of that key                                                   |
+| `APPLE_IAP_ISSUER_ID`   | App Store Connect issuer id                                          |
 
 ## Run
 

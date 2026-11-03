@@ -1,0 +1,111 @@
+package account
+
+import "testing"
+
+func appleTx(txID string, expires, signed int64) AppleTransaction {
+	return AppleTransaction{
+		OriginalTransactionID: "1000",
+		TransactionID:         txID,
+		ProductID:             "pro.monthly",
+		Environment:           "Sandbox",
+		ExpiresAt:             expires,
+		SignedAt:              signed,
+	}
+}
+
+func TestAppleSubscriptionEntitles(t *testing.T) {
+	s := newStore(t)
+	acc := mkAccount(t, s, "a@x.com", 1)
+	if s.AppleActive(acc, 100) {
+		t.Fatal("no Apple subscription yet")
+	}
+	if _, err := s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 100); err != nil {
+		t.Fatal(err)
+	}
+	if !s.AppleActive(acc, 100) {
+		t.Error("live subscription should entitle")
+	}
+	if until, _ := s.AppleEntitledUntil(acc); until != 500 {
+		t.Errorf("AppleEntitledUntil = %d, want 500", until)
+	}
+	if s.AppleActive(acc, 500) {
+		t.Error("subscription past expiresDate must not entitle")
+	}
+}
+
+func TestAppleRenewalExtendsAndStaleIgnored(t *testing.T) {
+	s := newStore(t)
+	acc := mkAccount(t, s, "a@x.com", 1)
+	s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 100)
+	s.ApplyAppleTransaction("", appleTx("t2", 900, 20), 101) // DID_RENEW notification
+	if until, _ := s.AppleEntitledUntil(acc); until != 900 {
+		t.Fatalf("after renewal until = %d, want 900", until)
+	}
+	// The device re-uploads its older cached JWS: must not shorten the expiry.
+	sub, _ := s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 102)
+	if sub.ExpiresAt != 900 || sub.TransactionID != "t2" {
+		t.Errorf("stale upload changed state: %+v", sub)
+	}
+}
+
+func TestAppleRefundRevokesAndReplayCantUndo(t *testing.T) {
+	s := newStore(t)
+	acc := mkAccount(t, s, "a@x.com", 1)
+	s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 100)
+	refund := appleTx("t1", 500, 30)
+	refund.RevokedAt = 150
+	s.ApplyAppleTransaction("", refund, 150)
+	if s.AppleActive(acc, 200) {
+		t.Fatal("refunded subscription must not entitle")
+	}
+	if until, _ := s.AppleEntitledUntil(acc); until != 0 {
+		t.Errorf("refunded until = %d, want 0", until)
+	}
+	// Replaying the pre-refund JWS (signed earlier) must not restore access.
+	s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 210)
+	if s.AppleActive(acc, 220) {
+		t.Error("replayed pre-refund JWS restored access")
+	}
+	// A refund reversal (newer, no revocation) restores it.
+	s.ApplyAppleTransaction("", appleTx("t1", 500, 40), 230)
+	if !s.AppleActive(acc, 240) {
+		t.Error("REFUND_REVERSED should restore access")
+	}
+}
+
+func TestAppleNotificationBeforeUploadThenBind(t *testing.T) {
+	s := newStore(t)
+	acc := mkAccount(t, s, "a@x.com", 1)
+	// The server notification can beat the app's upload: stored unbound.
+	sub, _ := s.ApplyAppleTransaction("", appleTx("t1", 500, 10), 100)
+	if sub.AccountID != "" {
+		t.Fatalf("notification bound an account: %+v", sub)
+	}
+	sub, _ = s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 101)
+	if sub.AccountID != acc || !s.AppleActive(acc, 200) {
+		t.Errorf("upload didn't bind: %+v", sub)
+	}
+}
+
+func TestAppleSubscriptionMovesToLastBinder(t *testing.T) {
+	s := newStore(t)
+	a := mkAccount(t, s, "a@x.com", 1)
+	b := mkAccount(t, s, "b@x.com", 1)
+	s.ApplyAppleTransaction(a, appleTx("t1", 500, 10), 100)
+	s.ApplyAppleTransaction(b, appleTx("t1", 500, 10), 101)
+	if s.AppleActive(a, 200) || !s.AppleActive(b, 200) {
+		t.Error("one Apple subscription must entitle only its last binder")
+	}
+}
+
+func TestDeleteAccountDropsAppleSubscription(t *testing.T) {
+	s := newStore(t)
+	acc := mkAccount(t, s, "a@x.com", 1)
+	s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 100)
+	if err := s.DeleteAccount(acc); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, _ := s.AppleSubscription("1000"); found {
+		t.Error("account deletion left the Apple subscription row")
+	}
+}
