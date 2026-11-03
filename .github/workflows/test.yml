@@ -68,7 +68,13 @@ jobs:
         # Fork: upstream unit tests have known failures on GitHub-hosted
         # windows-latest unrelated to our packages; report them, do not gate.
         continue-on-error: ${{ runner.os == 'Windows' }}
-        run: bun turbo test --output-logs=errors-only --log-order=grouped --log-prefix=task
+        # Fork: some upstream unit tests are flaky on GitHub-hosted runners
+        # (1 of ~3000 failing at random). Retry once; turbo replays the passed
+        # packages from cache, so only the failed package runs again. Two
+        # failures in a row still fail the job.
+        run: |
+          cmd="bun turbo test --output-logs=errors-only --log-order=grouped --log-prefix=task"
+          $cmd || { echo "::warning::unit tests failed, retrying once (flaky upstream tests)"; $cmd; }
         env:
           OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: ${{ runner.os == 'Windows' && 'true' || 'false' }}
 
