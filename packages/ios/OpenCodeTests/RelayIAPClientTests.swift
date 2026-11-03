@@ -37,11 +37,18 @@ final class RelayIAPClientTests: XCTestCase {
     }
 
     func testUploadReadsEntitledUntil() async throws {
-        StubURLProtocol.enqueue(200, body: #"{"entitledUntil":1800000000}"#)
+        StubURLProtocol.enqueue(200, body: #"{"entitledUntil":1800000000,"active":true}"#)
         let client = try XCTUnwrap(RelayIAPClient(config: relayConfig(), session: StubURLProtocol.session()))
         let until = try await client.upload(signedTransaction: "jws")
         XCTAssertEqual(until, Date(timeIntervalSince1970: 1_800_000_000))
         XCTAssertEqual(StubURLProtocol.seen.first?.url?.path, "/api/iap/apple")
+    }
+
+    func testUploadInactiveReturnsNil() async throws {
+        StubURLProtocol.enqueue(200, body: #"{"entitledUntil":0,"active":false}"#)
+        let client = try XCTUnwrap(RelayIAPClient(config: relayConfig(), session: StubURLProtocol.session()))
+        let until = try await client.upload(signedTransaction: "jws")
+        XCTAssertNil(until)
     }
 
     func testUploadWithoutExpiryReturnsNil() async throws {

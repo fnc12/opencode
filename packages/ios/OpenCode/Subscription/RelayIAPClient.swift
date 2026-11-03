@@ -4,8 +4,9 @@ import Foundation
 /// Apple and binds the subscription to the account that owns the paired tunnel.
 ///
 /// Contract: `POST <relay>/api/iap/apple`, `X-Tunnel-Token` like `/api/devices`,
-/// body `{"tunnelId": …, "signedTransaction": <JWS>}`; a 2xx answer may carry
-/// `{"entitledUntil": <unix seconds>}`.
+/// body `{"tunnelId": …, "signedTransaction": <JWS>}`; a 2xx answer carries
+/// `{"entitledUntil": <unix seconds>, "active": bool}` (`entitledUntil` is 0 when
+/// the subscription is expired or revoked).
 struct RelayIAPClient: Sendable {
     let relayURL: String
     let tunnelID: String
