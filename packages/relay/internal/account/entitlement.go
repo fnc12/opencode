@@ -258,7 +258,10 @@ func (a AppleSubscription) Active(now int64) bool {
 // notifications) keeps the current binding. Transaction state only moves
 // forward: information signed no later than what is stored is ignored, so a
 // replayed pre-refund JWS can't undo a refund and a late-delivered renewal
-// can't shorten a newer expiry.
+// can't shorten a newer expiry. A transaction for an earlier period (another
+// transaction id expiring before the stored one) never replaces the stored
+// state either: refunding or revoking a past renewal must not cut off the
+// period the user has paid for now, nor bump SignedAt past the app's upload.
 func (s *Store) ApplyAppleTransaction(accountID string, t AppleTransaction, now int64) (AppleSubscription, error) {
 	if t.OriginalTransactionID == "" {
 		return AppleSubscription{}, errors.New("apple transaction needs an original transaction id")
@@ -273,7 +276,8 @@ func (s *Store) ApplyAppleTransaction(accountID string, t AppleTransaction, now 
 		return AppleSubscription{}, err
 	}
 	next := cur
-	if !found || t.SignedAt > cur.SignedAt {
+	pastPeriod := found && t.TransactionID != cur.TransactionID && t.ExpiresAt < cur.ExpiresAt
+	if !found || (t.SignedAt > cur.SignedAt && !pastPeriod) {
 		next.AppleTransaction = t
 	}
 	if accountID != "" {
