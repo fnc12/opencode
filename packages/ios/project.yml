@@ -56,6 +56,9 @@ targets:
     platform: iOS
     sources:
       - OpenCodeTests
+      # Local StoreKit catalog, bundled so tests can drive SKTestSession.
+      - path: StoreKit
+        buildPhase: resources
     dependencies:
       - target: OpenCode
       - package: SnapshotTesting
@@ -78,6 +81,9 @@ schemes:
     build:
       targets:
         OpenCode: all
+    run:
+      # Local App Store for the Shubat Pro paywall when run from Xcode.
+      storeKitConfiguration: StoreKit/Shubat.storekit
     test:
       targets:
         - OpenCodeTests
