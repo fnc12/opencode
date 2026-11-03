@@ -65,14 +65,17 @@ jobs:
 
       - name: Run unit tests
         timeout-minutes: 45
-        # Fork: upstream unit tests in packages/opencode have known failures on
-        # GitHub-hosted runners (windows-latest: several; linux: one that fails
-        # reproducibly), unrelated to our packages. Report them, do not gate.
-        # Gates: typecheck, nix-eval, storybook, e2e, relay.
-        continue-on-error: true
+        # Fork: upstream unit tests have known failures on GitHub-hosted
+        # windows-latest unrelated to our packages; report them, do not gate.
+        # Linux gates (see #85 for the one linux failure that was fixed).
+        continue-on-error: ${{ runner.os == 'Windows' }}
+        # The job log is long and the failing test names scroll out of its
+        # tail, so each "(fail)" line is also reported as an annotation.
         run: |
-          bun turbo test --output-logs=errors-only --log-order=grouped --log-prefix=task || {
-            echo "::warning::upstream unit tests failed (non-blocking in the fork, see log)"
+          set -o pipefail
+          bun turbo test --output-logs=errors-only --log-order=grouped --log-prefix=task 2>&1 | tee "$RUNNER_TEMP/unit.log" || {
+            grep -E '\(fail\)' "$RUNNER_TEMP/unit.log" | sed 's/^/::error title=unit test failed::/' || true
+            echo "::warning::unit tests failed (non-blocking on windows in the fork, see annotations)"
             exit 1
           }
         env:

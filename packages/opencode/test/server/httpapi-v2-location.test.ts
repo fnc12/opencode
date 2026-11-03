@@ -28,16 +28,38 @@ const Event = Schema.Struct({
   data: Schema.Unknown,
 })
 
-async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
-  const value = await reader.read()
-  if (value.done) throw new Error("event stream closed")
-  return Schema.decodeUnknownSync(Event)(JSON.parse(new TextDecoder().decode(value.value).replace(/^data: /, "")))
+// A single read() may carry several SSE frames (or part of one) when the runner is
+// loaded, so frames are split on the blank-line separator instead of per chunk.
+function events(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  const decoder = new TextDecoder()
+  let buffer = ""
+  return async function next() {
+    while (true) {
+      const end = buffer.indexOf("\n\n")
+      if (end !== -1) {
+        const frame = buffer.slice(0, end)
+        buffer = buffer.slice(end + 2)
+        const data = frame
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).replace(/^ /, ""))
+          .join("\n")
+        if (!data) continue
+        return JSON.parse(data) as { type?: unknown }
+      }
+      const value = await reader.read()
+      if (value.done) throw new Error("event stream closed")
+      buffer += decoder.decode(value.value, { stream: true })
+    }
+  }
 }
 
-async function readEventType(reader: ReadableStreamDefaultReader<Uint8Array>, type: string) {
+// Only the awaited event is decoded: unrelated events such as file.watcher.updated
+// (the watcher may see .git/opencode being written) carry a bare Location.Ref.
+async function readEventType(next: ReturnType<typeof events>, type: string) {
   for (let index = 0; index < 20; index++) {
-    const event = await readEvent(reader)
-    if (event.type === type) return event
+    const event = await next()
+    if (event.type === type) return Schema.decodeUnknownSync(Event)(event)
   }
   throw new Error(`timed out waiting for ${type}`)
 }
@@ -68,11 +90,12 @@ describe("v2 location HttpApi", () => {
     await using tmp = await tmpdir({ git: true })
     const response = await request("/api/event", tmp.path)
     const reader = response.body!.getReader()
-    expect((await readEvent(reader)).type).toBe("server.connected")
+    const next = events(reader)
+    expect((await readEventType(next, "server.connected")).location.directory).toBe(tmp.path)
 
     const created = await request("/session", tmp.path, { method: "POST" })
     expect(created.status).toBe(200)
-    expect(await readEventType(reader, "session.created")).toMatchObject({
+    expect(await readEventType(next, "session.created")).toMatchObject({
       type: "session.created",
       location: { directory: tmp.path, project: { directory: tmp.path } },
       data: { sessionID: expect.any(String) },
