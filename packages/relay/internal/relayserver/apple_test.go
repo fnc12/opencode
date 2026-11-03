@@ -294,6 +294,35 @@ func TestAppleNotificationsLifecycle(t *testing.T) {
 	}
 }
 
+func TestAppleNotificationRefundOfPastPeriod(t *testing.T) {
+	f := appleServer(t, nil)
+	acc, tun := f.accountTunnel(t, "ios@x.com")
+	now := func() int64 { return time.Now().Unix() }
+	first := appleTxn("1", time.Hour)
+	f.upload(t, tun, tun.Token, f.ca.Sign(t, first))
+	renew := appleTxn("2", 31*day*time.Second)
+	renew["signedDate"] = time.Now().Add(time.Second).UnixMilli()
+	f.notify(t, "DID_RENEW", renew)
+
+	// Apple refunds the first period after the renewal: the current one stays.
+	refund := appleTxn("1", time.Hour)
+	refund["signedDate"] = time.Now().Add(2 * time.Second).UnixMilli()
+	refund["revocationDate"] = time.Now().UnixMilli()
+	if code := f.notify(t, "REFUND", refund); code != http.StatusOK {
+		t.Fatalf("REFUND status = %d", code)
+	}
+	if !f.astore.AppleActive(acc, now()) {
+		t.Fatal("refund of a past period revoked the paid current period")
+	}
+	if until, _ := f.astore.AppleEntitledUntil(acc); until != renew["expiresDate"].(int64)/1000 {
+		t.Errorf("until = %d, want the renewal's %d", until, renew["expiresDate"].(int64)/1000)
+	}
+	// The app's upload of the current transaction is still answered as active.
+	if code, resp := f.upload(t, tun, tun.Token, f.ca.Sign(t, renew)); code != http.StatusOK || resp["active"] != true {
+		t.Errorf("current upload after past refund: %d %v", code, resp)
+	}
+}
+
 func TestAppleNotificationExpired(t *testing.T) {
 	f := appleServer(t, nil)
 	acc, tun := f.accountTunnel(t, "ios@x.com")
