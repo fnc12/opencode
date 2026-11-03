@@ -242,7 +242,7 @@ jobs:
             target: aarch64-apple-darwin
             platform_flag: --mac --arm64
             bun_install_flags: --os=darwin --cpu=arm64
-          # github-hosted: windows-latest lacks ARM64 MSVC cross-compilation toolchain
+          # github-hosted: blacksmith lacks ARM64 MSVC cross-compilation toolchain
           - host: "windows-2025"
             target: aarch64-pc-windows-msvc
             platform_flag: --win --arm64
