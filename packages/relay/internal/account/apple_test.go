@@ -109,3 +109,57 @@ func TestDeleteAccountDropsAppleSubscription(t *testing.T) {
 		t.Error("account deletion left the Apple subscription row")
 	}
 }
+
+func TestAppleRefundOfPastPeriodKeepsCurrent(t *testing.T) {
+	s := newStore(t)
+	acc := mkAccount(t, s, "a@x.com", 1)
+	s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 100)
+	s.ApplyAppleTransaction("", appleTx("t2", 900, 20), 101) // DID_RENEW
+	// Apple refunds the first, already-ended period.
+	refund := appleTx("t1", 500, 30)
+	refund.RevokedAt = 600
+	sub, _ := s.ApplyAppleTransaction("", refund, 600)
+	if sub.TransactionID != "t2" || sub.ExpiresAt != 900 || sub.RevokedAt != 0 || sub.SignedAt != 20 {
+		t.Fatalf("refund of a past period changed the current one: %+v", sub)
+	}
+	if !s.AppleActive(acc, 700) {
+		t.Error("refund of a past period cut off the paid current period")
+	}
+	// The app's upload of the current transaction (signed after the stored one
+	// but before the refund notification) still applies.
+	sub, _ = s.ApplyAppleTransaction(acc, appleTx("t2", 900, 25), 610)
+	if sub.SignedAt != 25 {
+		t.Errorf("current-period upload ignored after past refund: %+v", sub)
+	}
+	// Refunding the current period itself still revokes.
+	cur := appleTx("t2", 900, 40)
+	cur.RevokedAt = 650
+	s.ApplyAppleTransaction("", cur, 650)
+	if s.AppleActive(acc, 700) {
+		t.Error("refund of the current period must revoke")
+	}
+}
+
+func TestAppleLaterPeriodReplacesPastRefund(t *testing.T) {
+	s := newStore(t)
+	acc := mkAccount(t, s, "a@x.com", 1)
+	s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 100)
+	// DID_RENEW for t2 is lost; the REFUND of t1 arrives first and stores
+	// the notification date as SignedAt.
+	refund := appleTx("t1", 500, 600)
+	refund.RevokedAt = 600
+	s.ApplyAppleTransaction("", refund, 600)
+	// The app uploads t2, signed on the renewal day, before the refund.
+	sub, _ := s.ApplyAppleTransaction(acc, appleTx("t2", 900, 20), 610)
+	if sub.TransactionID != "t2" || sub.ExpiresAt != 900 || sub.RevokedAt != 0 {
+		t.Fatalf("later period ignored after a past-period refund: %+v", sub)
+	}
+	if !s.AppleActive(acc, 700) {
+		t.Error("paid current period denied after a past-period refund")
+	}
+	// Replaying the pre-refund JWS of t1 changes nothing.
+	sub, _ = s.ApplyAppleTransaction(acc, appleTx("t1", 500, 10), 620)
+	if sub.TransactionID != "t2" || sub.ExpiresAt != 900 || sub.SignedAt != 20 {
+		t.Errorf("replayed past-period JWS replaced the current one: %+v", sub)
+	}
+}
