@@ -255,13 +255,15 @@ func (a AppleSubscription) Active(now int64) bool {
 // original transaction id (stable across renewals). A non-empty accountID binds
 // the subscription to that account — last binder wins, like BindSubscription,
 // so one subscription never entitles two accounts at once; "" (server
-// notifications) keeps the current binding. Transaction state only moves
-// forward: information signed no later than what is stored is ignored, so a
-// replayed pre-refund JWS can't undo a refund and a late-delivered renewal
-// can't shorten a newer expiry. A transaction for an earlier period (another
-// transaction id expiring before the stored one) never replaces the stored
-// state either: refunding or revoking a past renewal must not cut off the
-// period the user has paid for now, nor bump SignedAt past the app's upload.
+// notifications) keeps the current binding. State is ordered by period first,
+// signature second. Another transaction id (another period) is decided by
+// ExpiresAt: an earlier period never replaces the stored one, so refunding or
+// revoking a past renewal can't cut off the period the user has paid for now;
+// a later period always does, whatever its SignedAt, so a renewal uploaded or
+// delivered after a past-period refund (whose SignedAt is the notification
+// date) still grants access. The same transaction id (or an equal expiry) is
+// decided by SignedAt: information signed no later than what is stored is
+// ignored, so a replayed pre-refund JWS can't undo a refund.
 func (s *Store) ApplyAppleTransaction(accountID string, t AppleTransaction, now int64) (AppleSubscription, error) {
 	if t.OriginalTransactionID == "" {
 		return AppleSubscription{}, errors.New("apple transaction needs an original transaction id")
@@ -276,8 +278,7 @@ func (s *Store) ApplyAppleTransaction(accountID string, t AppleTransaction, now 
 		return AppleSubscription{}, err
 	}
 	next := cur
-	pastPeriod := found && t.TransactionID != cur.TransactionID && t.ExpiresAt < cur.ExpiresAt
-	if !found || (t.SignedAt > cur.SignedAt && !pastPeriod) {
+	if !found || newerAppleState(t, cur.AppleTransaction) {
 		next.AppleTransaction = t
 	}
 	if accountID != "" {
@@ -297,6 +298,15 @@ func (s *Store) ApplyAppleTransaction(accountID string, t AppleTransaction, now 
 		return AppleSubscription{}, err
 	}
 	return next, tx.Commit()
+}
+
+// newerAppleState reports whether t should replace the stored transaction
+// state: a different period by expiry, the same period by signature date.
+func newerAppleState(t, cur AppleTransaction) bool {
+	if t.TransactionID != cur.TransactionID && t.ExpiresAt != cur.ExpiresAt {
+		return t.ExpiresAt > cur.ExpiresAt
+	}
+	return t.SignedAt > cur.SignedAt
 }
 
 // AppleSubscription returns a stored Apple subscription by original transaction id.
