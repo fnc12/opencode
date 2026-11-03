@@ -5,6 +5,12 @@ import { tmpdir, withTestInstance } from "../fixture/fixture"
 import { LSPClient } from "@/lsp/client"
 import * as LSPServer from "@/lsp/server"
 
+// Upper bound for "returned without waiting on a timeout or a slow pull". It
+// must stay below the slowest thing these tests guard against: the 2.5s slow
+// pull below and the client's 3s request / 5s document / 10s full timeouts.
+// 1s was too tight for loaded GitHub-hosted runners (1.0-1.3s measured).
+const FAST_WAIT_MS = 2_000
+
 function spawnFakeServer() {
   const { spawn } = require("child_process")
   const serverPath = path.join(__dirname, "../fixture/lsp/fake-lsp-server.js")
@@ -275,7 +281,7 @@ describe("LSPClient interop", () => {
 
         const started = Date.now()
         await client.waitForDiagnostics({ path: file, version, mode: "document" })
-        expect(Date.now() - started).toBeLessThan(1_000)
+        expect(Date.now() - started).toBeLessThan(FAST_WAIT_MS)
 
         await client.shutdown()
       },
@@ -374,7 +380,7 @@ describe("LSPClient interop", () => {
         const started = Date.now()
         await client.waitForDiagnostics({ path: file, version, mode: "document" })
 
-        expect(Date.now() - started).toBeLessThan(1_000)
+        expect(Date.now() - started).toBeLessThan(FAST_WAIT_MS)
         expect(client.diagnostics.get(file)?.[0]?.message).toBe("fast diagnostic")
         expect(await client.connection.sendRequest("test/get-diagnostic-request-count", {})).toBeGreaterThan(1)
 
@@ -479,7 +485,7 @@ describe("LSPClient interop", () => {
         const started = Date.now()
         await client.waitForDiagnostics({ path: file, version, mode: "full" })
 
-        expect(Date.now() - started).toBeLessThan(1_000)
+        expect(Date.now() - started).toBeLessThan(FAST_WAIT_MS)
 
         await client.shutdown()
       },
