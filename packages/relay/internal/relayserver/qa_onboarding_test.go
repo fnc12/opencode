@@ -156,7 +156,7 @@ func TestQA_Onboarding_FromScratch(t *testing.T) {
 			}
 
 			// 2) /account shows the free plan + a Connect call-to-action (no tunnel yet).
-			if _, body := getWithCookie(t, ts.URL+"/account", ck); !strings.Contains(body, "Free until") || !strings.Contains(body, "Connect your OpenCode") {
+			if _, body := getWithCookie(t, ts.URL+"/account", ck); !strings.Contains(body, "Free plan") || !strings.Contains(body, "Connect your OpenCode") {
 				t.Fatalf("account page should show free status + Connect:\n%s", body)
 			}
 

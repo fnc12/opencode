@@ -27,28 +27,21 @@ func reaperServer(t *testing.T) (*Server, provision.Store, *account.Store) {
 
 const monthSec = 30 * 24 * 60 * 60
 
-func TestReaperRevokesExpiredFree(t *testing.T) {
+func TestReaperKeepsFreeTunnels(t *testing.T) {
 	srv, pstore, astore := reaperServer(t)
 	const now = 1000
 
 	acc, _, _ := astore.AccountForEmail("free@x.com", now) // first-100 → free until now+1mo
 	pstore.MintFor(acc, "account:"+acc, now)               // free tunnel keyed by account id
 
-	// While entitled, the reaper leaves it alone.
-	if n := srv.reapExpiredFree(now); n != 0 {
-		t.Errorf("reaped %d while entitled, want 0", n)
+	// Shubat is free: even long after the free window, without any
+	// subscription, the reaper leaves the tunnel alone.
+	future := int64(now + 2*monthSec)
+	if n := srv.reapExpiredFree(future); n != 0 {
+		t.Errorf("reaped %d after the free window, want 0", n)
 	}
 	if _, ok := pstore.GetByCustomer(acc); !ok {
-		t.Fatal("free tunnel wrongly revoked while entitled")
-	}
-
-	// After the free window, it's revoked.
-	future := int64(now + 2*monthSec)
-	if n := srv.reapExpiredFree(future); n != 1 {
-		t.Errorf("reaped %d after expiry, want 1", n)
-	}
-	if _, ok := pstore.GetByCustomer(acc); ok {
-		t.Error("expired free tunnel should be revoked")
+		t.Error("free tunnel must not be revoked: no subscription is required")
 	}
 }
 

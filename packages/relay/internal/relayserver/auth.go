@@ -213,10 +213,9 @@ func (s *Server) hasPaidTunnel(acc string) bool {
 	return false
 }
 
-// accountConnect provisions a free, account-owned tunnel for an entitled account
-// that doesn't have one yet, then returns to /account (which shows the install
-// command). Free tunnels are keyed by the account id; the reaper revokes them
-// when entitlement lapses.
+// accountConnect provisions a free, account-owned tunnel for an account that
+// doesn't have one yet, then returns to /account (which shows the install
+// command). Free tunnels are keyed by the account id.
 func (s *Server) accountConnect(w http.ResponseWriter, r *http.Request) {
 	acc, ok := s.accountFromRequest(r)
 	if !ok {
@@ -229,7 +228,7 @@ func (s *Server) accountConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.entitled(acc, now) {
-		http.Redirect(w, r, "/account?flash="+url.QueryEscape("Subscribe or add a promo code to connect."), http.StatusSeeOther)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	if _, err := s.provision.MintFor(acc, "account:"+acc, now); err != nil {
@@ -250,23 +249,21 @@ func (s *Server) accountBody(r *http.Request, acc string, now int64, flash strin
 	}
 	b.WriteString(`<h1>Your account</h1>`)
 
-	// Plan status: paid subscription, then free entitlement, else nothing.
+	// Plan status: an existing paid subscription is still shown; everyone else is
+	// on the free plan.
 	hasPaid := s.hasPaidTunnel(acc)
-	until, _ := s.accounts.EntitledUntil(acc)
 	appleUntil, _ := s.accounts.AppleEntitledUntil(acc)
 	switch {
 	case hasPaid:
 		b.WriteString(`<p class="sub">✓ Subscription active.</p>`)
 	case appleUntil > now:
 		b.WriteString(`<p class="sub">✓ Subscription active via the App Store, renews or ends <b>` + time.Unix(appleUntil, 0).UTC().Format("Jan 2, 2006") + `</b>. Manage it in iOS Settings → Apple ID → Subscriptions.</p>`)
-	case until > now:
-		b.WriteString(`<p class="sub">🎁 Free until <b>` + time.Unix(until, 0).UTC().Format("Jan 2, 2006") + `</b>.</p>`)
 	default:
-		b.WriteString(`<p class="sub">No active plan. <a href="https://shubat.org#pricing">Subscribe ($5/mo)</a>, or redeem a promo code below.</p>`)
+		b.WriteString(`<p class="sub">✓ Free plan — Shubat is free, no subscription needed.</p>`)
 	}
 
-	// Connection state: existing tunnel → re-pair/install; entitled but no tunnel
-	// yet → a Connect button that provisions one for free.
+	// Connection state: existing tunnel → re-pair/install; no tunnel yet → a
+	// Connect button that provisions one for free.
 	if t, ok := s.tunnelForAccount(acc); ok {
 		if t.ClaimCode != "" {
 			install := fmt.Sprintf("curl -fsSL %s/i/%s | sh", base, t.ClaimCode)
@@ -275,7 +272,7 @@ func (s *Server) accountBody(r *http.Request, acc string, now int64, flash strin
 			link := pairingDeepLink(base, t.ID, t.Token)
 			b.WriteString(fmt.Sprintf(accountConnectedBlock, pairingQRDataURI(link), html.EscapeString(link), html.EscapeString(link)))
 		}
-	} else if until > now || hasPaid {
+	} else if s.entitled(acc, now) {
 		b.WriteString(accountConnectBlock)
 	}
 
