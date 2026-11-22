@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ProjectListView: View {
     var server: ServerConnection
-    var subscriptions: SubscriptionStore
     @State private var projects: [Project] = []
     @State private var loading = true
     @State private var error: String?
@@ -13,7 +12,6 @@ struct ProjectListView: View {
     @State private var creating = false
     @State private var createError: String?
     @State private var showProviders = false
-    @State private var showPaywall = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -50,13 +48,6 @@ struct ProjectListView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Providers", systemImage: "key") { showProviders = true }
                 }
-                // The subscription pays for the hosted relay, so it only applies there.
-                if server.config.mode == .relay {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Shubat Pro", systemImage: "star") { showPaywall = true }
-                            .accessibilityIdentifier("projects.pro")
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Disconnect", systemImage: "xmark.circle") { server.disconnect() }
                         .tint(.secondary)
@@ -77,9 +68,6 @@ struct ProjectListView: View {
             }
             .sheet(isPresented: $showProviders) {
                 ProvidersView(server: server)
-            }
-            .sheet(isPresented: $showPaywall) {
-                PaywallView(store: subscriptions)
             }
             .task { await load(); await openPending() }
             // Watch the global event bus app-wide so the session list can show
