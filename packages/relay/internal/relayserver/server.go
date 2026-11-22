@@ -55,8 +55,8 @@ type Config struct {
 	StripeWebhookSecret string
 
 	// PayPal, when its ClientID + WebhookID are set (with Provision), enables
-	// POST /paypal/webhook — the same mint-on-subscribe / revoke-on-cancel gate
-	// via PayPal (usable where Stripe is not available to the seller).
+	// POST /paypal/webhook — mint-on-subscribe via PayPal (usable where Stripe is
+	// not available to the seller); cancellation keeps the tunnel (Shubat is free).
 	PayPal PayPalConfig
 	// VerifyPayPal overrides the webhook verifier (tests inject a stub); left nil
 	// in production, where New builds the live API verifier from PayPal.

@@ -108,18 +108,36 @@ func TestPayPalActivatedIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestPayPalCancelledRevokes(t *testing.T) {
-	ok := func(http.Header, []byte) error { return nil }
-	ts, store := paypalServer(t, ok)
+// Shubat is free: a cancelled PayPal subscription keeps its tunnel and the live
+// connector connection, so the user doesn't have to reinstall and re-pair.
+func TestPayPalCancelledKeepsTunnel(t *testing.T) {
+	ts, _, pstore, _ := qaServer(t)
 	postPayPal(t, ts.URL+"/paypal/webhook", subActivated)
-	if _, found := store.GetByCustomer("I-SUB123"); !found {
-		t.Fatal("precondition: tunnel should exist")
+	tun, found := pstore.GetByCustomer("I-SUB123")
+	if !found || tun.ClaimCode == "" {
+		t.Fatal("precondition: activation should mint a claimable tunnel")
 	}
+	id, token := claimCode(t, ts, tun.ClaimCode)
+	ws := dialProvisionedConnector(t, ts, id, token)
+	defer ws.Close()
+	waitTunnel(t, ts)
+
 	if code := postPayPal(t, ts.URL+"/paypal/webhook", subCancelled); code != http.StatusOK {
 		t.Fatalf("cancel status = %d, want 200", code)
 	}
-	if _, found := store.GetByCustomer("I-SUB123"); found {
-		t.Error("cancellation did not revoke the tunnel")
+	if got, found := pstore.GetByCustomer("I-SUB123"); !found || got.ID != id {
+		t.Fatal("cancellation removed the tunnel")
+	}
+
+	// The connection is still open: the relay still proxies to the connector.
+	okBackend(t, ws)
+	resp, err := getTunnel(ts.URL+"/t/"+id+"/global/health", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("after cancel: proxy = %d, want 200 (connection must stay open)", resp.StatusCode)
 	}
 }
 
