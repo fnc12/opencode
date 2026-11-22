@@ -155,13 +155,13 @@ func TestAppleUploadEntitlesAccount(t *testing.T) {
 		t.Fatal("account not Apple-entitled after upload")
 	}
 
-	// Entitlement = free OR PayPal OR Apple: after the free month lapses the
-	// Apple subscription keeps the tunnel; after it expires the reaper revokes.
+	// Shubat is free: the tunnel survives the free month and the Apple
+	// subscription lapsing alike.
 	if n := f.srv.reapExpiredFree(time.Now().Unix() + 60*day); n != 0 {
 		t.Errorf("reaped %d while Apple-entitled, want 0", n)
 	}
-	if n := f.srv.reapExpiredFree(time.Now().Unix() + 100*day); n != 1 {
-		t.Errorf("reaped %d after Apple expiry, want 1", n)
+	if n := f.srv.reapExpiredFree(time.Now().Unix() + 100*day); n != 0 {
+		t.Errorf("reaped %d after Apple expiry, want 0 (no subscription required)", n)
 	}
 }
 

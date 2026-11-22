@@ -131,7 +131,7 @@ func okBackend(t *testing.T, ws *websocket.Conn) {
 
 // TestQA_E2E_PaidPath covers E2E-1: subscribe -> welcome install -> claim ->
 // connector registers -> app reaches OpenCode through the relay -> cancel
-// revokes access. Also exercises ONB-1, BILL-2/6, PAIR-3.
+// keeps access (Shubat is free). Also exercises ONB-1, BILL-2/6, PAIR-3.
 func TestQA_E2E_PaidPath(t *testing.T) {
 	ts, _, pstore, _ := qaServer(t)
 
@@ -172,22 +172,24 @@ func TestQA_E2E_PaidPath(t *testing.T) {
 		}
 	}
 
-	// BILL-6: cancellation revokes the tunnel and drops the connection.
+	// BILL-6: Shubat is free, so cancellation keeps the tunnel and the connection.
 	postPayPal(t, ts.URL+"/paypal/webhook", `{"event_type":"BILLING.SUBSCRIPTION.CANCELLED","resource":{"id":"I-QA"}}`)
-	if _, ok := pstore.GetByCustomer("I-QA"); ok {
-		t.Error("cancellation should revoke the tunnel")
+	if _, ok := pstore.GetByCustomer("I-QA"); !ok {
+		t.Error("cancellation must keep the tunnel")
 	}
-	waitGone(t, ts)
-	if r3, _ := getTunnel(ts.URL+"/t/"+id+"/global/health", token); r3 != nil {
-		r3.Body.Close()
-		if r3.StatusCode != http.StatusBadGateway {
-			t.Errorf("after revoke: want 502 tunnel-offline, got %d", r3.StatusCode)
-		}
+	okBackend(t, ws)
+	r3, err := getTunnel(ts.URL+"/t/"+id+"/global/health", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r3.Body.Close()
+	if r3.StatusCode != http.StatusOK {
+		t.Errorf("after cancel: want 200, got %d", r3.StatusCode)
 	}
 }
 
 // TestQA_E2E_FreePath covers E2E-2: a first-100 free account connects for free ->
-// reaches OpenCode -> the reaper revokes access once entitlement lapses. Also
+// reaches OpenCode -> keeps access after the free window (Shubat is free). Also
 // exercises ENT-1/8/10.
 func TestQA_E2E_FreePath(t *testing.T) {
 	ts, srv, pstore, astore := qaServer(t)
@@ -228,12 +230,11 @@ func TestQA_E2E_FreePath(t *testing.T) {
 		t.Fatalf("free proxy round-trip = %d, want 200", resp.StatusCode)
 	}
 
-	// ENT-10: once the free window lapses, the reaper revokes the tunnel.
-	if n := srv.reapExpiredFree(now + 2*monthSec); n != 1 {
-		t.Errorf("reaper revoked %d, want 1", n)
+	// ENT-10: Shubat is free, so the free window lapsing revokes nothing.
+	if n := srv.reapExpiredFree(now + 2*monthSec); n != 0 {
+		t.Errorf("reaper revoked %d, want 0", n)
 	}
-	if _, ok := pstore.GetByCustomer(acc); ok {
-		t.Error("reaper should revoke the expired free tunnel")
+	if _, ok := pstore.GetByCustomer(acc); !ok {
+		t.Error("free tunnel must survive the end of the free window")
 	}
-	waitGone(t, ts)
 }

@@ -159,7 +159,8 @@ func main() {
 	if pushCounter != nil {
 		pushCounter.StartFlusher(ctx, 20*time.Second)
 	}
-	// Revoke free tunnels whose entitlement has lapsed.
+	// Shubat is free, so the reaper revokes nothing; it stays as the hook for
+	// gating access again.
 	srv.StartReaper(ctx, time.Hour)
 	<-ctx.Done()
 	logger.Info("shutting down")

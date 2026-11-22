@@ -31,8 +31,8 @@ type paypalEvent struct {
 	} `json:"resource"`
 }
 
-// handlePayPalWebhook mints a tunnel when a subscription activates and revokes
-// it on cancel/expire/suspend — the paid-access gate, PayPal side. The claim
+// handlePayPalWebhook mints a tunnel when a subscription activates; on
+// cancel/expire/suspend it only logs and keeps the tunnel (Shubat is free). The claim
 // code is delivered by the /welcome?sub=<subscription-id> page (which looks the
 // code up once this webhook has minted it). Mirrors handleStripeWebhook.
 func (s *Server) handlePayPalWebhook(w http.ResponseWriter, r *http.Request) {
@@ -76,12 +76,9 @@ func (s *Server) handlePayPalWebhook(w http.ResponseWriter, r *http.Request) {
 		if sub == "" {
 			break
 		}
-		if id := s.provision.DeleteByCustomer(sub); id != "" {
-			if conn := s.reg.Get(id); conn != nil {
-				conn.Close()
-			}
-			s.log.Info("paypal: access revoked", "subscription", sub, "tunnel", id)
-		}
+		// Shubat is free: ending a PayPal subscription keeps the tunnel, so the
+		// user doesn't have to reinstall the connector and re-pair the phone.
+		s.log.Info("paypal: subscription ended, tunnel kept", "subscription", sub, "event", ev.EventType)
 	default:
 		// Ignore other event types.
 	}
