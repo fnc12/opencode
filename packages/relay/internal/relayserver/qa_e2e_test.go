@@ -187,7 +187,7 @@ func TestQA_E2E_PaidPath(t *testing.T) {
 }
 
 // TestQA_E2E_FreePath covers E2E-2: a first-100 free account connects for free ->
-// reaches OpenCode -> the reaper revokes access once entitlement lapses. Also
+// reaches OpenCode -> keeps access after the free window (Shubat is free). Also
 // exercises ENT-1/8/10.
 func TestQA_E2E_FreePath(t *testing.T) {
 	ts, srv, pstore, astore := qaServer(t)
@@ -228,12 +228,11 @@ func TestQA_E2E_FreePath(t *testing.T) {
 		t.Fatalf("free proxy round-trip = %d, want 200", resp.StatusCode)
 	}
 
-	// ENT-10: once the free window lapses, the reaper revokes the tunnel.
-	if n := srv.reapExpiredFree(now + 2*monthSec); n != 1 {
-		t.Errorf("reaper revoked %d, want 1", n)
+	// ENT-10: Shubat is free, so the free window lapsing revokes nothing.
+	if n := srv.reapExpiredFree(now + 2*monthSec); n != 0 {
+		t.Errorf("reaper revoked %d, want 0", n)
 	}
-	if _, ok := pstore.GetByCustomer(acc); ok {
-		t.Error("reaper should revoke the expired free tunnel")
+	if _, ok := pstore.GetByCustomer(acc); !ok {
+		t.Error("free tunnel must survive the end of the free window")
 	}
-	waitGone(t, ts)
 }

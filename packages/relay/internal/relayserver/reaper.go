@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// StartReaper periodically revokes free, account-owned tunnels whose entitlement
-// has lapsed — the free period ended and there's no paid (PayPal or Apple)
-// subscription. Runs
+// StartReaper periodically revokes free, account-owned tunnels whose account is
+// no longer entitled. Shubat is free now, so every account is entitled and the
+// reaper revokes nothing; it stays as the hook for gating access again. Runs
 // until ctx is done. Free tunnels are keyed by the account id ("acc_..."); paid
 // tunnels are keyed by the PayPal subscription id and revoked by the cancel
 // webhook instead, so they're left alone here.

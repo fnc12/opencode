@@ -222,8 +222,10 @@ func (s *Server) handleAppleNotification(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 }
 
-// entitled reports whether an account may hold a tunnel: free months (first-N,
-// referral, promo), a bound PayPal subscription, or a live Apple subscription.
+// entitled reports whether an account may hold a tunnel. Shubat is free: every
+// account may, whatever its free months, PayPal or Apple subscription say. The
+// PayPal webhook and /api/iap/apple still record subscriptions, but nothing
+// requires one.
 func (s *Server) entitled(acc string, now int64) bool {
-	return s.accounts.FreeActive(acc, now) || s.hasPaidTunnel(acc) || s.accounts.AppleActive(acc, now)
+	return acc != ""
 }
