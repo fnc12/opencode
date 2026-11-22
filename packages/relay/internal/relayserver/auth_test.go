@@ -1,6 +1,7 @@
 package relayserver
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fnc12/opencode/packages/relay/internal/account"
 	"github.com/fnc12/opencode/packages/relay/internal/provision"
@@ -126,9 +128,9 @@ func TestMagicLinkLoginFlow(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(body, "Your account") {
 		t.Fatalf("/account = %d, body missing heading:\n%s", status, body)
 	}
-	// A fresh account gets a first-100 free month, plus referral + promo sections.
-	if !strings.Contains(body, "Free until") {
-		t.Errorf("fresh account should show its free-month entitlement:\n%s", body)
+	// A fresh account is on the free plan, plus referral + promo sections.
+	if !strings.Contains(body, "Free plan") {
+		t.Errorf("fresh account should show the free plan:\n%s", body)
 	}
 	if !strings.Contains(body, "/login?ref=") || !strings.Contains(body, "Invite friends") {
 		t.Errorf("account should show a referral link")
@@ -334,6 +336,41 @@ func TestAccountConnectFree(t *testing.T) {
 	// Connecting again is idempotent (no second tunnel).
 	if resp := postForm(t, ts.URL+"/account/connect", ck, url.Values{}); resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("second connect = %d, want 303", resp.StatusCode)
+	}
+}
+
+// Shubat is free: an account with no free months and no PayPal or Apple
+// subscription still connects and gets a tunnel.
+func TestAccountConnectWithoutSubscription(t *testing.T) {
+	ts, pstore, astore, sender := authServer(t)
+	now := time.Now().Unix()
+	for i := 0; i < 100; i++ { // use up the first-100 free months
+		if _, _, err := astore.AccountForEmail(fmt.Sprintf("u%d@x.com", i), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ck := signIn(t, ts, sender, "nosub@x.com")
+	acc, created, err := astore.AccountForEmail("nosub@x.com", now)
+	if err != nil || created {
+		t.Fatalf("signed-in account lookup: created=%v err=%v", created, err)
+	}
+	if astore.FreeActive(acc, now) || astore.AppleActive(acc, now) {
+		t.Fatal("test account must have no free months and no subscription")
+	}
+
+	_, body := getWithCookie(t, ts.URL+"/account", ck)
+	if !strings.Contains(body, "Connect your OpenCode") {
+		t.Fatalf("account without a subscription should show the Connect button:\n%s", body)
+	}
+	if strings.Contains(body, "Subscribe") {
+		t.Errorf("/account must not ask to subscribe:\n%s", body)
+	}
+	resp := postForm(t, ts.URL+"/account/connect", ck, url.Values{})
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/account" {
+		t.Fatalf("connect = %d → %q, want 303 → /account", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if tun, ok := pstore.GetByCustomer(acc); !ok || tun.ClaimCode == "" {
+		t.Fatal("connect without a subscription did not mint a claimable tunnel")
 	}
 }
 
