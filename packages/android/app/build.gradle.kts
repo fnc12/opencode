@@ -53,7 +53,7 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "studio.eugenezakharov.opencode"
-    compileSdk = 35
+    compileSdk = 36
 
     signingConfigs {
         if (keystorePropsFile.exists()) {
@@ -69,9 +69,9 @@ android {
     defaultConfig {
         applicationId = "studio.eugenezakharov.shubat"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 36
+        versionCode = 3
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
