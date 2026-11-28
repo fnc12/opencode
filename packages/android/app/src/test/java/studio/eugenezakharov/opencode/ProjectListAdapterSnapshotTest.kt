@@ -22,7 +22,6 @@ import studio.eugenezakharov.opencode.ui.screens.ProjectListAdapter
 class ProjectListAdapterSnapshotTest {
     @get:Rule
     val paparazzi = Paparazzi(
-        environment = snapshotEnvironment,
         deviceConfig = DeviceConfig.PIXEL_5.copy(nightMode = NightMode.NIGHT),
         renderingMode = SessionParams.RenderingMode.SHRINK,
     )

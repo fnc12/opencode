@@ -53,7 +53,10 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "studio.eugenezakharov.opencode"
-    compileSdk = 36
+    // Stays at 35: Paparazzi 1.3.5 cannot render goldens against the API 36
+    // android.jar (Renderer.configureBuildProperties crashes). targetSdk 36 is
+    // what Play requires and what switches on the API 36 runtime behaviour.
+    compileSdk = 35
 
     signingConfigs {
         if (keystorePropsFile.exists()) {

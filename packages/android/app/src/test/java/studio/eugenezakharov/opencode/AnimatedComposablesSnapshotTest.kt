@@ -23,7 +23,6 @@ import studio.eugenezakharov.opencode.ui.theme.OpenCodeTheme
 class AnimatedComposablesSnapshotTest {
     @get:Rule
     val paparazzi = Paparazzi(
-        environment = snapshotEnvironment,
         deviceConfig = DeviceConfig.PIXEL_5.copy(nightMode = NightMode.NIGHT),
         renderingMode = SessionParams.RenderingMode.SHRINK,
     )
