@@ -25,6 +25,7 @@ import studio.eugenezakharov.opencode.ui.theme.OpenCodeTheme
 class ToolOutputSnapshotTest {
     @get:Rule
     val paparazzi = Paparazzi(
+        environment = snapshotEnvironment,
         deviceConfig = DeviceConfig.PIXEL_5,
         renderingMode = SessionParams.RenderingMode.SHRINK,
     )

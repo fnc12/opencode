@@ -22,6 +22,7 @@ import studio.eugenezakharov.opencode.ui.session.MarkdownRenderer
 class MarkdownRendererSnapshotTest {
     @get:Rule
     val paparazzi = Paparazzi(
+        environment = snapshotEnvironment,
         deviceConfig = DeviceConfig.PIXEL_5,
         // SHRINK crops the golden to the view's own bounds instead of the full
         // device screen, so the diff is just the content.

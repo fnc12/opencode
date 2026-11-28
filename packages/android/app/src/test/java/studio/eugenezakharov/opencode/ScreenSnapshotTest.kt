@@ -42,6 +42,7 @@ import studio.eugenezakharov.opencode.ui.theme.OpenCodeTheme
 class ScreenSnapshotTest {
     @get:Rule
     val paparazzi = Paparazzi(
+        environment = snapshotEnvironment,
         deviceConfig = DeviceConfig.PIXEL_5.copy(nightMode = NightMode.NIGHT),
     )
 

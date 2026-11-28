@@ -23,6 +23,7 @@ import studio.eugenezakharov.opencode.ui.session.MessageAdapter
 class MessageBubbleSnapshotTest {
     @get:Rule
     val paparazzi = Paparazzi(
+        environment = snapshotEnvironment,
         deviceConfig = DeviceConfig.PIXEL_5.copy(nightMode = com.android.resources.NightMode.NIGHT),
         renderingMode = SessionParams.RenderingMode.SHRINK,
     )
